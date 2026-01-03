@@ -1,6 +1,15 @@
-// ---------- Elements ----------
+// -------------------- Elements --------------------
 const storeEl = document.getElementById("store");
 const staffEl = document.getElementById("staff");
+
+const topBarEl = document.getElementById("topBar");
+
+const sessionScreenEl = document.getElementById("sessionScreen");
+const sessionStoreEl = document.getElementById("sessionStore");
+const sessionShiftEl = document.getElementById("sessionShift");
+const sessionStaffEl = document.getElementById("sessionStaff");
+const btnStartSession = document.getElementById("btnStartSession");
+const sessionMsgEl = document.getElementById("sessionMsg");
 
 const homeEl = document.getElementById("home");
 const categoryGridEl = document.getElementById("categoryGrid");
@@ -21,36 +30,114 @@ const saveMsgEl = document.getElementById("saveMsg");
 
 const expiryListEl = document.getElementById("expiryList");
 const lowStockListEl = document.getElementById("lowStockList");
-const sessionScreenEl = document.getElementById("sessionScreen");
-const sessionStoreEl = document.getElementById("sessionStore");
-const sessionShiftEl = document.getElementById("sessionShift");
-const btnStartSession = document.getElementById("btnStartSession");
-const sessionMsgEl = document.getElementById("sessionMsg");
-const topBarEl = document.getElementById("topBar");
 
-// ---------- State ----------
+const shiftPopupEl = document.getElementById("shiftPopup");
+const btnClosePopup = document.getElementById("btnClosePopup");
+
+// -------------------- State --------------------
 let allItems = [];
 let categories = [];
 let currentCategory = null;
 let currentItem = null;
 
-// ---------- Helpers ----------
-function requireStaff() {
-  const s = staffEl.value.trim();
-  if (!s) {
-    alert("Please enter staff ID & name");
-    staffEl.focus();
-    return null;
+// -------------------- Date helpers --------------------
+function todayKey() {
+  // local date yyyy-mm-dd
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// -------------------- Session logic (reset after midnight) --------------------
+function clearSessionIfNewDay() {
+  const t = todayKey();
+  const savedDay = localStorage.getItem("precheck_day");
+  if (savedDay !== t) {
+    localStorage.removeItem("precheck_store");
+    localStorage.removeItem("precheck_shift");
+    localStorage.removeItem("precheck_staff");
+    localStorage.removeItem("precheck_popupShown");
+    localStorage.setItem("precheck_day", t);
   }
-  return s;
+}
+
+function showSessionScreen() {
+  sessionScreenEl.classList.remove("hidden");
+  homeEl.classList.add("hidden");
+  categoryViewEl.classList.add("hidden");
+  itemFormEl.classList.add("hidden");
+  topBarEl.classList.remove("hidden");
 }
 
 function showHome() {
+  sessionScreenEl.classList.add("hidden");
   homeEl.classList.remove("hidden");
   categoryViewEl.classList.add("hidden");
   itemFormEl.classList.add("hidden");
 }
 
+function startSession() {
+  const store = sessionStoreEl.value;
+  const shift = sessionShiftEl.value;
+  const staff = sessionStaffEl.value.trim();
+
+  if (!store || !shift || !staff) {
+    sessionMsgEl.textContent = "Please select store, shift, and staff.";
+    return;
+  }
+
+  // Save session
+  localStorage.setItem("precheck_store", store);
+  localStorage.setItem("precheck_shift", shift);
+  localStorage.setItem("precheck_staff", staff);
+
+  // Apply to main UI fields
+  storeEl.value = store;
+  staffEl.value = staff;
+
+  // Show Home and load alerts
+  showHome();
+  loadExpiry().then(() => maybeShowShiftPopup());
+}
+
+function loadSessionOrAsk() {
+  clearSessionIfNewDay();
+
+  const store = localStorage.getItem("precheck_store");
+  const shift = localStorage.getItem("precheck_shift");
+  const staff = localStorage.getItem("precheck_staff");
+
+  if (!store || !shift || !staff) {
+    showSessionScreen();
+    return;
+  }
+
+  // Apply saved session
+  storeEl.value = store;
+  staffEl.value = staff;
+
+  showHome();
+  loadExpiry().then(() => maybeShowShiftPopup());
+}
+
+// -------------------- Popup logic (both Morning & Afternoon) --------------------
+function maybeShowShiftPopup() {
+  // show once per day per session
+  const shown = localStorage.getItem("precheck_popupShown");
+  if (shown === "1") return;
+
+  // show popup for BOTH shifts (as you requested)
+  shiftPopupEl.classList.remove("hidden");
+  localStorage.setItem("precheck_popupShown", "1");
+}
+
+btnClosePopup.onclick = () => {
+  shiftPopupEl.classList.add("hidden");
+};
+
+// -------------------- Navigation --------------------
 function showCategory(cat) {
   currentCategory = cat;
   catTitleEl.textContent = cat;
@@ -77,43 +164,8 @@ function showItemForm(item) {
 function hideItemForm() {
   itemFormEl.classList.add("hidden");
 }
-function showSessionScreen() {
-  if (sessionScreenEl) sessionScreenEl.classList.remove("hidden");
-  if (topBarEl) topBarEl.classList.add("hidden");
-  if (homeEl) homeEl.classList.add("hidden");
-}
 
-
-function startSession() {
-  const store = sessionStoreEl.value;
-  const shift = sessionShiftEl.value;
-
-  if (!store || !shift) {
-    sessionMsgEl.textContent = "Please select store and shift";
-    return;
-  }
-
-  // set store in main UI
-  storeEl.value = store;
-
-  // show reminder popup (for BOTH shifts)
-  alert(
-    "PLEASE CHECK EXPIRED DATE:\n" +
-    "- Chicken bacon\n" +
-    "- Avocado\n" +
-    "- Lettuce\n" +
-    "- Flatbread"
-  );
-
-  // hide session screen, show app
-  sessionScreenEl.classList.add("hidden");
-  topBarEl.classList.remove("hidden");
-  showHome();
-
-  loadExpiry();
-}
-
-// ---------- Render ----------
+// -------------------- Render --------------------
 function renderCategoryTiles() {
   categoryGridEl.innerHTML = "";
 
@@ -145,18 +197,15 @@ function renderItemList(cat) {
 }
 
 function renderExpiryList(list) {
-  if (!expiryListEl) return;
-
   expiryListEl.innerHTML = "";
 
-  if (!list || !list.length) {
+  if (!list.length) {
     expiryListEl.innerHTML = "<li>No expiring items ✅</li>";
     return;
   }
 
   list.forEach(x => {
     const li = document.createElement("li");
-
     const d = new Date(x.expiry);
     const niceDate = d.toLocaleDateString("en-GB", {
       day: "2-digit",
@@ -170,11 +219,9 @@ function renderExpiryList(list) {
 }
 
 function renderLowStock(list) {
-  if (!lowStockListEl) return;
-
   lowStockListEl.innerHTML = "";
 
-  if (!list || !list.length) {
+  if (!list.length) {
     lowStockListEl.innerHTML = "<li>No low stock items ✅</li>";
     return;
   }
@@ -186,7 +233,7 @@ function renderLowStock(list) {
   });
 }
 
-// ---------- API ----------
+// -------------------- API --------------------
 async function loadItems() {
   const res = await fetch("/api/items");
   allItems = await res.json();
@@ -200,20 +247,21 @@ async function loadExpiry() {
   const res = await fetch(`/api/expiry?store=${encodeURIComponent(store)}`);
   const data = await res.json();
 
-  // 1) expiry list
+  // expiry list
   renderExpiryList(data);
 
-  // 2) low stock list (<=2), exclude Sauces + Sauce
-  const lowStock = (data || []).filter(x =>
+  // low stock: quantity <= 2, exclude Sauces/Sauce
+  const lowStock = data.filter(x =>
     Number(x.quantity) <= 2 &&
-    !["sauces", "sauce"].includes(String(x.category || "").toLowerCase())
+    String(x.category || "").toLowerCase() !== "sauces" &&
+    String(x.category || "").toLowerCase() !== "sauce"
   );
 
   renderLowStock(lowStock);
 }
 
 async function saveLog() {
-  const staff = requireStaff();
+  const staff = staffEl.value.trim();
   if (!staff || !currentItem) return;
 
   const store = storeEl.value;
@@ -241,26 +289,25 @@ async function saveLog() {
 
   saveMsgEl.textContent = res.ok ? "Saved ✅" : "Error ❌";
   hideItemForm();
-  loadExpiry();
+  await loadExpiry();
 }
 
-// ---------- Events ----------
+// -------------------- Events --------------------
 btnBack.onclick = showHome;
 btnCloseItem.onclick = hideItemForm;
 btnSave.onclick = saveLog;
-storeEl.onchange = loadExpiry;
-if (sessionStoreEl && sessionShiftEl && btnStartSession) {
-  sessionStoreEl.onchange = sessionShiftEl.onchange = () => {
-    btnStartSession.disabled = !(
-      sessionStoreEl.value && sessionShiftEl.value
-    );
-  };
 
-  btnStartSession.onclick = startSession;
-}
+storeEl.onchange = () => loadExpiry();
 
-// ---------- Init ----------
-document.addEventListener("DOMContentLoaded", () => {
-  showSessionScreen();
-  loadItems();
+btnStartSession.onclick = startSession;
+
+// -------------------- Init --------------------
+document.addEventListener("DOMContentLoaded", async () => {
+  // ensure day key exists
+  if (!localStorage.getItem("precheck_day")) {
+    localStorage.setItem("precheck_day", todayKey());
+  }
+
+  await loadItems();
+  loadSessionOrAsk();
 });
