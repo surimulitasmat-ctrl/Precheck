@@ -20,6 +20,7 @@ const btnCloseItem = document.getElementById("btnCloseItem");
 const saveMsgEl = document.getElementById("saveMsg");
 
 const expiryListEl = document.getElementById("expiryList");
+const lowStockListEl = document.getElementById("lowStockList");
 
 // ---------- State ----------
 let allItems = [];
@@ -103,42 +104,44 @@ function renderItemList(cat) {
 }
 
 function renderExpiryList(list) {
-  function renderLowStock(list) {
-  const lowStockEl = document.getElementById("lowStockList");
-  lowStockEl.innerHTML = "";
-
-  if (!list.length) {
-    lowStockEl.innerHTML = "<li>No low stock items ✅</li>";
-    return;
-  }
-
-  list.forEach(x => {
-    const li = document.createElement("li");
-    li.textContent = `${x.name} — Qty ${x.quantity} (${x.category})`;
-
-    lowStockEl.appendChild(li);
-  });
-}
+  if (!expiryListEl) return;
 
   expiryListEl.innerHTML = "";
 
-  if (!list.length) {
+  if (!list || !list.length) {
     expiryListEl.innerHTML = "<li>No expiring items ✅</li>";
     return;
   }
 
   list.forEach(x => {
     const li = document.createElement("li");
+
     const d = new Date(x.expiry);
-const niceDate = d.toLocaleDateString("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric"
-});
+    const niceDate = d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    });
 
-li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${niceDate}`;
-
+    li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${niceDate}`;
     expiryListEl.appendChild(li);
+  });
+}
+
+function renderLowStock(list) {
+  if (!lowStockListEl) return;
+
+  lowStockListEl.innerHTML = "";
+
+  if (!list || !list.length) {
+    lowStockListEl.innerHTML = "<li>No low stock items ✅</li>";
+    return;
+  }
+
+  list.forEach(x => {
+    const li = document.createElement("li");
+    li.textContent = `${x.name} — Qty ${x.quantity} (${x.category})`;
+    lowStockListEl.appendChild(li);
   });
 }
 
@@ -156,19 +159,16 @@ async function loadExpiry() {
   const res = await fetch(`/api/expiry?store=${encodeURIComponent(store)}`);
   const data = await res.json();
 
-  // 1) expiry list (already working)
+  // 1) expiry list
   renderExpiryList(data);
 
-  // 2) low stock list (<=2), exclude Sauces
-  const lowStock = data.filter(x =>
+  // 2) low stock list (<=2), exclude Sauces + Sauce
+  const lowStock = (data || []).filter(x =>
     Number(x.quantity) <= 2 &&
-    String(x.category || "").toLowerCase() !== "sauces" &&
-    String(x.category || "").toLowerCase() !== "sauce"
+    !["sauces", "sauce"].includes(String(x.category || "").toLowerCase())
   );
 
   renderLowStock(lowStock);
-}
-
 }
 
 async function saveLog() {
