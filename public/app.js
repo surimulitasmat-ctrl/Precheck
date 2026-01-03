@@ -103,6 +103,23 @@ function renderItemList(cat) {
 }
 
 function renderExpiryList(list) {
+  function renderLowStock(list) {
+  const lowStockEl = document.getElementById("lowStockList");
+  lowStockEl.innerHTML = "";
+
+  if (!list.length) {
+    lowStockEl.innerHTML = "<li>No low stock items ✅</li>";
+    return;
+  }
+
+  list.forEach(x => {
+    const li = document.createElement("li");
+    li.textContent = `${x.name} — Qty ${x.quantity} (${x.category})`;
+
+    lowStockEl.appendChild(li);
+  });
+}
+
   expiryListEl.innerHTML = "";
 
   if (!list.length) {
@@ -136,9 +153,22 @@ async function loadItems() {
 
 async function loadExpiry() {
   const store = storeEl.value;
-  const res = await fetch(`/api/expiry?store=${store}`);
+  const res = await fetch(`/api/expiry?store=${encodeURIComponent(store)}`);
   const data = await res.json();
+
+  // 1) expiry list (already working)
   renderExpiryList(data);
+
+  // 2) low stock list (<=2), exclude Sauces
+  const lowStock = data.filter(x =>
+    Number(x.quantity) <= 2 &&
+    String(x.category || "").toLowerCase() !== "sauces" &&
+    String(x.category || "").toLowerCase() !== "sauce"
+  );
+
+  renderLowStock(lowStock);
+}
+
 }
 
 async function saveLog() {
