@@ -112,7 +112,15 @@ function renderExpiryList(list) {
 
   list.forEach(x => {
     const li = document.createElement("li");
-    li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${x.expiry}`;
+    const d = new Date(x.expiry);
+const niceDate = d.toLocaleDateString("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric"
+});
+
+li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${niceDate}`;
+
     expiryListEl.appendChild(li);
   });
 }
