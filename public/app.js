@@ -78,10 +78,11 @@ function hideItemForm() {
   itemFormEl.classList.add("hidden");
 }
 function showSessionScreen() {
-  sessionScreenEl.classList.remove("hidden");
-  topBarEl.classList.add("hidden");
-  homeEl.classList.add("hidden");
+  if (sessionScreenEl) sessionScreenEl.classList.remove("hidden");
+  if (topBarEl) topBarEl.classList.add("hidden");
+  if (homeEl) homeEl.classList.add("hidden");
 }
+
 
 function startSession() {
   const store = sessionStoreEl.value;
