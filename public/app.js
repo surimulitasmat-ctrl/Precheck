@@ -21,6 +21,12 @@ const saveMsgEl = document.getElementById("saveMsg");
 
 const expiryListEl = document.getElementById("expiryList");
 const lowStockListEl = document.getElementById("lowStockList");
+const sessionScreenEl = document.getElementById("sessionScreen");
+const sessionStoreEl = document.getElementById("sessionStore");
+const sessionShiftEl = document.getElementById("sessionShift");
+const btnStartSession = document.getElementById("btnStartSession");
+const sessionMsgEl = document.getElementById("sessionMsg");
+const topBarEl = document.getElementById("topBar");
 
 // ---------- State ----------
 let allItems = [];
@@ -70,6 +76,40 @@ function showItemForm(item) {
 
 function hideItemForm() {
   itemFormEl.classList.add("hidden");
+}
+function showSessionScreen() {
+  sessionScreenEl.classList.remove("hidden");
+  topBarEl.classList.add("hidden");
+  homeEl.classList.add("hidden");
+}
+
+function startSession() {
+  const store = sessionStoreEl.value;
+  const shift = sessionShiftEl.value;
+
+  if (!store || !shift) {
+    sessionMsgEl.textContent = "Please select store and shift";
+    return;
+  }
+
+  // set store in main UI
+  storeEl.value = store;
+
+  // show reminder popup (for BOTH shifts)
+  alert(
+    "PLEASE CHECK EXPIRED DATE:\n" +
+    "- Chicken bacon\n" +
+    "- Avocado\n" +
+    "- Lettuce\n" +
+    "- Flatbread"
+  );
+
+  // hide session screen, show app
+  sessionScreenEl.classList.add("hidden");
+  topBarEl.classList.remove("hidden");
+  showHome();
+
+  loadExpiry();
 }
 
 // ---------- Render ----------
@@ -208,7 +248,14 @@ btnBack.onclick = showHome;
 btnCloseItem.onclick = hideItemForm;
 btnSave.onclick = saveLog;
 storeEl.onchange = loadExpiry;
+sessionStoreEl.onchange = sessionShiftEl.onchange = () => {
+  btnStartSession.disabled = !(
+    sessionStoreEl.value && sessionShiftEl.value
+  );
+};
+
+btnStartSession.onclick = startSession;
 
 // ---------- Init ----------
-showHome();
-loadItems().then(loadExpiry);
+showSessionScreen();
+loadItems();
