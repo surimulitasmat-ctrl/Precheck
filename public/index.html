@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>PreCheck</title>
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=5" />
 </head>
 <body>
   <!-- Top bar -->
@@ -14,7 +14,7 @@
 
   <main class="container">
 
-    <!-- SESSION SCREEN (shows first each day) -->
+    <!-- SESSION SCREEN -->
     <section id="sessionScreen" class="card hidden">
       <h2 class="h2">Start Session</h2>
 
@@ -37,7 +37,7 @@
       </div>
 
       <div class="row">
-        <label class="label">Staff (ID - name)</label>
+        <label class="label">Staff</label>
         <input id="sessionStaff" class="input" placeholder="e.g. 59 - suri" />
       </div>
 
@@ -45,10 +45,10 @@
       <div id="sessionMsg" class="mini" style="margin-top:8px;"></div>
     </section>
 
-    <!-- HOME WRAPPER (IMPORTANT) -->
+    <!-- HOME -->
     <div id="home" class="hidden">
 
-      <!-- (Hidden) Store/Staff fields kept for compatibility -->
+      <!-- Store/Staff (kept for backend use) -->
       <section class="card">
         <div class="row">
           <label class="label">Store</label>
@@ -68,26 +68,43 @@
 
       <!-- Categories -->
       <section class="card">
-        <h2 class="h2">Categories</h2>
+        <div class="row space" style="margin-top:0;">
+          <h2 class="h2" style="margin:0;">Categories</h2>
+          <button id="btnOpenAlerts" class="btn" style="width:auto;">Alerts</button>
+        </div>
+
         <div class="grid" id="categoryGrid">
           <!-- filled by JS -->
         </div>
       </section>
 
+      <div class="mini footer">PreCheck Demo • Render + Supabase</div>
+    </div>
+
+    <!-- ALERTS PAGE -->
+    <section id="alertsView" class="card hidden">
+      <div class="row space">
+        <div>
+          <div class="title">Alerts</div>
+          <div class="mini">Expiry + Low Stock</div>
+        </div>
+        <button id="btnAlertsBack" class="btn">Back</button>
+      </div>
+
       <!-- Expiry -->
-      <section class="card">
+      <section class="card" style="box-shadow:none; margin:10px 0 0; border:1px solid var(--border);">
         <h2 class="h2">Expiry Alerts (today/expired)</h2>
         <ul id="expiryList" class="list"></ul>
       </section>
 
       <!-- Low Stock -->
-      <section class="card">
+      <section class="card" style="box-shadow:none; margin:10px 0 0; border:1px solid var(--border);">
         <h2 class="h2">Low Stock (≤ 2) — excluding Sauces</h2>
         <ul id="lowStockList" class="list"></ul>
       </section>
 
       <div class="mini footer">PreCheck Demo • Render + Supabase</div>
-    </div>
+    </section>
 
     <!-- CATEGORY VIEW -->
     <section id="categoryView" class="card hidden">
@@ -141,6 +158,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
