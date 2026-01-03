@@ -1,110 +1,146 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>PreCheck</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=4" />
 </head>
-
 <body>
-  <header class="top">
-    <h1>PreCheck</h1>
+  <!-- Top bar -->
+  <header id="topBar" class="topbar">
+    <div class="topbar-title">PreCheck</div>
   </header>
 
-  <div class="container">
+  <main class="container">
 
-    <!-- Top session bar -->
-   <section class="card" id="topBar">
+    <!-- SESSION SCREEN (shows first each day) -->
+    <section id="sessionScreen" class="card hidden">
+      <h2 class="h2">Start Session</h2>
 
       <div class="row">
-        <label>Store</label>
-        <select id="store">
+        <label class="label">Store</label>
+        <select id="sessionStore" class="input">
+          <option value="">Select store</option>
           <option value="PDD">PDD</option>
           <option value="SKH">SKH</option>
         </select>
       </div>
 
       <div class="row">
-        <label>Staff</label>
-        <input id="staff" placeholder="e.g. 59 - suri" />
+        <label class="label">Shift</label>
+        <select id="sessionShift" class="input">
+          <option value="">Select shift</option>
+          <option value="Morning">Morning</option>
+          <option value="Afternoon">Afternoon</option>
+        </select>
       </div>
 
-      <div class="mini" id="hint">Tap a category to open items</div>
-    </section>
-
-    <!-- HOME: category tiles -->
-    <section id="home" class="card">
-      <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">Categories</h2>
-
-      <div class="grid" id="categoryGrid">
-        <!-- filled by JS -->
+      <div class="row">
+        <label class="label">Staff (ID - name)</label>
+        <input id="sessionStaff" class="input" placeholder="e.g. 59 - suri" />
       </div>
+
+      <button id="btnStartSession" class="btn primary">Start</button>
+      <div id="sessionMsg" class="mini" style="margin-top:8px;"></div>
     </section>
 
-    <!-- CATEGORY: item list -->
-    <section id="categoryView" class="card hidden">
-      <div class="row" style="justify-content:space-between;">
-        <div>
-          <div id="catTitle" style="font-weight:900; font-size:16px;"></div>
-          <div class="mini" id="catSub">Tap item to update</div>
+    <!-- HOME WRAPPER (IMPORTANT) -->
+    <div id="home" class="hidden">
+
+      <!-- (Hidden) Store/Staff fields kept for compatibility -->
+      <section class="card">
+        <div class="row">
+          <label class="label">Store</label>
+          <select id="store" class="input">
+            <option value="PDD">PDD</option>
+            <option value="SKH">SKH</option>
+          </select>
         </div>
-        <button class="btn" id="btnBack" style="width:auto; padding:10px 14px;">Back</button>
-      </div>
 
+        <div class="row">
+          <label class="label">Staff</label>
+          <input id="staff" class="input" placeholder="e.g. 59 - suri" />
+        </div>
+
+        <div class="mini">Tap a category to open items</div>
+      </section>
+
+      <!-- Categories -->
+      <section class="card">
+        <h2 class="h2">Categories</h2>
+        <div class="grid" id="categoryGrid">
+          <!-- filled by JS -->
+        </div>
+      </section>
+
+      <!-- Expiry -->
+      <section class="card">
+        <h2 class="h2">Expiry Alerts (today/expired)</h2>
+        <ul id="expiryList" class="list"></ul>
+      </section>
+
+      <!-- Low Stock -->
+      <section class="card">
+        <h2 class="h2">Low Stock (≤ 2) — excluding Sauces</h2>
+        <ul id="lowStockList" class="list"></ul>
+      </section>
+
+      <div class="mini footer">PreCheck Demo • Render + Supabase</div>
+    </div>
+
+    <!-- CATEGORY VIEW -->
+    <section id="categoryView" class="card hidden">
+      <div class="row space">
+        <div>
+          <div id="catTitle" class="title"></div>
+          <div id="catSub" class="mini">Tap item to update</div>
+        </div>
+        <button id="btnBack" class="btn">Back</button>
+      </div>
       <ul id="itemList" class="list"></ul>
     </section>
 
-    <!-- ITEM: entry form -->
+    <!-- ITEM FORM -->
     <section id="itemForm" class="card hidden">
-      <div class="row" style="justify-content:space-between;">
+      <div class="row space">
         <div>
-          <div id="itemTitle" style="font-weight:900; font-size:16px;"></div>
-          <div class="mini" id="itemMeta"></div>
+          <div id="itemTitle" class="title"></div>
+          <div id="itemMeta" class="mini"></div>
         </div>
-        <button class="btn" id="btnCloseItem" style="width:auto; padding:10px 14px;">Close</button>
+        <button id="btnCloseItem" class="btn">Close</button>
       </div>
 
       <div class="row">
-        <label>Qty</label>
-        <input id="qty" type="number" min="0" placeholder="e.g. 2" />
+        <label class="label">Quantity</label>
+        <input id="qty" class="input" type="number" min="0" placeholder="e.g. 2" />
       </div>
 
       <div class="row">
-        <label>Expiry</label>
-        <input id="expiry" type="date" />
+        <label class="label">Expiry Date</label>
+        <input id="expiry" class="input" type="date" />
       </div>
 
-      <button class="btn" id="btnSave">Save</button>
-      <div class="mini" id="saveMsg"></div>
+      <button id="btnSave" class="btn primary">Save</button>
+      <div id="saveMsg" class="mini" style="margin-top:8px;"></div>
     </section>
 
-    <!-- Alerts -->
-   <section class="card">
-  <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">
-    Expiry Alerts (today/expired)
-  </h2>
+  </main>
 
-  <ul id="expiryList" class="list"></ul>
-
-  <!-- LOW STOCK STARTS HERE -->
-  <hr style="border:none;border-top:1px solid var(--border); margin:12px 0;">
-
-  <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">
-    Low Stock (≤ 2) — excluding Sauces
-  </h2>
-
-  <ul id="lowStockList" class="list"></ul>
-  <!-- LOW STOCK ENDS HERE -->
-
-</section>
-
-    </section>
-
-    <div class="mini">PreCheck Demo • Render + Supabase</div>
+  <!-- SHIFT POPUP -->
+  <div id="shiftPopup" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-title">PLEASE Check expired date:</div>
+      <ul class="modal-list">
+        <li>chicken bacon</li>
+        <li>avocado</li>
+        <li>lettuce</li>
+        <li>flatbread</li>
+      </ul>
+      <button id="btnClosePopup" class="btn primary" style="width:100%;">OK</button>
+    </div>
   </div>
 
- <script src="app.js?v=2"></script>
-
+  <script src="app.js?v=4"></script>
 </body>
 </html>
