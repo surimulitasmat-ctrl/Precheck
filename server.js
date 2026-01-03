@@ -10,12 +10,9 @@ app.use(express.static("public"));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  // Force IPv4 so it won't try 2406:... (IPv6)
-  lookup: (hostname, options, callback) => {
-    dns.lookup(hostname, { ...options, family: 4 }, callback);
-  }
+  ssl: { rejectUnauthorized: false }
 });
+
 
 
 
