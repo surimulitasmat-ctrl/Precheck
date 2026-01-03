@@ -79,9 +79,25 @@
     </section>
 
     <!-- Alerts -->
-    <section class="card">
-      <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">Expiry Alerts (today/expired)</h2>
-      <ul id="expiryList" class="list"></ul>
+   <section class="card">
+  <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">
+    Expiry Alerts (today/expired)
+  </h2>
+
+  <ul id="expiryList" class="list"></ul>
+
+  <!-- LOW STOCK STARTS HERE -->
+  <hr style="border:none;border-top:1px solid var(--border); margin:12px 0;">
+
+  <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">
+    Low Stock (≤ 2) — excluding Sauces
+  </h2>
+
+  <ul id="lowStockList" class="list"></ul>
+  <!-- LOW STOCK ENDS HERE -->
+
+</section>
+
     </section>
 
     <div class="mini">PreCheck Demo • Render + Supabase</div>
