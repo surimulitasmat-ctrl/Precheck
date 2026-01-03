@@ -248,14 +248,18 @@ btnBack.onclick = showHome;
 btnCloseItem.onclick = hideItemForm;
 btnSave.onclick = saveLog;
 storeEl.onchange = loadExpiry;
-sessionStoreEl.onchange = sessionShiftEl.onchange = () => {
-  btnStartSession.disabled = !(
-    sessionStoreEl.value && sessionShiftEl.value
-  );
-};
+if (sessionStoreEl && sessionShiftEl && btnStartSession) {
+  sessionStoreEl.onchange = sessionShiftEl.onchange = () => {
+    btnStartSession.disabled = !(
+      sessionStoreEl.value && sessionShiftEl.value
+    );
+  };
 
-btnStartSession.onclick = startSession;
+  btnStartSession.onclick = startSession;
+}
 
 // ---------- Init ----------
-showSessionScreen();
-loadItems();
+document.addEventListener("DOMContentLoaded", () => {
+  showSessionScreen();
+  loadItems();
+});
