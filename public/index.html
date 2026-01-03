@@ -4,98 +4,89 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>PreCheck</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body style="font-family: Arial, sans-serif; padding: 16px;">
-  <h2>PreCheck Demo</h2>
 
-  <label>Store:</label>
-  <select id="store">
-    <option value="PDD">PDD</option>
-    <option value="SKH">SKH</option>
-  </select>
+<body>
+  <header class="top">
+    <h1>PreCheck</h1>
+  </header>
 
-  <br><br>
+  <div class="container">
 
-  <label>Staff:</label>
-  <input id="staff" placeholder="e.g. 59 - suri" />
+    <!-- Top session bar -->
+    <section class="card">
+      <div class="row">
+        <label>Store</label>
+        <select id="store">
+          <option value="PDD">PDD</option>
+          <option value="SKH">SKH</option>
+        </select>
+      </div>
 
-  <br><br>
+      <div class="row">
+        <label>Staff</label>
+        <input id="staff" placeholder="e.g. 59 - suri" />
+      </div>
 
-  <h3>Items</h3>
-  <div id="items">Loading...</div>
+      <div class="mini" id="hint">Tap a category to open items</div>
+    </section>
 
-  <h3>Expiry Alerts (expired / today)</h3>
-  <ul id="expiry"></ul>
+    <!-- HOME: category tiles -->
+    <section id="home" class="card">
+      <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">Categories</h2>
 
-  <script>
-    async function loadItems() {
-      const res = await fetch("/api/items");
-      const items = await res.json();
+      <div class="grid" id="categoryGrid">
+        <!-- filled by JS -->
+      </div>
+    </section>
 
-      const container = document.getElementById("items");
-      container.innerHTML = "";
+    <!-- CATEGORY: item list -->
+    <section id="categoryView" class="card hidden">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div id="catTitle" style="font-weight:900; font-size:16px;"></div>
+          <div class="mini" id="catSub">Tap item to update</div>
+        </div>
+        <button class="btn" id="btnBack" style="width:auto; padding:10px 14px;">Back</button>
+      </div>
 
-      items.forEach(it => {
-        const div = document.createElement("div");
-        div.style.border = "1px solid #ddd";
-        div.style.padding = "10px";
-        div.style.marginBottom = "10px";
+      <ul id="itemList" class="list"></ul>
+    </section>
 
-        div.innerHTML = `
-          <b>${it.name}</b> <small>(${it.category})</small><br><br>
-          Qty: <input type="number" id="q_${it.id}" style="width:60px;">
-          Expiry: <input type="date" id="e_${it.id}">
-          <button onclick="saveLog(${it.id})">Save</button>
-          <div id="m_${it.id}" style="font-size:12px;color:#666;margin-top:6px;"></div>
-        `;
-        container.appendChild(div);
-      });
-    }
+    <!-- ITEM: entry form -->
+    <section id="itemForm" class="card hidden">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div id="itemTitle" style="font-weight:900; font-size:16px;"></div>
+          <div class="mini" id="itemMeta"></div>
+        </div>
+        <button class="btn" id="btnCloseItem" style="width:auto; padding:10px 14px;">Close</button>
+      </div>
 
-    async function saveLog(itemId) {
-      const store = document.getElementById("store").value;
-      const staff = document.getElementById("staff").value.trim();
-      if (!staff) return alert("Please enter staff first");
+      <div class="row">
+        <label>Qty</label>
+        <input id="qty" type="number" min="0" placeholder="e.g. 2" />
+      </div>
 
-      const quantity = document.getElementById(`q_${itemId}`).value;
-      const expiry = document.getElementById(`e_${itemId}`).value;
+      <div class="row">
+        <label>Expiry</label>
+        <input id="expiry" type="date" />
+      </div>
 
-      document.getElementById(`m_${itemId}`).innerText = "Saving...";
+      <button class="btn" id="btnSave">Save</button>
+      <div class="mini" id="saveMsg"></div>
+    </section>
 
-      const res = await fetch("/api/log", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ store, staff, item_id: itemId, quantity, expiry })
-      });
+    <!-- Alerts -->
+    <section class="card">
+      <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">Expiry Alerts (today/expired)</h2>
+      <ul id="expiryList" class="list"></ul>
+    </section>
 
-      if (!res.ok) {
-        document.getElementById(`m_${itemId}`).innerText = "Error saving";
-        return;
-      }
+    <div class="mini">PreCheck Demo • Render + Supabase</div>
+  </div>
 
-      document.getElementById(`m_${itemId}`).innerText = "Saved ✅";
-      loadExpiry();
-    }
-
-    async function loadExpiry() {
-      const store = document.getElementById("store").value;
-      const res = await fetch(`/api/expiry?store=${store}`);
-      const data = await res.json();
-
-      const ul = document.getElementById("expiry");
-      ul.innerHTML = data.length ? "" : "<li>None ✅</li>";
-
-      data.forEach(x => {
-        const li = document.createElement("li");
-        li.innerText = `${x.name} — Qty: ${x.quantity} — Exp: ${x.expiry}`;
-        ul.appendChild(li);
-      });
-    }
-
-    document.getElementById("store").addEventListener("change", loadExpiry);
-
-    loadItems();
-    loadExpiry();
-  </script>
+  <script src="app.js"></script>
 </body>
 </html>
