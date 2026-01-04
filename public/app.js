@@ -49,6 +49,39 @@ function todayKey() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+function formatFullDate(dateObj) {
+  return dateObj.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function isoDateLocal(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const d = String(dateObj.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function buildExpiryDropdown(item) {
+  const expiryEl = document.getElementById("expiry");
+  expiryEl.innerHTML = "";
+
+  const shelfDays = Number(item.shelf_life_days || 0);
+  const today = new Date();
+
+  for (let i = 0; i <= shelfDays; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+
+    const opt = document.createElement("option");
+    opt.value = isoDateLocal(d);          // saved to DB
+    opt.textContent = formatFullDate(d); // shown to staff
+
+    expiryEl.appendChild(opt);
+  }
+}
 
 // -------------------- Session logic (reset after midnight) --------------------
 function clearSessionIfNewDay() {
@@ -157,6 +190,7 @@ function showItemForm(item) {
   qtyEl.value = "";
   expiryEl.value = "";
   saveMsgEl.textContent = "";
+buildExpiryDropdown(item);
 
   itemFormEl.classList.remove("hidden");
 }
