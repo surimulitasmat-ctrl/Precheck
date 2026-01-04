@@ -1,39 +1,70 @@
+// PreCheck - app.js (matches the provided index.html)
+// ----------------------------------------------------
+
+// ---------- Small helpers ----------
+function $(id) {
+  const el = document.getElementById(id);
+  return el;
+}
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+function formatFullDate(d) {
+  // e.g. "04 January 2026"
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  });
+}
+function isoDateOnly(d) {
+  // "YYYY-MM-DD"
+  const y = d.getFullYear();
+  const m = pad2(d.getMonth() + 1);
+  const day = pad2(d.getDate());
+  return `${y}-${m}-${day}`;
+}
+function todayLocalDateOnly() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 // ---------- Elements ----------
-const sessionScreenEl = document.getElementById("sessionScreen");
-const appShellEl = document.getElementById("appShell");
+const sessionScreenEl = $("sessionScreen");
+const sessionStoreEl = $("sessionStore");
+const sessionShiftEl = $("sessionShift");
+const sessionStaffEl = $("sessionStaff");
+const btnStartSession = $("btnStartSession");
+const sessionMsgEl = $("sessionMsg");
 
-const sessionStoreEl = document.getElementById("sessionStore");
-const sessionShiftEl = document.getElementById("sessionShift");
-const sessionStaffEl = document.getElementById("sessionStaff");
-const btnStartSession = document.getElementById("btnStartSession");
-const sessionMsgEl = document.getElementById("sessionMsg");
+const appShellEl = $("appShell");
+const storeEl = $("store");
+const staffEl = $("staff");
+const sessionInfoEl = $("sessionInfo");
+const btnAlerts = $("btnAlerts");
 
-const storeEl = document.getElementById("store");
-const staffEl = document.getElementById("staff");
-const sessionInfoEl = document.getElementById("sessionInfo");
+const homeEl = $("home");
+const categoryGridEl = $("categoryGrid");
 
-const homeEl = document.getElementById("home");
-const categoryGridEl = document.getElementById("categoryGrid");
+const categoryViewEl = $("categoryView");
+const catTitleEl = $("catTitle");
+const itemListEl = $("itemList");
+const btnBack = $("btnBack");
 
-const categoryViewEl = document.getElementById("categoryView");
-const catTitleEl = document.getElementById("catTitle");
-const itemListEl = document.getElementById("itemList");
-const btnBack = document.getElementById("btnBack");
+const itemFormEl = $("itemForm");
+const itemTitleEl = $("itemTitle");
+const itemMetaEl = $("itemMeta");
+const qtyEl = $("qty");
+const expiryEl = $("expiry"); // SELECT
+const btnSave = $("btnSave");
+const btnCloseItem = $("btnCloseItem");
+const saveMsgEl = $("saveMsg");
 
-const itemFormEl = document.getElementById("itemForm");
-const itemTitleEl = document.getElementById("itemTitle");
-const itemMetaEl = document.getElementById("itemMeta");
-const qtyEl = document.getElementById("qty");
-const expiryEl = document.getElementById("expiry");
-const btnSave = document.getElementById("btnSave");
-const btnCloseItem = document.getElementById("btnCloseItem");
-const saveMsgEl = document.getElementById("saveMsg");
-
-const btnAlerts = document.getElementById("btnAlerts");
-const alertsViewEl = document.getElementById("alertsView");
-const btnCloseAlerts = document.getElementById("btnCloseAlerts");
-const expiryListEl = document.getElementById("expiryList");
-const lowStockListEl = document.getElementById("lowStockList");
+const alertsViewEl = $("alertsView");
+const btnCloseAlerts = $("btnCloseAlerts");
+const expiryListEl = $("expiryList");
+const lowStockListEl = $("lowStockList");
 
 // ---------- State ----------
 let allItems = [];
@@ -44,59 +75,23 @@ let currentItem = null;
 let session = {
   store: "",
   shift: "",
-  staff: ""
+  staff: "",
+  dateKey: "" // yyyy-mm-dd
 };
 
-// ---------- Date helpers ----------
-function pad2(n) { return String(n).padStart(2, "0"); }
-
-// value for DB/API: YYYY-MM-DD
-function toISODateOnly(d) {
-  const x = new Date(d);
-  return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
-}
-
-// label: "04 January 2026"
-function toFullLabel(d) {
-  const x = new Date(d);
-  return x.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
-}
-
-// make today + next N days (inclusive)
-function buildExpiryOptions(days) {
-  const out = [];
-  const base = new Date();
-  base.setHours(0, 0, 0, 0);
-
-  for (let i = 0; i <= days; i++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + i);
-    out.push({ value: toISODateOnly(d), label: toFullLabel(d) });
-  }
-  return out;
-}
-
-// ---------- Session ----------
-function loadSessionFromStorage() {
-  try {
-    const raw = sessionStorage.getItem("precheck_session");
-    if (!raw) return false;
-    const s = JSON.parse(raw);
-    if (!s.store || !s.shift || !s.staff) return false;
-    session = s;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function saveSessionToStorage() {
-  sessionStorage.setItem("precheck_session", JSON.stringify(session));
+// ---------- Screens ----------
+function hideAllMainScreens() {
+  homeEl.classList.add("hidden");
+  categoryViewEl.classList.add("hidden");
+  itemFormEl.classList.add("hidden");
+  alertsViewEl.classList.add("hidden");
 }
 
 function showSessionScreen() {
+  // show session, hide app
   sessionScreenEl.classList.remove("hidden");
   appShellEl.classList.add("hidden");
+  sessionMsgEl.textContent = "";
 }
 
 function showAppShell() {
@@ -104,75 +99,23 @@ function showAppShell() {
   appShellEl.classList.remove("hidden");
 }
 
-function startSession() {
-  const store = sessionStoreEl.value;
-  const shift = sessionShiftEl.value;
-  const staff = sessionStaffEl.value.trim();
-
-  if (!store || !shift || !staff) {
-    sessionMsgEl.textContent = "Please select store + shift and enter staff.";
-    return;
-  }
-
-  session = { store, shift, staff };
-  saveSessionToStorage();
-
-  // set main UI fields
-  storeEl.value = store;
-  staffEl.value = staff;
-  sessionInfoEl.textContent = `Store: ${store} • Shift: ${shift}`;
-
-  sessionMsgEl.textContent = "";
-  showAppShell();
-  showHome();
-
-  // load
-  loadItems().then(loadAlerts);
-}
-
-// ---------- Navigation ----------
 function showHome() {
+  hideAllMainScreens();
   homeEl.classList.remove("hidden");
-  categoryViewEl.classList.add("hidden");
-  itemFormEl.classList.add("hidden");
-  alertsViewEl.classList.add("hidden");
 }
 
 function showCategory(cat) {
   currentCategory = cat;
-  catTitleEl.textContent = cat;
-
-  homeEl.classList.add("hidden");
+  hideAllMainScreens();
   categoryViewEl.classList.remove("hidden");
-  itemFormEl.classList.add("hidden");
-  alertsViewEl.classList.add("hidden");
-
+  catTitleEl.textContent = cat;
   renderItemList(cat);
 }
 
-function showAlerts() {
-  homeEl.classList.add("hidden");
-  categoryViewEl.classList.add("hidden");
-  itemFormEl.classList.add("hidden");
-  alertsViewEl.classList.remove("hidden");
-
-  loadAlerts();
-}
-
-// ---------- Require staff ----------
-function requireStaff() {
-  const s = staffEl.value.trim();
-  if (!s) {
-    alert("Please enter staff ID & name");
-    staffEl.focus();
-    return null;
-  }
-  return s;
-}
-
-// ---------- Item form ----------
 function showItemForm(item) {
   currentItem = item;
+  hideAllMainScreens();
+  itemFormEl.classList.remove("hidden");
 
   itemTitleEl.textContent = item.name;
   itemMetaEl.textContent = item.category;
@@ -180,37 +123,79 @@ function showItemForm(item) {
   qtyEl.value = "";
   saveMsgEl.textContent = "";
 
-  // KEY FIX:
-  // if shelf_life_days is 3 => show 4 options (today + next 3 days)
-  // if shelf_life_days is 0 => show default 7 days (today + next 7 days) so user still can pick
-  const shelf = Number(item.shelf_life_days || 0);
-  const daysToShow = shelf > 0 ? shelf : 7;
-
-  const options = buildExpiryOptions(daysToShow);
-  expiryEl.innerHTML = "";
-  options.forEach(o => {
-    const opt = document.createElement("option");
-    opt.value = o.value;   // YYYY-MM-DD
-    opt.textContent = o.label; // "04 January 2026"
-    expiryEl.appendChild(opt);
-  });
-
-  // default select "today"
-  expiryEl.value = options[0].value;
-
-  itemFormEl.classList.remove("hidden");
+  // Build expiry dropdown options based on shelf_life_days
+  buildExpiryOptions(item);
 }
 
-function hideItemForm() {
-  itemFormEl.classList.add("hidden");
+function showAlerts() {
+  hideAllMainScreens();
+  alertsViewEl.classList.remove("hidden");
 }
 
-// ---------- Render ----------
+// ---------- Session logic ----------
+function getTodayKey() {
+  const d = todayLocalDateOnly();
+  return isoDateOnly(d);
+}
+
+function saveSessionToLocal() {
+  localStorage.setItem("precheck_session", JSON.stringify(session));
+}
+
+function loadSessionFromLocal() {
+  try {
+    const raw = localStorage.getItem("precheck_session");
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function clearSession() {
+  localStorage.removeItem("precheck_session");
+  session = { store: "", shift: "", staff: "", dateKey: "" };
+}
+
+function ensureSessionValidOrReset() {
+  const saved = loadSessionFromLocal();
+  const todayKey = getTodayKey();
+
+  // reset after midnight (date changed)
+  if (!saved || saved.dateKey !== todayKey) {
+    clearSession();
+    showSessionScreen();
+    return false;
+  }
+
+  session = saved;
+
+  // apply to UI
+  storeEl.value = session.store;
+  staffEl.value = session.staff;
+  sessionInfoEl.textContent = `Store: ${session.store} • Shift: ${session.shift}`;
+  showAppShell();
+  showHome();
+  return true;
+}
+
+function sessionPopup() {
+  // popup for BOTH shifts (as requested)
+  alert(
+    "PLEASE Check expired date:\n" +
+      "- chicken bacon\n" +
+      "- avocado\n" +
+      "- lettuce\n" +
+      "- flatbread"
+  );
+}
+
+// ---------- Rendering ----------
 function renderCategoryTiles() {
   categoryGridEl.innerHTML = "";
 
-  categories.forEach(cat => {
-    const count = allItems.filter(x => x.category === cat).length;
+  categories.forEach((cat) => {
+    const count = allItems.filter((x) => x.category === cat).length;
 
     const btn = document.createElement("button");
     btn.className = "tile";
@@ -219,6 +204,7 @@ function renderCategoryTiles() {
       <div class="sub">${count} items</div>
     `;
     btn.onclick = () => showCategory(cat);
+
     categoryGridEl.appendChild(btn);
   });
 }
@@ -227,8 +213,8 @@ function renderItemList(cat) {
   itemListEl.innerHTML = "";
 
   allItems
-    .filter(x => x.category === cat)
-    .forEach(it => {
+    .filter((x) => x.category === cat)
+    .forEach((it) => {
       const li = document.createElement("li");
       li.textContent = it.name;
       li.onclick = () => showItemForm(it);
@@ -239,65 +225,107 @@ function renderItemList(cat) {
 function renderExpiryList(list) {
   expiryListEl.innerHTML = "";
 
-  if (!list.length) {
+  if (!Array.isArray(list) || list.length === 0) {
     expiryListEl.innerHTML = "<li>No expiring items ✅</li>";
     return;
   }
 
-  list.forEach(x => {
+  list.forEach((x) => {
     const li = document.createElement("li");
     const d = new Date(x.expiry);
-    const nice = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-    li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${nice}`;
+    li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${formatFullDate(d)}`;
     expiryListEl.appendChild(li);
   });
 }
 
-function renderLowStock(list) {
+function renderLowStockList(list) {
   lowStockListEl.innerHTML = "";
 
-  if (!list.length) {
+  if (!Array.isArray(list) || list.length === 0) {
     lowStockListEl.innerHTML = "<li>No low stock items ✅</li>";
     return;
   }
 
-  list.forEach(x => {
+  list.forEach((x) => {
     const li = document.createElement("li");
     li.textContent = `${x.name} — Qty ${x.quantity} (${x.category})`;
     lowStockListEl.appendChild(li);
   });
 }
 
+// ---------- Expiry dropdown ----------
+function buildExpiryOptions(item) {
+  expiryEl.innerHTML = "";
+
+  const days = Math.max(0, Number(item.shelf_life_days || 0));
+
+  // option: today + next N days (N = shelf_life_days)
+  const base = todayLocalDateOnly();
+
+  for (let i = 0; i <= days; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i);
+
+    const opt = document.createElement("option");
+    opt.value = isoDateOnly(d);          // send to API as YYYY-MM-DD
+    opt.textContent = formatFullDate(d); // show as "04 January 2026"
+    expiryEl.appendChild(opt);
+  }
+
+  // default selection = today
+  expiryEl.value = isoDateOnly(base);
+}
+
 // ---------- API ----------
 async function loadItems() {
   const res = await fetch("/api/items");
+  if (!res.ok) throw new Error("Failed to load items");
   allItems = await res.json();
 
-  categories = [...new Set(allItems.map(x => x.category))];
+  // build categories from items
+  categories = [...new Set(allItems.map((x) => x.category))];
+
+  // sort categories (optional)
+  categories.sort((a, b) => a.localeCompare(b));
+
   renderCategoryTiles();
 }
 
 async function loadAlerts() {
   const store = storeEl.value;
 
-  // This expects your server to return logs with: name, quantity, expiry, category
+  // 1) expiry list (from your backend)
   const res = await fetch(`/api/expiry?store=${encodeURIComponent(store)}`);
   const data = await res.json();
-
   renderExpiryList(data);
 
-  const lowStock = data.filter(x =>
-    Number(x.quantity) <= 2 &&
-    String(x.category || "").toLowerCase() !== "sauces" &&
-    String(x.category || "").toLowerCase() !== "sauce"
-  );
+  // 2) low stock (best effort):
+  // If you have /api/lowstock it will use it. If not, it will just show "No low stock".
+  try {
+    const r2 = await fetch(`/api/lowstock?store=${encodeURIComponent(store)}`);
+    if (!r2.ok) throw new Error("no lowstock endpoint");
+    const low = await r2.json();
 
-  renderLowStock(lowStock);
+    // exclude sauces (both "Sauce" and "Sauces")
+    const filtered = low.filter(
+      (x) =>
+        Number(x.quantity) <= 2 &&
+        !["sauce", "sauces"].includes(String(x.category || "").toLowerCase())
+    );
+    renderLowStockList(filtered);
+  } catch {
+    renderLowStockList([]);
+  }
 }
 
 async function saveLog() {
-  const staff = requireStaff();
-  if (!staff || !currentItem) return;
+  const staff = staffEl.value.trim();
+  if (!staff) {
+    alert("Please enter staff ID & name");
+    staffEl.focus();
+    return;
+  }
+  if (!currentItem) return;
 
   const store = storeEl.value;
   const quantity = qtyEl.value;
@@ -323,39 +351,86 @@ async function saveLog() {
   });
 
   saveMsgEl.textContent = res.ok ? "Saved ✅" : "Error ❌";
-  hideItemForm();
-  loadAlerts();
+  showHome();
+  await loadAlerts();
 }
 
 // ---------- Events ----------
-btnBack.onclick = showHome;
-btnCloseItem.onclick = hideItemForm;
+btnStartSession.onclick = async () => {
+  const store = sessionStoreEl.value;
+  const shift = sessionShiftEl.value;
+  const staff = sessionStaffEl.value.trim();
 
-btnAlerts.onclick = showAlerts;
-btnCloseAlerts.onclick = showHome;
+  if (!store || !shift || !staff) {
+    sessionMsgEl.textContent = "Please select store, shift, and enter staff.";
+    return;
+  }
 
-btnSave.onclick = saveLog;
+  session = {
+    store,
+    shift,
+    staff,
+    dateKey: getTodayKey()
+  };
+  saveSessionToLocal();
 
-storeEl.onchange = () => {
-  // keep alerts updated when store changes
-  loadAlerts();
+  // apply to app UI
+  storeEl.value = store;
+  staffEl.value = staff;
+  sessionInfoEl.textContent = `Store: ${store} • Shift: ${shift}`;
+
+  showAppShell();
+  showHome();
+
+  // popup once each session start
+  sessionPopup();
+
+  // load alerts for selected store
+  await loadAlerts();
 };
 
-btnStartSession.onclick = startSession;
+btnBack.onclick = () => showHome();
+btnCloseItem.onclick = () => showHome();
+btnSave.onclick = () => saveLog();
+
+btnAlerts.onclick = async () => {
+  showAlerts();
+  await loadAlerts();
+};
+btnCloseAlerts.onclick = () => showHome();
+
+storeEl.onchange = async () => {
+  // store changed -> refresh alerts
+  session.store = storeEl.value;
+  session.dateKey = getTodayKey();
+  saveSessionToLocal();
+  sessionInfoEl.textContent = `Store: ${session.store} • Shift: ${session.shift}`;
+  await loadAlerts();
+};
+
+staffEl.onchange = () => {
+  // update staff in session
+  session.staff = staffEl.value.trim();
+  session.dateKey = getTodayKey();
+  saveSessionToLocal();
+};
 
 // ---------- Init ----------
-document.addEventListener("DOMContentLoaded", () => {
-  // restore session if exists
-  if (loadSessionFromStorage()) {
-    // apply session to main UI
-    storeEl.value = session.store;
-    staffEl.value = session.staff;
-    sessionInfoEl.textContent = `Store: ${session.store} • Shift: ${session.shift}`;
+document.addEventListener("DOMContentLoaded", async () => {
+  // if session expired (midnight), return to session screen
+  const ok = ensureSessionValidOrReset();
 
-    showAppShell();
-    showHome();
-    loadItems().then(loadAlerts);
-  } else {
-    showSessionScreen();
+  // Always load items (for tiles/list)
+  try {
+    await loadItems();
+  } catch (e) {
+    console.error(e);
+    alert("Failed to load items. Check /api/items.");
+    return;
+  }
+
+  if (ok) {
+    // already in session -> refresh alerts for store
+    await loadAlerts();
   }
 });
