@@ -1,403 +1,361 @@
-document.addEventListener("DOMContentLoaded", () => {
-  // ---------- Elements ----------
-  const topBarEl = document.getElementById("topBar");
+// ---------- Elements ----------
+const sessionScreenEl = document.getElementById("sessionScreen");
+const appShellEl = document.getElementById("appShell");
 
-  // session
-  const sessionScreenEl = document.getElementById("sessionScreen");
-  const sessionStoreEl = document.getElementById("sessionStore");
-  const sessionShiftEl = document.getElementById("sessionShift");
-  const sessionStaffEl = document.getElementById("sessionStaff");
-  const btnStartSession = document.getElementById("btnStartSession");
-  const sessionMsgEl = document.getElementById("sessionMsg");
+const sessionStoreEl = document.getElementById("sessionStore");
+const sessionShiftEl = document.getElementById("sessionShift");
+const sessionStaffEl = document.getElementById("sessionStaff");
+const btnStartSession = document.getElementById("btnStartSession");
+const sessionMsgEl = document.getElementById("sessionMsg");
 
-  // main home
-  const homeScreenEl = document.getElementById("homeScreen");
-  const storeEl = document.getElementById("store");
-  const staffEl = document.getElementById("staff");
-  const sessionInfoEl = document.getElementById("sessionInfo");
-  const btnOpenAlerts = document.getElementById("btnOpenAlerts");
+const storeEl = document.getElementById("store");
+const staffEl = document.getElementById("staff");
+const sessionInfoEl = document.getElementById("sessionInfo");
 
-  // categories
-  const homeEl = document.getElementById("home");
-  const categoryGridEl = document.getElementById("categoryGrid");
+const homeEl = document.getElementById("home");
+const categoryGridEl = document.getElementById("categoryGrid");
 
-  // category view
-  const categoryViewEl = document.getElementById("categoryView");
-  const catTitleEl = document.getElementById("catTitle");
-  const catSubEl = document.getElementById("catSub");
-  const itemListEl = document.getElementById("itemList");
-  const btnBack = document.getElementById("btnBack");
+const categoryViewEl = document.getElementById("categoryView");
+const catTitleEl = document.getElementById("catTitle");
+const itemListEl = document.getElementById("itemList");
+const btnBack = document.getElementById("btnBack");
 
-  // item form
-  const itemFormEl = document.getElementById("itemForm");
-  const itemTitleEl = document.getElementById("itemTitle");
-  const itemMetaEl = document.getElementById("itemMeta");
-  const qtyEl = document.getElementById("qty");
-  const expiryEl = document.getElementById("expiry");
-  const btnSave = document.getElementById("btnSave");
-  const btnCloseItem = document.getElementById("btnCloseItem");
-  const saveMsgEl = document.getElementById("saveMsg");
+const itemFormEl = document.getElementById("itemForm");
+const itemTitleEl = document.getElementById("itemTitle");
+const itemMetaEl = document.getElementById("itemMeta");
+const qtyEl = document.getElementById("qty");
+const expiryEl = document.getElementById("expiry");
+const btnSave = document.getElementById("btnSave");
+const btnCloseItem = document.getElementById("btnCloseItem");
+const saveMsgEl = document.getElementById("saveMsg");
 
-  // alerts page
-  const alertsScreenEl = document.getElementById("alertsScreen");
-  const btnBackFromAlerts = document.getElementById("btnBackFromAlerts");
-  const expiryListEl = document.getElementById("expiryList");
-  const lowStockListEl = document.getElementById("lowStockList");
+const btnAlerts = document.getElementById("btnAlerts");
+const alertsViewEl = document.getElementById("alertsView");
+const btnCloseAlerts = document.getElementById("btnCloseAlerts");
+const expiryListEl = document.getElementById("expiryList");
+const lowStockListEl = document.getElementById("lowStockList");
 
-  // ---------- State ----------
-  let allItems = [];
-  let categories = [];
-  let currentCategory = null;
-  let currentItem = null;
+// ---------- State ----------
+let allItems = [];
+let categories = [];
+let currentCategory = null;
+let currentItem = null;
 
-  // ---------- Session helpers ----------
-  function todayKeyLocal() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+let session = {
+  store: "",
+  shift: "",
+  staff: ""
+};
+
+// ---------- Date helpers ----------
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+// value for DB/API: YYYY-MM-DD
+function toISODateOnly(d) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
+}
+
+// label: "04 January 2026"
+function toFullLabel(d) {
+  const x = new Date(d);
+  return x.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+// make today + next N days (inclusive)
+function buildExpiryOptions(days) {
+  const out = [];
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
+
+  for (let i = 0; i <= days; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    out.push({ value: toISODateOnly(d), label: toFullLabel(d) });
+  }
+  return out;
+}
+
+// ---------- Session ----------
+function loadSessionFromStorage() {
+  try {
+    const raw = sessionStorage.getItem("precheck_session");
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!s.store || !s.shift || !s.staff) return false;
+    session = s;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function saveSessionToStorage() {
+  sessionStorage.setItem("precheck_session", JSON.stringify(session));
+}
+
+function showSessionScreen() {
+  sessionScreenEl.classList.remove("hidden");
+  appShellEl.classList.add("hidden");
+}
+
+function showAppShell() {
+  sessionScreenEl.classList.add("hidden");
+  appShellEl.classList.remove("hidden");
+}
+
+function startSession() {
+  const store = sessionStoreEl.value;
+  const shift = sessionShiftEl.value;
+  const staff = sessionStaffEl.value.trim();
+
+  if (!store || !shift || !staff) {
+    sessionMsgEl.textContent = "Please select store + shift and enter staff.";
+    return;
   }
 
-  function resetIfNewDay() {
-    const key = todayKeyLocal();
-    const last = localStorage.getItem("precheck_session_day");
-    if (last !== key) {
-      // new day -> clear session
-      localStorage.removeItem("precheck_store");
-      localStorage.removeItem("precheck_shift");
-      localStorage.removeItem("precheck_staff");
-      localStorage.removeItem("precheck_popup_done");
-      localStorage.setItem("precheck_session_day", key);
-    }
+  session = { store, shift, staff };
+  saveSessionToStorage();
+
+  // set main UI fields
+  storeEl.value = store;
+  staffEl.value = staff;
+  sessionInfoEl.textContent = `Store: ${store} • Shift: ${shift}`;
+
+  sessionMsgEl.textContent = "";
+  showAppShell();
+  showHome();
+
+  // load
+  loadItems().then(loadAlerts);
+}
+
+// ---------- Navigation ----------
+function showHome() {
+  homeEl.classList.remove("hidden");
+  categoryViewEl.classList.add("hidden");
+  itemFormEl.classList.add("hidden");
+  alertsViewEl.classList.add("hidden");
+}
+
+function showCategory(cat) {
+  currentCategory = cat;
+  catTitleEl.textContent = cat;
+
+  homeEl.classList.add("hidden");
+  categoryViewEl.classList.remove("hidden");
+  itemFormEl.classList.add("hidden");
+  alertsViewEl.classList.add("hidden");
+
+  renderItemList(cat);
+}
+
+function showAlerts() {
+  homeEl.classList.add("hidden");
+  categoryViewEl.classList.add("hidden");
+  itemFormEl.classList.add("hidden");
+  alertsViewEl.classList.remove("hidden");
+
+  loadAlerts();
+}
+
+// ---------- Require staff ----------
+function requireStaff() {
+  const s = staffEl.value.trim();
+  if (!s) {
+    alert("Please enter staff ID & name");
+    staffEl.focus();
+    return null;
   }
+  return s;
+}
 
-  function getSession() {
-    return {
-      store: localStorage.getItem("precheck_store") || "",
-      shift: localStorage.getItem("precheck_shift") || "",
-      staff: localStorage.getItem("precheck_staff") || "",
-    };
-  }
+// ---------- Item form ----------
+function showItemForm(item) {
+  currentItem = item;
 
-  function setSession({ store, shift, staff }) {
-    localStorage.setItem("precheck_store", store);
-    localStorage.setItem("precheck_shift", shift);
-    localStorage.setItem("precheck_staff", staff);
-  }
+  itemTitleEl.textContent = item.name;
+  itemMetaEl.textContent = item.category;
 
-  // ---------- UI show/hide ----------
-  function hideAllScreens() {
-    sessionScreenEl.classList.add("hidden");
-    homeScreenEl.classList.add("hidden");
-    homeEl.classList.add("hidden");
-    categoryViewEl.classList.add("hidden");
-    itemFormEl.classList.add("hidden");
-    alertsScreenEl.classList.add("hidden");
-  }
+  qtyEl.value = "";
+  saveMsgEl.textContent = "";
 
-  function showSessionScreen() {
-    hideAllScreens();
-    sessionScreenEl.classList.remove("hidden");
-    topBarEl.textContent = "PreCheck";
-  }
+  // KEY FIX:
+  // if shelf_life_days is 3 => show 4 options (today + next 3 days)
+  // if shelf_life_days is 0 => show default 7 days (today + next 7 days) so user still can pick
+  const shelf = Number(item.shelf_life_days || 0);
+  const daysToShow = shelf > 0 ? shelf : 7;
 
-  function showHome() {
-    hideAllScreens();
-    homeScreenEl.classList.remove("hidden");
-    homeEl.classList.remove("hidden");
-    topBarEl.textContent = "PreCheck";
-  }
+  const options = buildExpiryOptions(daysToShow);
+  expiryEl.innerHTML = "";
+  options.forEach(o => {
+    const opt = document.createElement("option");
+    opt.value = o.value;   // YYYY-MM-DD
+    opt.textContent = o.label; // "04 January 2026"
+    expiryEl.appendChild(opt);
+  });
 
-  function showCategory(cat) {
-    currentCategory = cat;
-    catTitleEl.textContent = cat;
-    catSubEl.textContent = "Tap item to update";
+  // default select "today"
+  expiryEl.value = options[0].value;
 
-    hideAllScreens();
-    homeScreenEl.classList.remove("hidden");
-    categoryViewEl.classList.remove("hidden");
-    topBarEl.textContent = cat;
+  itemFormEl.classList.remove("hidden");
+}
 
-    renderItemList(cat);
-  }
+function hideItemForm() {
+  itemFormEl.classList.add("hidden");
+}
 
-  function showItemForm(item) {
-    currentItem = item;
-    itemTitleEl.textContent = item.name;
-    itemMetaEl.textContent = item.category;
+// ---------- Render ----------
+function renderCategoryTiles() {
+  categoryGridEl.innerHTML = "";
 
-    qtyEl.value = "";
-    saveMsgEl.textContent = "";
+  categories.forEach(cat => {
+    const count = allItems.filter(x => x.category === cat).length;
 
-    buildExpiryDropdown(item);
+    const btn = document.createElement("button");
+    btn.className = "tile";
+    btn.innerHTML = `
+      <div class="title">${cat}</div>
+      <div class="sub">${count} items</div>
+    `;
+    btn.onclick = () => showCategory(cat);
+    categoryGridEl.appendChild(btn);
+  });
+}
 
-    hideAllScreens();
-    homeScreenEl.classList.remove("hidden");
-    itemFormEl.classList.remove("hidden");
-    topBarEl.textContent = item.name;
-  }
+function renderItemList(cat) {
+  itemListEl.innerHTML = "";
 
-  function showAlerts() {
-    hideAllScreens();
-    homeScreenEl.classList.remove("hidden");
-    alertsScreenEl.classList.remove("hidden");
-    topBarEl.textContent = "Alerts";
-  }
-
-  // ---------- Date helpers ----------
-  function formatFullDate(dateObj) {
-    return dateObj.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
-  }
-
-  function isoDateLocal(dateObj) {
-    const y = dateObj.getFullYear();
-    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
-    const d = String(dateObj.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }
-
-  function buildExpiryDropdown(item) {
-    expiryEl.innerHTML = "";
-
-    // item.shelf_life_days must come from /api/items
-    const shelfDays = Number(item.shelf_life_days || 0);
-    const today = new Date();
-
-    for (let i = 0; i <= shelfDays; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-
-      const opt = document.createElement("option");
-      opt.value = isoDateLocal(d);         // stored to DB
-      opt.textContent = formatFullDate(d); // shown to staff
-      expiryEl.appendChild(opt);
-    }
-  }
-
-  // ---------- Render ----------
-  function renderCategoryTiles() {
-    categoryGridEl.innerHTML = "";
-
-    categories.forEach((cat) => {
-      const count = allItems.filter((x) => x.category === cat).length;
-
-      const btn = document.createElement("button");
-      btn.className = "tile";
-      btn.innerHTML = `
-        <div class="title">${cat}</div>
-        <div class="sub">${count} items</div>
-      `;
-      btn.onclick = () => showCategory(cat);
-      categoryGridEl.appendChild(btn);
-    });
-  }
-
-  function renderItemList(cat) {
-    itemListEl.innerHTML = "";
-
-    const list = allItems.filter((x) => x.category === cat);
-    if (!list.length) {
+  allItems
+    .filter(x => x.category === cat)
+    .forEach(it => {
       const li = document.createElement("li");
-      li.textContent = "No items in this category";
-      li.style.cursor = "default";
-      itemListEl.appendChild(li);
-      return;
-    }
-
-    list.forEach((it) => {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <span>${it.name}</span>
-        <span class="pill">Update</span>
-      `;
+      li.textContent = it.name;
       li.onclick = () => showItemForm(it);
       itemListEl.appendChild(li);
     });
+}
+
+function renderExpiryList(list) {
+  expiryListEl.innerHTML = "";
+
+  if (!list.length) {
+    expiryListEl.innerHTML = "<li>No expiring items ✅</li>";
+    return;
   }
 
-  function renderExpiryList(list) {
-    expiryListEl.innerHTML = "";
+  list.forEach(x => {
+    const li = document.createElement("li");
+    const d = new Date(x.expiry);
+    const nice = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${nice}`;
+    expiryListEl.appendChild(li);
+  });
+}
 
-    if (!list.length) {
-      expiryListEl.innerHTML = "<li>No expiring items ✅</li>";
-      return;
-    }
+function renderLowStock(list) {
+  lowStockListEl.innerHTML = "";
 
-    list.forEach((x) => {
-      const li = document.createElement("li");
-
-      const d = new Date(x.expiry);
-      const niceDate = formatFullDate(d);
-
-      li.textContent = `${x.name} — Qty ${x.quantity} — Exp ${niceDate}`;
-      expiryListEl.appendChild(li);
-    });
+  if (!list.length) {
+    lowStockListEl.innerHTML = "<li>No low stock items ✅</li>";
+    return;
   }
 
-  function renderLowStock(list) {
-    lowStockListEl.innerHTML = "";
+  list.forEach(x => {
+    const li = document.createElement("li");
+    li.textContent = `${x.name} — Qty ${x.quantity} (${x.category})`;
+    lowStockListEl.appendChild(li);
+  });
+}
 
-    if (!list.length) {
-      lowStockListEl.innerHTML = "<li>No low stock items ✅</li>";
-      return;
-    }
+// ---------- API ----------
+async function loadItems() {
+  const res = await fetch("/api/items");
+  allItems = await res.json();
 
-    list.forEach((x) => {
-      const li = document.createElement("li");
-      li.textContent = `${x.name} — Qty ${x.quantity} (${x.category})`;
-      lowStockListEl.appendChild(li);
-    });
+  categories = [...new Set(allItems.map(x => x.category))];
+  renderCategoryTiles();
+}
+
+async function loadAlerts() {
+  const store = storeEl.value;
+
+  // This expects your server to return logs with: name, quantity, expiry, category
+  const res = await fetch(`/api/expiry?store=${encodeURIComponent(store)}`);
+  const data = await res.json();
+
+  renderExpiryList(data);
+
+  const lowStock = data.filter(x =>
+    Number(x.quantity) <= 2 &&
+    String(x.category || "").toLowerCase() !== "sauces" &&
+    String(x.category || "").toLowerCase() !== "sauce"
+  );
+
+  renderLowStock(lowStock);
+}
+
+async function saveLog() {
+  const staff = requireStaff();
+  if (!staff || !currentItem) return;
+
+  const store = storeEl.value;
+  const quantity = qtyEl.value;
+  const expiry = expiryEl.value; // YYYY-MM-DD from dropdown
+
+  if (!quantity) {
+    alert("Enter quantity");
+    return;
   }
 
-  // ---------- API ----------
-  async function loadItems() {
-    const res = await fetch("/api/items");
-    allItems = await res.json();
+  saveMsgEl.textContent = "Saving...";
 
-    categories = [...new Set(allItems.map((x) => x.category))];
-    renderCategoryTiles();
-  }
+  const res = await fetch("/api/log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      store,
+      staff,
+      item_id: currentItem.id,
+      quantity,
+      expiry
+    })
+  });
 
-  async function loadAlerts() {
-    const store = storeEl.value;
-    const res = await fetch(`/api/expiry?store=${encodeURIComponent(store)}`);
-    const data = await res.json();
+  saveMsgEl.textContent = res.ok ? "Saved ✅" : "Error ❌";
+  hideItemForm();
+  loadAlerts();
+}
 
-    // expiry list (today/expired)
-    renderExpiryList(data);
+// ---------- Events ----------
+btnBack.onclick = showHome;
+btnCloseItem.onclick = hideItemForm;
 
-    // low stock (<= 2) excluding sauce/sauces
-    const lowStock = data.filter((x) => {
-      const qty = Number(x.quantity);
-      const cat = String(x.category || "").toLowerCase();
-      const isSauce = cat === "sauce" || cat === "sauces";
-      return qty <= 2 && !isSauce;
-    });
+btnAlerts.onclick = showAlerts;
+btnCloseAlerts.onclick = showHome;
 
-    renderLowStock(lowStock);
-  }
+btnSave.onclick = saveLog;
 
-  async function saveLog() {
-    const session = getSession();
-    if (!session.staff) {
-      alert("Session missing. Please start session again.");
-      showSessionScreen();
-      return;
-    }
-    if (!currentItem) return;
+storeEl.onchange = () => {
+  // keep alerts updated when store changes
+  loadAlerts();
+};
 
-    const quantity = qtyEl.value;
-    const expiry = expiryEl.value;
+btnStartSession.onclick = startSession;
 
-    if (!quantity) {
-      alert("Enter quantity");
-      return;
-    }
-    if (!expiry) {
-      alert("Select expiry date");
-      return;
-    }
-
-    saveMsgEl.textContent = "Saving...";
-
-    const res = await fetch("/api/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        store: session.store,
-        staff: session.staff,
-        shift: session.shift,
-        item_id: currentItem.id,
-        quantity,
-        expiry,
-      }),
-    });
-
-    saveMsgEl.textContent = res.ok ? "Saved ✅" : "Error ❌";
-    if (res.ok) {
-      // go back to category page for faster workflow
-      showCategory(currentCategory);
-      await loadAlerts();
-    }
-  }
-
-  // ---------- Popups ----------
-  function showCheckPopupOncePerSession() {
-    const done = localStorage.getItem("precheck_popup_done");
-    if (done) return;
-
-    // both morning + afternoon (as requested)
-    const msg =
-      "PLEASE Check expired date:\n" +
-      "- chicken bacon\n" +
-      "- avocado\n" +
-      "- lettuce\n" +
-      "- flatbread";
-
-    alert(msg);
-    localStorage.setItem("precheck_popup_done", "1");
-  }
-
-  // ---------- Events ----------
-  btnStartSession.onclick = async () => {
-    const store = sessionStoreEl.value;
-    const shift = sessionShiftEl.value;
-    const staff = sessionStaffEl.value.trim();
-
-    if (!store || !shift || !staff) {
-      sessionMsgEl.textContent = "Please select store + shift and enter staff.";
-      return;
-    }
-
-    setSession({ store, shift, staff });
-
-    // sync into main UI
-    storeEl.value = store;
-    staffEl.value = staff;
-    sessionInfoEl.textContent = `Store: ${store} • Shift: ${shift}`;
-
-    showHome();
-    await loadItems();
-    await loadAlerts();
-    showCheckPopupOncePerSession();
-  };
-
-  btnBack.onclick = () => showHome();
-  btnCloseItem.onclick = () => showCategory(currentCategory);
-
-  btnSave.onclick = saveLog;
-
-  btnOpenAlerts.onclick = async () => {
-    showAlerts();
-    await loadAlerts();
-  };
-
-  btnBackFromAlerts.onclick = () => showHome();
-
-  // ---------- Init ----------
-  resetIfNewDay();
-
-  const session = getSession();
-  if (!session.store || !session.shift || !session.staff) {
-    showSessionScreen();
-  } else {
-    // restore session
+// ---------- Init ----------
+document.addEventListener("DOMContentLoaded", () => {
+  // restore session if exists
+  if (loadSessionFromStorage()) {
+    // apply session to main UI
     storeEl.value = session.store;
     staffEl.value = session.staff;
     sessionInfoEl.textContent = `Store: ${session.store} • Shift: ${session.shift}`;
 
+    showAppShell();
     showHome();
-
-    loadItems()
-      .then(loadAlerts)
-      .then(() => showCheckPopupOncePerSession())
-      .catch(() => {
-        // if something fails, still show UI
-      });
+    loadItems().then(loadAlerts);
+  } else {
+    showSessionScreen();
   }
 });
