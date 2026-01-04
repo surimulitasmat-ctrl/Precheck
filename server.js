@@ -33,7 +33,8 @@ app.get("/health", async (req, res) => {
 // Get all items
 app.get("/api/items", async (req, res) => {
   const { rows } = await pool.query(
-    "select id, name, category from items order by category, name"
+    "select id, name, category, shelf_life_days from items order by category, name"
+
   );
   res.json(rows);
 });
