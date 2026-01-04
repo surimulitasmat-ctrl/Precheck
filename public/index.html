@@ -1,171 +1,252 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PreCheck</title>
-
-  <!-- Styles -->
-  <link rel="stylesheet" href="style.css?v=6" />
-
-  <!-- PWA -->
-  <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#0B6B3A">
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    :root{
+      --green:#0f7a3a;
+      --yellow:#f3c623;
+      --bg:#f5f6f7;
+      --card:#ffffff;
+      --text:#111;
+      --muted:#667085;
+      --border:#e6e7ea;
+      --shadow:0 6px 18px rgba(16,24,40,.08);
+      --radius:18px;
+    }
+    body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
+    .topbar{
+      background:var(--green);
+      color:#fff;
+      padding:14px 16px;
+      font-weight:800;
+      font-size:20px;
+      position:sticky;
+      top:0;
+      z-index:10;
+    }
+    .wrap{max-width:680px;margin:0 auto;padding:14px;}
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:14px;
+      margin-bottom:14px;
+    }
+    .hidden{display:none !important;}
+    .row{display:flex;gap:12px;align-items:center;}
+    .col{flex:1;}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+    input,select{
+      width:100%;
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      font-size:16px;
+      outline:none;
+      background:#fff;
+    }
+    input:focus,select:focus{border-color:#b8c6ff;}
+    .btn{
+      background:var(--yellow);
+      border:none;
+      padding:12px 14px;
+      border-radius:14px;
+      font-weight:800;
+      cursor:pointer;
+      width:100%;
+      font-size:16px;
+    }
+    .btn.secondary{
+      background:#fff;
+      border:1px solid var(--border);
+      color:#111;
+      font-weight:700;
+    }
+    .mini{font-size:12px;color:var(--muted);}
+    h2{margin:0 0 10px 0;color:var(--green);font-size:18px;}
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:12px;
+    }
+    .tile{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:14px;
+      text-align:left;
+      cursor:pointer;
+      box-shadow:0 6px 18px rgba(16,24,40,.06);
+    }
+    .tile .title{font-weight:900;font-size:16px;margin-bottom:6px;color:#111;}
+    .tile .sub{color:var(--muted);font-weight:700;font-size:13px;}
+    ul{list-style:none;padding:0;margin:0;}
+    li{
+      padding:12px 10px;
+      border-top:1px solid var(--border);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      cursor:pointer;
+    }
+    li:first-child{border-top:none;}
+    .pill{
+      font-size:12px;
+      font-weight:800;
+      padding:6px 10px;
+      border-radius:999px;
+      background:#f2f4f7;
+      color:#111;
+      white-space:nowrap;
+    }
+    .navRow{display:flex;gap:10px;margin-top:10px;}
+    .navRow .btn{width:auto;flex:1;}
+    .divider{height:1px;background:var(--border);margin:12px 0;}
+  </style>
 </head>
 
 <body>
+  <div class="topbar" id="topBar">PreCheck</div>
 
-  <!-- TOP BAR -->
-  <header id="topBar" class="topbar">
-    <div class="topbar-title">PreCheck</div>
-  </header>
+  <div class="wrap">
 
-  <main class="container">
-
-    <!-- ================= SESSION SCREEN ================= -->
-    <section id="sessionScreen" class="card hidden">
-      <h2 class="h2">Start Session</h2>
-
+    <!-- SESSION SCREEN -->
+    <section class="card" id="sessionScreen">
+      <h2>Start Session</h2>
       <div class="row">
-        <label class="label">Store</label>
-        <select id="sessionStore" class="input">
-          <option value="">Select store</option>
-          <option value="PDD">PDD</option>
-          <option value="SKH">SKH</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <label class="label">Shift</label>
-        <select id="sessionShift" class="input">
-          <option value="">Select shift</option>
-          <option value="Morning">Morning</option>
-          <option value="Afternoon">Afternoon</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <label class="label">Staff</label>
-        <input id="sessionStaff" class="input" placeholder="e.g. 59 - suri" />
-      </div>
-
-      <button id="btnStartSession" class="btn primary">Start</button>
-      <div id="sessionMsg" class="mini" style="margin-top:8px;"></div>
-    </section>
-
-    <!-- ================= HOME ================= -->
-    <div id="home" class="hidden">
-
-      <!-- Hidden Store/Staff (used by backend) -->
-      <section class="card">
-        <div class="row">
-          <label class="label">Store</label>
-          <select id="store" class="input">
+        <div class="col">
+          <label>Store</label>
+          <select id="sessionStore">
+            <option value="">Select store</option>
             <option value="PDD">PDD</option>
             <option value="SKH">SKH</option>
           </select>
         </div>
-
-        <div class="row">
-          <label class="label">Staff</label>
-          <input id="staff" class="input" />
+        <div class="col">
+          <label>Shift</label>
+          <select id="sessionShift">
+            <option value="">Select shift</option>
+            <option value="Morning">Morning</option>
+            <option value="Afternoon">Afternoon</option>
+          </select>
         </div>
-
-        <div class="mini">Tap a category to open items</div>
-      </section>
-
-      <!-- Categories -->
-      <section class="card">
-        <div class="row space">
-          <h2 class="h2" style="margin:0;">Categories</h2>
-          <button id="btnOpenAlerts" class="btn">Alerts</button>
-        </div>
-
-        <div id="categoryGrid" class="grid">
-          <!-- filled by JS -->
-        </div>
-      </section>
-
-      <div class="mini footer">PreCheck • Daily Checklist</div>
-    </div>
-
-    <!-- ================= ALERTS PAGE ================= -->
-    <section id="alertsView" class="card hidden">
-      <div class="row space">
-        <div>
-          <div class="title">Alerts</div>
-          <div class="mini">Expiry & Low Stock</div>
-        </div>
-        <button id="btnAlertsBack" class="btn">Back</button>
       </div>
 
-      <section class="card" style="box-shadow:none;">
-        <h2 class="h2">Expiry Alerts</h2>
-        <ul id="expiryList" class="list"></ul>
-      </section>
+      <div style="height:10px"></div>
 
-      <section class="card" style="box-shadow:none;">
-        <h2 class="h2">Low Stock (≤ 2)</h2>
-        <ul id="lowStockList" class="list"></ul>
-      </section>
+      <label>Staff (ID - Name)</label>
+      <input id="sessionStaff" placeholder="e.g. 59 - suri" />
+
+      <div style="height:12px"></div>
+      <button class="btn" id="btnStartSession">Start</button>
+      <div class="mini" id="sessionMsg" style="margin-top:10px;"></div>
     </section>
 
-    <!-- ================= CATEGORY VIEW ================= -->
-    <section id="categoryView" class="card hidden">
-      <div class="row space">
-        <div>
-          <div id="catTitle" class="title"></div>
-          <div class="mini">Tap item to update</div>
+    <!-- HOME -->
+    <section class="card hidden" id="homeScreen">
+      <div class="row">
+        <div class="col">
+          <label>Store</label>
+          <select id="store" disabled>
+            <option value="PDD">PDD</option>
+            <option value="SKH">SKH</option>
+          </select>
         </div>
-        <button id="btnBack" class="btn">Back</button>
+        <div class="col">
+          <label>Staff</label>
+          <input id="staff" disabled />
+        </div>
       </div>
 
-      <ul id="itemList" class="list"></ul>
-    </section>
-
-    <!-- ================= ITEM FORM ================= -->
-    <section id="itemForm" class="card hidden">
-      <div class="row space">
-        <div>
-          <div id="itemTitle" class="title"></div>
-          <div id="itemMeta" class="mini"></div>
-        </div>
-        <button id="btnCloseItem" class="btn">Close</button>
-      </div>
+      <div class="divider"></div>
 
       <div class="row">
-        <label class="label">Quantity</label>
-        <input id="qty" class="input" type="number" min="0" />
+        <div class="col">
+          <div class="mini" id="sessionInfo"></div>
+        </div>
+        <div class="col" style="text-align:right;">
+          <button class="btn secondary" id="btnOpenAlerts" style="width:auto;">Alerts</button>
+        </div>
       </div>
-
-      <div class="row">
-        <label>Expiry Date</label>
-<select id="expiry"></select>
- class="input" type="date" />
-      </div>
-
-      <button id="btnSave" class="btn primary">Save</button>
-      <div id="saveMsg" class="mini" style="margin-top:8px;"></div>
     </section>
 
-  </main>
+    <!-- HOME: CATEGORY TILES -->
+    <section class="card hidden" id="home">
+      <h2>Categories</h2>
+      <div class="grid" id="categoryGrid">
+        <!-- filled by JS -->
+      </div>
+    </section>
 
-  <!-- ================= SHIFT POPUP ================= -->
-  <div id="shiftPopup" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-title">PLEASE Check expired date:</div>
-      <ul class="modal-list">
-        <li>Chicken bacon</li>
-        <li>Avocado</li>
-        <li>Lettuce</li>
-        <li>Flatbread</li>
-      </ul>
-      <button id="btnClosePopup" class="btn primary" style="width:100%;">OK</button>
+    <!-- CATEGORY VIEW -->
+    <section class="card hidden" id="categoryView">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div id="catTitle" style="font-weight:900;font-size:18px;"></div>
+          <div class="mini" id="catSub">Tap item to update</div>
+        </div>
+        <button class="btn secondary" id="btnBack" style="width:auto;">Back</button>
+      </div>
+
+      <div style="height:10px"></div>
+      <ul id="itemList"></ul>
+    </section>
+
+    <!-- ITEM FORM -->
+    <section class="card hidden" id="itemForm">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div id="itemTitle" style="font-weight:900;font-size:18px;"></div>
+          <div class="mini" id="itemMeta"></div>
+        </div>
+        <button class="btn secondary" id="btnCloseItem" style="width:auto;">Close</button>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <label>Quantity</label>
+      <input id="qty" type="number" inputmode="numeric" placeholder="e.g. 12" />
+
+      <div style="height:10px"></div>
+
+      <label>Expiry Date</label>
+      <select id="expiry"></select>
+
+      <div style="height:12px"></div>
+      <button class="btn" id="btnSave">Save</button>
+      <div class="mini" id="saveMsg" style="margin-top:10px;"></div>
+    </section>
+
+    <!-- ALERTS PAGE -->
+    <section class="card hidden" id="alertsScreen">
+      <div class="row" style="justify-content:space-between;">
+        <h2 style="margin:0;">Alerts</h2>
+        <button class="btn secondary" id="btnBackFromAlerts" style="width:auto;">Back</button>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <h2 style="font-size:16px;margin-top:0;">Expiry Alerts (today/expired)</h2>
+      <ul id="expiryList" class="list"></ul>
+
+      <div style="height:14px"></div>
+
+      <h2 style="font-size:16px;margin-top:0;">Low Stock (≤ 2) — excluding Sauces</h2>
+      <ul id="lowStockList" class="list"></ul>
+    </section>
+
+    <div class="mini" style="text-align:center;margin:12px 0;">
+      PreCheck Demo • Render + Supabase
     </div>
+
   </div>
 
-  <!-- App JS -->
-  <script src="app.js?v=6"></script>
-
+  <script src="app.js?v=10"></script>
 </body>
 </html>
