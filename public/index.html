@@ -1,148 +1,137 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>PreCheck</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <style>
-    :root{
-      --bg:#f6f7f9; --card:#fff; --border:#e5e7eb;
-      --text:#111827; --muted:#6b7280; --danger:#b91c1c;
-    }
-    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:var(--bg); color:var(--text); }
-    .app{ max-width:1100px; margin:0 auto; padding:14px; }
-    .topbar{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
-    h2,h3{ margin:0 0 8px 0; }
-    .muted{ color:var(--muted); font-size:13px; }
-    .card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; }
-    .grid{ display:grid; grid-template-columns: 1fr; gap:12px; }
-    @media(min-width: 980px){ .grid{ grid-template-columns: 320px 1fr; } }
-    .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .row.top{ align-items:flex-start; }
-    button,select,input{ padding:10px 12px; border-radius:12px; border:1px solid #d1d5db; font-size:14px; background:#fff; }
-    button{ font-weight:800; cursor:pointer; }
-    button.primary{ border-color:#111827; }
-    button.link{ border:none; background:transparent; padding:0; color:#111827; text-decoration:underline; cursor:pointer; font-weight:800; }
-    .pill{ padding:12px; border-radius:14px; border:1px solid var(--border); cursor:pointer; background:#fff; }
-    .pill:hover{ border-color:#cbd5e1; }
-    .pill.active{ border-color:#111827; }
-    .list{ display:flex; flex-direction:column; gap:8px; }
-    .divider{ height:1px; background:var(--border); margin:12px 0; }
-    .badge{ display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); margin-left:6px; color:var(--muted); }
-    .kbd{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size:12px; padding:2px 6px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--muted);
-    }
-    .error{ border:1px solid #fecaca; background:#fff1f2; padding:10px 12px; border-radius:12px; color:var(--danger); font-weight:700; }
-    .okbox{ border:1px solid var(--border); background:#fff; padding:10px 12px; border-radius:12px; }
-    .small{ font-size:12px; color:var(--muted); margin-top:6px; }
-
-    .modal-bg{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; padding:14px; }
-    .modal{ background:#fff; border-radius:16px; padding:16px; max-width:520px; width:100%; border:1px solid var(--border); }
-    .modal h3{ margin-bottom:6px; }
-
-    .tabs{ display:flex; gap:8px; }
-    .tab{ padding:8px 10px; border:1px solid var(--border); border-radius:999px; cursor:pointer; background:#fff; font-weight:800; }
-    .tab.active{ border-color:#111827; }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
-  <div class="app">
-    <div class="topbar">
-      <div>
-        <h2>PreCheck</h2>
-        <div class="muted">Daily expiry checklist • Staff + Manager</div>
-        <div class="row" style="margin-top:6px;">
-          <span class="muted">Staff:</span>
-          <span id="staffLabel" class="kbd">Not set</span>
-          <button class="link" onclick="App.openStaff()">Change</button>
-        </div>
-      </div>
+  <!-- Top Bar -->
+  <div id="topBar" class="topbar">
+    <div class="topbar-title">PreCheck</div>
+  </div>
 
-      <div class="row top">
-        <div>
-          <div class="muted" style="margin-bottom:6px;">Store</div>
-          <select id="storeSelect">
+  <div class="wrap">
+
+    <!-- SESSION SCREEN -->
+    <section id="sessionScreen" class="card">
+      <h2 style="margin:0 0 10px 0; color: var(--green); font-size:16px;">Start Session</h2>
+
+      <div class="row">
+        <div class="field">
+          <label>Store</label>
+          <select id="sessionStore">
+            <option value="">Select store</option>
             <option value="PDD">PDD</option>
             <option value="SKH">SKH</option>
           </select>
         </div>
 
-        <div>
-          <div class="muted" style="margin-bottom:6px;">Manager</div>
-          <div class="row">
-            <button id="mgrBtn" onclick="App.openManagerLogin()">Login</button>
-            <button id="mgrLogoutBtn" style="display:none;" onclick="App.managerLogout()">Logout</button>
-          </div>
+        <div class="field">
+          <label>Shift</label>
+          <select id="sessionShift">
+            <option value="">Select shift</option>
+            <option value="Morning">Morning</option>
+            <option value="Afternoon">Afternoon</option>
+          </select>
         </div>
       </div>
-    </div>
 
-    <div class="grid">
-      <div class="card">
-        <h3>Menu</h3>
-        <div id="nav"></div>
+      <div class="field">
+        <label>Staff (ID - name)</label>
+        <input id="sessionStaff" placeholder="e.g. 59 - suri" />
       </div>
 
-      <div class="card">
-        <h3>Screen</h3>
-        <div id="screen"></div>
-      </div>
+      <!-- IMPORTANT: no inline onclick -->
+      <button class="btn" id="btnStartSession" type="button">Start</button>
+      <div class="mini" id="sessionMsg" style="margin-top:8px;"></div>
+    </section>
+
+    <!-- APP SHELL -->
+    <div id="appShell" class="hidden">
+
+      <section class="card">
+        <div class="row" style="gap:12px;">
+          <div class="field" style="flex:1;">
+            <label>Store</label>
+            <select id="store">
+              <option value="PDD">PDD</option>
+              <option value="SKH">SKH</option>
+            </select>
+          </div>
+
+          <div class="field" style="flex:1;">
+            <label>Staff</label>
+            <input id="staff" placeholder="e.g. 59 - suri" />
+          </div>
+        </div>
+
+        <div class="row" style="justify-content:space-between; margin-top:10px;">
+          <div class="mini" id="sessionInfo"></div>
+          <button class="btn" id="btnAlerts" type="button" style="width:auto;">Alerts</button>
+        </div>
+      </section>
+
+      <section id="home" class="card">
+        <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">Categories</h2>
+        <div class="grid" id="categoryGrid"></div>
+      </section>
+
+      <section id="categoryView" class="card hidden">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div id="catTitle" style="font-weight:900; font-size:16px;"></div>
+            <div class="mini" id="catSub">Tap item to update</div>
+          </div>
+          <button class="btn" id="btnBack" type="button" style="width:auto;">Back</button>
+        </div>
+        <ul class="list" id="itemList"></ul>
+      </section>
+
+      <section id="itemForm" class="card hidden">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div id="itemTitle" style="font-weight:900; font-size:16px;"></div>
+            <div class="mini" id="itemMeta"></div>
+          </div>
+          <button class="btn" id="btnCloseItem" type="button" style="width:auto;">Close</button>
+        </div>
+
+        <div class="field" style="margin-top:12px;">
+          <label>Quantity</label>
+          <input id="qty" type="number" inputmode="numeric" placeholder="e.g. 12" />
+        </div>
+
+        <div class="field">
+          <label>Expiry</label>
+          <!-- JS will replace this with select/input depending on expiry mode -->
+          <select id="expiry"></select>
+          <div class="mini" id="expiryHelper" style="margin-top:6px;"></div>
+        </div>
+
+        <button class="btn primary" id="btnSave" type="button">Save</button>
+        <div class="mini" id="saveMsg"></div>
+      </section>
+
+      <section id="alertsView" class="card hidden">
+        <div class="row" style="justify-content:space-between;">
+          <div style="font-weight:900; font-size:16px; color: var(--green);">Alerts</div>
+          <button class="btn" id="btnCloseAlerts" type="button" style="width:auto;">Close</button>
+        </div>
+
+        <h3 style="margin:12px 0 6px 0; color: var(--green); font-size:15px;">Expiry Alerts (today/expired)</h3>
+        <ul id="expiryList" class="list"></ul>
+
+        <h3 style="margin:12px 0 6px 0; color: var(--green); font-size:15px;">Low Stock (≤ 2) — excluding Sauces</h3>
+        <ul id="lowStockList" class="list"></ul>
+      </section>
+
+      <div class="mini" style="text-align:center; margin-top:12px;">PreCheck • Render + Supabase</div>
     </div>
   </div>
 
-  <!-- Confirm Save Modal -->
-  <div class="modal-bg" id="confirmModal">
-    <div class="modal">
-      <h3>Confirm Check</h3>
-      <p class="muted">
-        Please confirm you checked correctly:
-        <br>• Correct item selected
-        <br>• Correct label/location
-        <br>• Correct expiry choice/date
-        <br>• Quantity entered (0 is allowed)
-      </p>
-      <div class="divider"></div>
-      <div class="row">
-        <button onclick="App.closeConfirm()">Cancel</button>
-        <button class="primary" onclick="App.confirmSave()">Confirm & Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Staff Modal -->
-  <div class="modal-bg" id="staffModal">
-    <div class="modal">
-      <h3>Set Staff</h3>
-      <p class="muted">Enter your staff name or ID (saved on this device).</p>
-      <div class="row" style="margin-top:10px;">
-        <input id="staffInput" type="text" placeholder="Example: Suri / 59" style="flex:1; min-width:200px;" />
-      </div>
-      <div class="divider"></div>
-      <div class="row">
-        <button onclick="App.closeStaff()">Cancel</button>
-        <button class="primary" onclick="App.saveStaff()">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manager Login Modal -->
-  <div class="modal-bg" id="mgrModal">
-    <div class="modal">
-      <h3>Manager Login</h3>
-      <p class="muted">Enter manager PIN (default: <span class="kbd">1234</span>).</p>
-      <div class="row" style="margin-top:10px;">
-        <input id="mgrPinInput" type="password" inputmode="numeric" placeholder="PIN" style="flex:1; min-width:160px;" />
-      </div>
-      <div class="divider"></div>
-      <div class="row">
-        <button onclick="App.closeManagerLogin()">Cancel</button>
-        <button class="primary" onclick="App.managerLogin()">Login</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
+  <!-- IMPORTANT: bump version to force phone refresh -->
+  <script src="app.js?v=FINAL_PHONE_1"></script>
 </body>
 </html>
