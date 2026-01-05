@@ -1,81 +1,25 @@
-const dns = require("dns");
-dns.setDefaultResultOrder("ipv4first");
-
-const express = require("express");
-const { Pool } = require("pg");
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
 app.use(express.json());
-app.use(express.static("public"));
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  // Force IPv4 so it won't try 2406:... (IPv6)
-  lookup: (hostname, options, callback) => {
-    dns.lookup(hostname, { ...options, family: 4 }, callback);
-  }
+// ---- API routes must stay ABOVE the static catch-all ----
+// IMPORTANT: keep your existing /api/items, /api/log, /api/expiry routes here
+// Example placeholder:
+// app.get("/api/items", async (req, res) => { ... });
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve /public files (index.html, app.js, style.css, icons, manifest, etc.)
+app.use(express.static(path.join(__dirname, "public")));
+
+// Always return index.html for the main app
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-
-
-
-// Test route
-app.get("/health", async (req, res) => {
-  try {
-    const r = await pool.query("select 1");
-    res.json({ status: "ok" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get all items
-app.get("/api/items", async (req, res) => {
-  const { rows } = await pool.query(
-    "select id, name, category, shelf_life_days from items order by category, name"
-
-  );
-  res.json(rows);
-});
-
-// Save stock log
-app.post("/api/log", async (req, res) => {
-  const { store, staff, item_id, quantity, expiry } = req.body;
-
-  if (!store || !staff || !item_id) {
-    return res.status(400).json({ error: "Missing data" });
-  }
-
-  await pool.query(
-    `insert into stock_logs (store, staff, item_id, quantity, expiry)
-     values ($1, $2, $3, $4, $5)`,
-    [store, staff, item_id, quantity, expiry]
-  );
-
-  res.json({ success: true });
-});
-
-// Expiring today or earlier
-app.get("/api/expiry", async (req, res) => {
-  const { store } = req.query;
-
-  const { rows } = await pool.query(
-    `
-    select i.name, s.quantity, s.expiry
-    from stock_logs s
-    join items i on i.id = s.item_id
-    where s.store = $1
-      and s.expiry <= current_date
-    order by s.expiry
-    `,
-    [store]
-  );
-
-  res.json(rows);
-});
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log("PreCheck running on port", port);
-});
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log("PreCheck running on port", PORT));
