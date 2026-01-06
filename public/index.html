@@ -14,7 +14,7 @@
 
   <div class="wrap">
 
-    <!-- SESSION SCREEN -->
+    <!-- SESSION SCREEN (first screen) -->
     <section id="sessionScreen" class="card">
       <h2 style="margin:0 0 10px 0; color: var(--green); font-size:16px;">Start Session</h2>
 
@@ -43,14 +43,14 @@
         <input id="sessionStaff" placeholder="e.g. 59 - suri" />
       </div>
 
-      <!-- IMPORTANT: no inline onclick -->
-      <button class="btn" id="btnStartSession" type="button">Start</button>
+      <button class="btn" id="btnStartSession">Start</button>
       <div class="mini" id="sessionMsg" style="margin-top:8px;"></div>
     </section>
 
     <!-- APP SHELL -->
     <div id="appShell" class="hidden">
 
+      <!-- Header card (store/staff + alerts) -->
       <section class="card">
         <div class="row" style="gap:12px;">
           <div class="field" style="flex:1;">
@@ -69,55 +69,83 @@
 
         <div class="row" style="justify-content:space-between; margin-top:10px;">
           <div class="mini" id="sessionInfo"></div>
-          <button class="btn" id="btnAlerts" type="button" style="width:auto;">Alerts</button>
+          <button class="btn" id="btnAlerts" style="width:auto;">Alerts</button>
         </div>
       </section>
 
+      <!-- HOME: category tiles -->
       <section id="home" class="card">
         <h2 style="margin:0 0 10px 0; color: var(--green); font-size:15px;">Categories</h2>
-        <div class="grid" id="categoryGrid"></div>
+        <div class="grid" id="categoryGrid"><!-- filled by JS --></div>
       </section>
 
+      <!-- SAUCE SUB-CATEGORY VIEW -->
+      <section id="sauceSubView" class="card hidden">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div style="font-weight:900; font-size:16px;" id="sauceTitle">Sauce</div>
+            <div class="mini">Select a sauce area</div>
+          </div>
+          <button class="btn" id="btnBackFromSauce" style="width:auto;">Back</button>
+        </div>
+
+        <div class="grid" id="sauceSubGrid" style="margin-top:12px;"></div>
+      </section>
+
+      <!-- CATEGORY: item list -->
       <section id="categoryView" class="card hidden">
         <div class="row" style="justify-content:space-between;">
           <div>
             <div id="catTitle" style="font-weight:900; font-size:16px;"></div>
             <div class="mini" id="catSub">Tap item to update</div>
           </div>
-          <button class="btn" id="btnBack" type="button" style="width:auto;">Back</button>
+          <button class="btn" id="btnBack" style="width:auto;">Back</button>
         </div>
+
         <ul class="list" id="itemList"></ul>
       </section>
 
+      <!-- ITEM FORM -->
       <section id="itemForm" class="card hidden">
         <div class="row" style="justify-content:space-between;">
           <div>
             <div id="itemTitle" style="font-weight:900; font-size:16px;"></div>
             <div class="mini" id="itemMeta"></div>
           </div>
-          <button class="btn" id="btnCloseItem" type="button" style="width:auto;">Close</button>
+          <button class="btn" id="btnCloseItem" style="width:auto;">Close</button>
         </div>
 
         <div class="field" style="margin-top:12px;">
-          <label>Quantity</label>
+          <label>Quantity (optional)</label>
           <input id="qty" type="number" inputmode="numeric" placeholder="e.g. 12" />
         </div>
 
-        <div class="field">
-          <label>Expiry</label>
-          <!-- JS will replace this with select/input depending on expiry mode -->
-          <select id="expiry"></select>
-          <div class="mini" id="expiryHelper" style="margin-top:6px;"></div>
+        <div class="field" id="expiryField">
+          <label id="expiryLabel">Expiry</label>
+
+          <!-- AUTO / HOURLY / HOURLY_FIXED uses select -->
+          <select id="expirySelect" class="hidden"></select>
+
+          <!-- MANUAL uses datetime-local -->
+          <input id="expiryManual" class="hidden" type="datetime-local" />
+
+          <!-- EOD uses no input -->
+          <div id="expiryEod" class="mini hidden" style="margin-top:6px;">
+            Expiry will be saved as end of day (23:59).
+          </div>
         </div>
 
-        <button class="btn primary" id="btnSave" type="button">Save</button>
+        <div class="mini" id="helperText" style="margin-top:4px;"></div>
+
+        <button class="btn primary" id="btnSave">Save</button>
         <div class="mini" id="saveMsg"></div>
       </section>
 
+      <!-- ALERTS PAGE -->
       <section id="alertsView" class="card hidden">
         <div class="row" style="justify-content:space-between;">
           <div style="font-weight:900; font-size:16px; color: var(--green);">Alerts</div>
-          <button class="btn" id="btnCloseAlerts" type="button" style="width:auto;">Close</button>
+          <button class="btn" id="btnCloseAlerts" style="width:auto;">Close</button>
         </div>
 
         <h3 style="margin:12px 0 6px 0; color: var(--green); font-size:15px;">Expiry Alerts (today/expired)</h3>
@@ -131,7 +159,7 @@
     </div>
   </div>
 
-  <!-- IMPORTANT: bump version to force phone refresh -->
-  <script src="app.js?v=FINAL_PHONE_1"></script>
+  <!-- bump v= number when you update so phone refreshes -->
+  <script src="app.js?v=11"></script>
 </body>
 </html>
