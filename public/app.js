@@ -257,10 +257,13 @@
     modalBackdrop.classList.remove("hidden");
   }
 
-  function closeModal() {
-    modalBackdrop.classList.add("hidden");
-    modalBody.innerHTML = "";
-  }
+ function closeModal() {
+  modalBackdrop.classList.add("hidden");
+  modalBackdrop.setAttribute("aria-hidden", "true");
+  modalBody.innerHTML = "";
+  modalTitle.textContent = "";
+}
+
 
   modalClose.addEventListener("click", closeModal);
   modalBackdrop.addEventListener("click", (e) => {
