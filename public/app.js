@@ -370,16 +370,20 @@
     setTopbarVisible(true);
     updateSessionPill();
 
-    main.innerHTML = `
-      <section class="grid">
-        ${CATEGORIES.map(
-          (cat) => `
-          <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
-            <div class="tile-title">${escapeHtml(cat)}</div>
-          </button>`
-        ).join("")}
-      </section>
-    `;
+   main.innerHTML = `
+  <section class="home-surface">
+    <div class="home-title">Categories</div>
+
+    <section class="grid">
+      ${CATEGORIES.map(
+        (cat) => `
+        <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
+          <div class="tile-title">${escapeHtml(cat)}</div>
+        </button>`
+      ).join("")}
+    </section>
+  </section>
+`;
 
     main.querySelectorAll("[data-cat]").forEach((btn) => {
       btn.addEventListener("click", () => {
