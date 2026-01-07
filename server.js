@@ -1,17 +1,3 @@
-// server.js (FULL FILE — copy/paste top-to-bottom)
-//
-// What this includes:
-// ✅ GET  /api/items                 -> loads from public.items
-// ✅ POST /api/log                   -> saves to public.stock_logs
-// ✅ GET  /api/expiry?store=...       -> expiry alerts for that store
-// ✅ GET  /api/low_stock?store=...    -> low stock alerts for that store
-// ✅ Serves /public and SPA catch-all
-//
-// REQUIRED ENV VARS on Render:
-// - SUPABASE_URL
-// - SUPABASE_SERVICE_ROLE_KEY   (recommended for server-side writes)
-// (If you only have SUPABASE_ANON_KEY, it may fail depending on RLS.)
-
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,24 +7,38 @@ const app = express();
 app.use(express.json());
 
 // -------------------- Supabase --------------------
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
+const SUPABASE_KEY = (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  ""
+).trim();
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).");
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
+// Only create client if env is present (prevents crash loops)
+const supabase =
+  SUPABASE_URL && SUPABASE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } })
+    : null;
+
+// -------------------- API routes (MUST stay ABOVE the static catch-all) --------------------
+
+// Health check (IMPORTANT)
+// If /health shows your home page, it means this route is missing or below the "*" catch-all.
+app.get("/health", (req, res) => {
+  if (!SUPABASE_URL) return res.status(500).send("missing SUPABASE_URL");
+  if (!SUPABASE_KEY) return res.status(500).send("missing SUPABASE_SERVICE_ROLE_KEY");
+  return res.status(200).send("ok");
 });
 
-// -------------------- API routes (MUST stay above static catch-all) --------------------
-
 // GET /api/items
-// Returns: [{id,name,category,sub_category,shelf_life_days}, ...]
 app.get("/api/items", async (req, res) => {
   try {
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
     const { data, error } = await supabase
       .from("items")
       .select("id,name,category,sub_category,shelf_life_days")
@@ -54,14 +54,10 @@ app.get("/api/items", async (req, res) => {
 });
 
 // POST /api/log
-// Body expected from your app.js:
-// {
-//   item_id, item_name, category, sub_category,
-//   store, shift, staff,
-//   quantity (nullable), expiry (ISO string)
-// }
 app.post("/api/log", async (req, res) => {
   try {
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
     const {
       item_id,
       item_name,
@@ -84,7 +80,7 @@ app.post("/api/log", async (req, res) => {
       return res.status(400).json({ error: "expiry is required" });
     }
 
-    // Quantity rules: optional; allow null; allow 0; do not block save
+    // Quantity: optional, blank allowed, 0 allowed
     let qtyToSave = null;
     if (quantity === 0) qtyToSave = 0;
     else if (quantity === "" || quantity === null || quantity === undefined) qtyToSave = null;
@@ -93,9 +89,6 @@ app.post("/api/log", async (req, res) => {
       qtyToSave = Number.isFinite(n) ? n : null;
     }
 
-    // Insert row into stock_logs
-    // NOTE: This assumes your table has these columns.
-    // If your column names differ, tell me and I’ll adjust once.
     const payload = {
       item_id,
       item_name: item_name || null,
@@ -108,32 +101,30 @@ app.post("/api/log", async (req, res) => {
       expiry, // ISO string
     };
 
-    const { data, error } = await supabase.from("stock_logs").insert(payload).select("*").single();
-    if (error) return res.status(500).json({ error: error.message });
+    const { data, error } = await supabase
+      .from("stock_logs")
+      .insert(payload)
+      .select("*")
+      .single();
 
+    if (error) return res.status(500).json({ error: error.message });
     return res.json({ ok: true, data });
   } catch (e) {
     return res.status(500).json({ error: e.message || "Failed to save log" });
   }
 });
 
-// GET /api/expiry?store=PDD|SKH
-// Returns expiry alerts for items that are:
-// - expired already, OR expiring within next 24 hours
-//
-// Assumptions:
-// - stock_logs has: store, expiry (timestamp), created_at (timestamp)
-// - expiry is stored as ISO string (timestamp) by the app
+// GET /api/expiry?store=...
 app.get("/api/expiry", async (req, res) => {
   try {
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
     const store = String(req.query.store || "").trim();
     if (!store) return res.status(400).json({ error: "store is required" });
 
     const now = new Date();
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    // We pull recent logs and filter in JS to avoid needing SQL/RPC.
-    // If you have huge volume, we can optimize later.
     const { data: logs, error } = await supabase
       .from("stock_logs")
       .select("item_id,item_name,expiry,quantity,created_at")
@@ -144,7 +135,6 @@ app.get("/api/expiry", async (req, res) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    // Take latest per item_id (so alerts reflect latest logged expiry)
     const latestByItem = new Map();
     for (const row of logs || []) {
       if (!row.item_id) continue;
@@ -155,7 +145,6 @@ app.get("/api/expiry", async (req, res) => {
     for (const row of latestByItem.values()) {
       const exp = new Date(row.expiry);
       if (isNaN(exp.getTime())) continue;
-
       if (exp <= in24h) {
         alerts.push({
           item_id: row.item_id,
@@ -167,22 +156,18 @@ app.get("/api/expiry", async (req, res) => {
       }
     }
 
-    // Sort by soonest expiry first
     alerts.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
-
     return res.json(alerts);
   } catch (e) {
     return res.status(500).json({ error: e.message || "expiry failed" });
   }
 });
 
-// GET /api/low_stock?store=PDD|SKH
-// Fastest working definition:
-// - returns items whose LATEST logged quantity (for that store) is exactly 0
-// - ignores items never logged
-// - ignores logs where quantity is null
+// GET /api/low_stock?store=...
 app.get("/api/low_stock", async (req, res) => {
   try {
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
     const store = String(req.query.store || "").trim();
     if (!store) return res.status(400).json({ error: "store is required" });
 
@@ -213,9 +198,7 @@ app.get("/api/low_stock", async (req, res) => {
       }
     }
 
-    // newest first
     low.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
     return res.json(low);
   } catch (e) {
     return res.status(500).json({ error: e.message || "low_stock failed" });
@@ -226,10 +209,8 @@ app.get("/api/low_stock", async (req, res) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Serve /public files (index.html, app.js, style.css, icons, manifest, etc.)
 app.use(express.static(path.join(__dirname, "public")));
 
-// Always return index.html for the main app
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
