@@ -1,9 +1,9 @@
-/* PreCheck - public/app.js
-   Assumes backend provides:
+/* PreCheck - public/app.js (FULL FILE — copy/paste top-to-bottom)
+   Uses Supabase items table via backend:
    - GET  /api/items
    - POST /api/log
-   - GET  /api/expiry?store=PDD|SKH
-   - GET  /api/low_stock?store=PDD|SKH   (we add this in server.js below)
+   - GET  /api/expiry?store=...
+   - GET  /api/low_stock?store=...
 */
 
 (() => {
@@ -28,27 +28,32 @@
   // Format: "24 May 2026"
   function formatDateLong(d) {
     const day = d.getDate();
-    const month = d.toLocaleString(undefined, { month: "short" }); // Jan, Feb...
+    const month = d.toLocaleString(undefined, { month: "short" });
     const year = d.getFullYear();
     return `${day} ${month} ${year}`;
   }
 
-  // Build a Date at local midnight for "today"
   function todayLocalMidnight() {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   }
 
-  // End of day today 23:59 local
   function endOfToday2359() {
     const t = todayLocalMidnight();
     return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 23, 59, 0, 0);
   }
 
-  // Convert Date -> ISO string for storage
   function toIso(d) {
     if (!(d instanceof Date) || isNaN(d.getTime())) return null;
     return d.toISOString();
+  }
+
+  function normalizeName(n) {
+    return String(n ?? "").trim();
+  }
+
+  function normalizeCat(c) {
+    return String(c ?? "").trim();
   }
 
   // -----------------------------
@@ -59,10 +64,10 @@
   const state = {
     session: null,   // { store, shift, staff }
     items: [],       // items from Supabase
-    view: {          // navigation
-      page: "session",            // session | home | category | sauce_menu | alerts
-      category: null,             // e.g. "Backroom"
-      sauceSub: null,             // "Sandwich Unit" | "Standby" | "Open Inner"
+    view: {
+      page: "session",      // session | home | sauce_menu | category | alerts
+      category: null,
+      sauceSub: null,
     },
   };
 
@@ -87,11 +92,11 @@
   }
 
   // -----------------------------
-  // Expiry mode rules (FINAL)
+  // Final menus
   // -----------------------------
   const CATEGORIES = [
     "Prepared items",
-    "Unopened chiller",
+    "Unopened chiller",        // MANUAL expiry
     "Thawing",
     "Vegetables",
     "Backroom",
@@ -101,7 +106,12 @@
     "Sauce",
   ];
 
-  // These MUST be MANUAL even if shelf life small/0
+  const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
+
+  // -----------------------------
+  // Expiry rules (FINAL)
+  // -----------------------------
+  // Forced MANUAL items (by exact name)
   const FORCE_MANUAL_NAMES = new Set([
     "Canola Oil",
     "Salt Open Inner",
@@ -119,7 +129,7 @@
     "Olive Oil",
     "Milo",
     "Tea Bag",
-    "Cajun Spice Packet", // manual by rule
+    "Cajun Spice Packet", // manual
   ]);
 
   // HOURLY_FIXED items
@@ -134,63 +144,43 @@
     "Chicken Bacon",
   ]);
 
-  // SKH-only item rule
+  // SKH-only item
   const SKH_ONLY_NAME = "Beef Taco (H)";
 
-  // Sauce subcategories (final)
-  const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
-
-  function normalizeName(n) {
-    return String(n ?? "").trim();
-  }
-
   function getEffectiveShelfLifeDays(item) {
-    // Vegetables rule:
-    // - Default AUTO
-    // - Mix Green Packet shelf life = 1 day (today + 1)
-    // - Other vegetables shelf life = 2 days (today + 1 + 2)
-    if (item.category === "Vegetables") {
-      const nm = normalizeName(item.name);
-      if (nm === "Mix Green Packet") return 1;
-      // If your Supabase has shelf_life_days filled and you want to use it, keep it.
-      // But your FINAL rule says other vegetables = 2. So enforce 2.
-      return 2;
-    }
+    // ONLY special rule left here:
+    // Cajun Spice Open Inner must be AUTO 5 days (even if DB says 0)
+    if (normalizeName(item.name) === "Cajun Spice Open Inner") return 5;
 
-    // Cajun Spice Open Inner special rule: AUTO 5 days
-    if (normalizeName(item.name) === "Cajun Spice Open Inner") {
-      return 5;
-    }
-
+    // Everything else: use Supabase shelf_life_days as truth
     const raw = Number(item.shelf_life_days);
     return Number.isFinite(raw) ? raw : 0;
   }
 
   function getExpiryMode(item) {
     const name = normalizeName(item.name);
+    const category = normalizeCat(item.category);
 
-    // Unopened chiller category is MANUAL
-    if (item.category === "Unopened chiller") return "MANUAL";
+    // Category rule: Unopened chiller is always MANUAL
+    if (category === "Unopened chiller") return "MANUAL";
 
-    // Shelf life > 7 -> MANUAL
+    // Shelf life > 7 => MANUAL
     const sl = getEffectiveShelfLifeDays(item);
     if (sl > 7) return "MANUAL";
 
     // Forced manual list
     if (FORCE_MANUAL_NAMES.has(name)) return "MANUAL";
 
-    // Hourly fixed list
+    // Hourly fixed
     if (HOURLY_FIXED_NAMES.has(name)) return "HOURLY_FIXED";
 
-    // EOD list
+    // EOD
     if (EOD_NAMES.has(name)) return "EOD";
 
-    // SKH-only Beef Taco (H): HOURLY
+    // Beef Taco (H) => HOURLY
     if (name === SKH_ONLY_NAME) return "HOURLY";
 
-    // Default modes by category:
-    // Vegetables default AUTO (handled)
-    // Otherwise default AUTO unless rules override
+    // Default => AUTO
     return "AUTO";
   }
 
@@ -205,7 +195,7 @@
   }
 
   // -----------------------------
-  // Data loading
+  // API helpers
   // -----------------------------
   async function apiGet(url) {
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
@@ -232,19 +222,17 @@
   function applyStoreRules(items) {
     const store = state.session?.store;
 
-    // Remove Beef Taco (H) for PDD
+    // SKH-only Beef Taco (H): never appear for PDD
     let out = items.filter(it => {
       const nm = normalizeName(it.name);
       if (nm === SKH_ONLY_NAME && store !== "SKH") return false;
       return true;
     });
 
-    // Ensure Beef Taco (H) is in Front counter (even if DB is wrong) for SKH:
+    // Force Beef Taco (H) category to Front counter (even if DB wrong)
     out = out.map(it => {
       const nm = normalizeName(it.name);
-      if (nm === SKH_ONLY_NAME) {
-        return { ...it, category: "Front counter" };
-      }
+      if (nm === SKH_ONLY_NAME) return { ...it, category: "Front counter" };
       return it;
     });
 
@@ -253,12 +241,11 @@
 
   async function loadItems() {
     const items = await apiGet("/api/items");
-    // Expect array of {id,name,category,sub_category,shelf_life_days}
     state.items = applyStoreRules(items || []);
   }
 
   // -----------------------------
-  // UI rendering
+  // UI nodes
   // -----------------------------
   const main = $("#main");
   const modalBackdrop = $("#modalBackdrop");
@@ -361,7 +348,6 @@
     const startBtn = $("#startBtn");
     const sessionError = $("#sessionError");
 
-    // Prefill if present
     const old = loadSession();
     if (old) {
       storeSelect.value = old.store || "";
@@ -398,19 +384,17 @@
   }
 
   // -----------------------------
-  // Home categories
+  // Home
   // -----------------------------
   function renderHome() {
     setTopbarVisible(true);
     updateSessionPill();
 
-    const tiles = CATEGORIES.map(cat => {
-      return `
-        <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
-          <div class="tile-title">${escapeHtml(cat)}</div>
-        </button>
-      `;
-    }).join("");
+    const tiles = CATEGORIES.map(cat => `
+      <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
+        <div class="tile-title">${escapeHtml(cat)}</div>
+      </button>
+    `).join("");
 
     main.innerHTML = `
       <section class="grid">
@@ -475,17 +459,17 @@
   }
 
   // -----------------------------
-  // Category item list
+  // Category list
   // -----------------------------
   function getItemsForCurrentList() {
     const { category, sauceSub } = state.view;
-    let list = state.items.filter(it => it.category === category);
+
+    let list = state.items.filter(it => normalizeCat(it.category) === category);
 
     if (category === "Sauce") {
       list = list.filter(it => (it.sub_category || "") === (sauceSub || ""));
     }
 
-    // Sort by name
     list.sort((a, b) => normalizeName(a.name).localeCompare(normalizeName(b.name)));
     return list;
   }
@@ -540,10 +524,10 @@
   }
 
   // -----------------------------
-  // Expiry inputs by mode
+  // Expiry input builders
   // -----------------------------
   function buildAutoDateOptions(shelfLifeDays) {
-    // If shelf life = N → dropdown shows N+1 options (Today … Today+N)
+    // If shelf life = N => options N+1 (Today..Today+N)
     const base = todayLocalMidnight();
     const options = [];
     for (let i = 0; i <= shelfLifeDays; i++) {
@@ -562,17 +546,15 @@
       for (let m = 0; m < 60; m += stepMinutes) {
         const hh = pad2(h);
         const mm = pad2(m);
-        // label in 12h format with AM/PM
         const d = new Date(2000, 0, 1, h, m, 0, 0);
         const label = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-        opts.push({ label, value: `${hh}:${mm}` }); // 24h
+        opts.push({ label, value: `${hh}:${mm}` });
       }
     }
     return opts;
   }
 
   function buildHourlyFixedOptions() {
-    // ONLY these 4 options
     return [
       { label: "11:00 AM", value: "11:00" },
       { label: "3:00 PM", value: "15:00" },
@@ -581,15 +563,18 @@
     ];
   }
 
+  // -----------------------------
+  // Log modal
+  // -----------------------------
   function openLogModal(item) {
     const mode = getExpiryMode(item);
     const helper = getHelperText(item);
     const shelfLife = getEffectiveShelfLifeDays(item);
 
-    // For EOD: expiry auto set
     const eodIso = mode === "EOD" ? toIso(endOfToday2359()) : null;
 
     let expiryFieldHtml = "";
+
     if (mode === "AUTO") {
       const options = buildAutoDateOptions(shelfLife).map(o =>
         `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
@@ -613,7 +598,7 @@
         </div>
       `;
     } else if (mode === "EOD") {
-      const label = formatDateLong(todayLocalMidnight()) + " • 23:59";
+      const label = `${formatDateLong(todayLocalMidnight())} • 23:59`;
       expiryFieldHtml = `
         <div class="field">
           <label class="label">Expiry</label>
@@ -669,14 +654,13 @@
     $("#saveBtn").addEventListener("click", async () => {
       $("#formError").textContent = "";
 
-      // Quantity rules: optional, blank allowed, 0 allowed, never blocks save.
+      // Quantity: optional, blank allowed, 0 allowed
       const qtyRaw = $("#qtyInput")?.value;
       const qty =
         qtyRaw === "" || qtyRaw === null || qtyRaw === undefined
           ? null
           : Number(qtyRaw);
 
-      // Expiry rules by mode
       let expiryIso = null;
 
       if (mode === "AUTO") {
@@ -685,7 +669,6 @@
           $("#formError").textContent = "Please select an expiry date.";
           return;
         }
-        // Store as end-of-day? Your rule says dropdown dates; keep as 23:59 for that date to be safe.
         const [yy, mm, dd] = v.split("-").map(Number);
         const d = new Date(yy, (mm - 1), dd, 23, 59, 0, 0);
         expiryIso = toIso(d);
@@ -697,7 +680,6 @@
           $("#formError").textContent = "Please select an expiry date & time.";
           return;
         }
-        // datetime-local gives "YYYY-MM-DDTHH:mm"
         const d = new Date(v);
         if (isNaN(d.getTime())) {
           $("#formError").textContent = "Invalid date/time.";
@@ -716,11 +698,10 @@
           $("#formError").textContent = "Please select an expiry time.";
           return;
         }
-        // Combine selected time with TODAY (past allowed)
         const base = todayLocalMidnight();
         const [hh, mi] = v.split(":").map(Number);
         const d = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mi, 0, 0);
-        expiryIso = toIso(d);
+        expiryIso = toIso(d); // past allowed (do not block)
       }
 
       if (mode === "HOURLY_FIXED") {
@@ -732,25 +713,23 @@
         const base = todayLocalMidnight();
         const [hh, mi] = v.split(":").map(Number);
         const d = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mi, 0, 0);
-        expiryIso = toIso(d);
+        expiryIso = toIso(d); // past allowed
       }
 
       try {
         await apiPost("/api/log", {
           item_id: item.id,
-          item_name: item.name,        // optional convenience
-          category: item.category,      // optional convenience
+          item_name: item.name,
+          category: item.category,
           sub_category: item.sub_category || null,
           store: state.session.store,
           shift: state.session.shift,
           staff: state.session.staff,
-          quantity: qty,               // can be null or 0
-          expiry: expiryIso,           // required except EOD auto provides
+          quantity: qty,     // can be null or 0
+          expiry: expiryIso, // required (EOD provides auto)
         });
 
         closeModal();
-
-        // Optional: a small toast
         showToast("Saved");
       } catch (e) {
         $("#formError").textContent = e.message || "Save failed.";
@@ -759,7 +738,7 @@
   }
 
   // -----------------------------
-  // Alerts page
+  // Alerts
   // -----------------------------
   async function renderAlerts() {
     setTopbarVisible(true);
@@ -783,7 +762,6 @@
 
     const store = state.session.store;
 
-    // Expiry
     try {
       const expiry = await apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
       const list = Array.isArray(expiry) ? expiry : (expiry?.data || []);
@@ -792,7 +770,6 @@
       $("#expiryAlerts").textContent = `Failed to load: ${e.message}`;
     }
 
-    // Low stock
     try {
       const low = await apiGet(`/api/low_stock?store=${encodeURIComponent(store)}`);
       const list = Array.isArray(low) ? low : (low?.data || []);
@@ -803,18 +780,14 @@
   }
 
   function renderAlertList(list, kind) {
-    if (!list || list.length === 0) {
-      return `<div class="empty">No alerts.</div>`;
-    }
+    if (!list || list.length === 0) return `<div class="empty">No alerts.</div>`;
 
-    // Normalize expected fields
     const rows = list.map(x => {
       const name = x.name || x.item_name || x.item || "Item";
       const extra =
         kind === "expiry"
           ? (x.expiry ? new Date(x.expiry).toLocaleString() : (x.when || ""))
           : (x.quantity !== undefined && x.quantity !== null ? `Qty: ${x.quantity}` : "");
-
       return `
         <div class="alert-row">
           <div class="alert-name">${escapeHtml(name)}</div>
@@ -827,7 +800,7 @@
   }
 
   // -----------------------------
-  // Toast (minimal)
+  // Toast
   // -----------------------------
   let toastTimer = null;
   function showToast(msg) {
@@ -845,7 +818,7 @@
   }
 
   // -----------------------------
-  // Render router
+  // Router
   // -----------------------------
   function render() {
     if (!state.session) {
@@ -869,11 +842,11 @@
     if (state.session) {
       updateSessionPill();
       setTopbarVisible(true);
+
       try {
         await loadItems();
         state.view = { page: "home", category: null, sauceSub: null };
       } catch {
-        // If items fail, force session screen
         state.session = null;
         clearSession();
         state.view = { page: "session", category: null, sauceSub: null };
