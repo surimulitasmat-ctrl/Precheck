@@ -247,3 +247,51 @@ body {
 
 .modal-title{ color: var(--text) !important; }
 .modal-body{ color: var(--text) !important; }
+/* ===============================
+   HOME PAGE VISUAL BOOST
+   =============================== */
+
+.home-surface{
+  margin-top: 8px;
+  padding: 16px;
+  border-radius: 22px;
+  background:
+    radial-gradient(600px 300px at 20% 0%, rgba(29,185,84,0.18), transparent 60%),
+    radial-gradient(600px 300px at 80% 0%, rgba(29,185,84,0.14), transparent 60%),
+    rgba(15, 26, 20, 0.85);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+/* Make tiles brighter & clearer */
+.tile{
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255,255,255,0.14),
+      rgba(255,255,255,0.06)
+    );
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+/* Tile hover / tap feedback */
+.tile:active{
+  transform: scale(0.985);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(29,185,84,0.22),
+      rgba(29,185,84,0.10)
+    );
+}
+
+/* Tile text stronger */
+.tile-title{
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+/* Slight separation from background */
+.grid{
+  gap: 14px;
+}
