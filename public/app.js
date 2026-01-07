@@ -387,34 +387,65 @@
     });
   }
 
-  function renderHome() {
-    setTopbarVisible(true);
-    updateSessionPill();
+ function renderHome() {
+  setTopbarVisible(true);
+  updateSessionPill();
 
-    main.innerHTML = `
-      <section class="home-surface">
-        <div class="home-title">Categories</div>
+  // Count items per category (store-filtered already)
+  const counts = {};
+  for (const c of CATEGORIES) counts[c] = 0;
 
-        <section class="grid">
-          ${CATEGORIES.map(
-            (cat) => `
-            <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
-              <div class="tile-title">${escapeHtml(cat)}</div>
-            </button>`
-          ).join("")}
-        </section>
-      </section>
-    `;
-
-    main.querySelectorAll("[data-cat]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const cat = btn.getAttribute("data-cat");
-        if (cat === "Sauce") state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
-        else state.view = { page: "category", category: cat, sauceSub: null };
-        render();
-      });
-    });
+  for (const it of state.items) {
+    const cat = (it.category || "").trim();
+    if (counts[cat] !== undefined) counts[cat]++;
   }
+
+  // Tile styles (Subway-friendly colors + icons)
+  const TILE_META = {
+    "Prepared items": { tone: "green", icon: "🥪" },
+    "Unopened chiller": { tone: "blue", icon: "🧊" },
+    "Thawing": { tone: "cyan", icon: "❄️" },
+    "Vegetables": { tone: "lime", icon: "🥬" },
+    "Backroom": { tone: "orange", icon: "📦" },
+    "Back counter": { tone: "yellow", icon: "🧂" },
+    "Front counter": { tone: "red", icon: "🧾" },
+    "Back counter chiller": { tone: "teal", icon: "🧀" },
+    "Sauce": { tone: "purple", icon: "🧴" },
+  };
+
+  main.innerHTML = `
+    <section class="home-surface">
+      <div class="home-title">Categories</div>
+
+      <section class="grid tiles-grid">
+        ${CATEGORIES.map((cat) => {
+          const meta = TILE_META[cat] || { tone: "green", icon: "✅" };
+          const count = counts[cat] ?? 0;
+
+          return `
+            <button class="tile tile--${meta.tone}" data-cat="${escapeHtml(cat)}" type="button">
+              <div class="tile-top">
+                <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
+              </div>
+              <div class="tile-title">${escapeHtml(cat)}</div>
+              <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
+            </button>
+          `;
+        }).join("")}
+      </section>
+    </section>
+  `;
+
+  main.querySelectorAll("[data-cat]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cat = btn.getAttribute("data-cat");
+      if (cat === "Sauce") state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
+      else state.view = { page: "category", category: cat, sauceSub: null };
+      render();
+    });
+  });
+}
+
 
   function renderSauceMenu() {
     setTopbarVisible(true);
