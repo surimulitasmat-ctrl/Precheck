@@ -387,7 +387,7 @@
     });
   }
 
- function renderHome() {
+function renderHome() {
   setTopbarVisible(true);
   updateSessionPill();
 
@@ -445,6 +445,7 @@
     });
   });
 }
+
 
 
   function renderSauceMenu() {
