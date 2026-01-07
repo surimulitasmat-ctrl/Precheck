@@ -519,17 +519,75 @@ function renderHome() {
 
 
   // Tile styles (Subway-friendly colors + icons)
-  const TILE_META = {
-    "Prepared items": { tone: "green", icon: "🥪" },
-    "Unopened chiller": { tone: "blue", icon: "🧊" },
-    "Thawing": { tone: "cyan", icon: "❄️" },
-    "Vegetables": { tone: "lime", icon: "🥬" },
-    "Backroom": { tone: "orange", icon: "📦" },
-    "Back counter": { tone: "yellow", icon: "🧂" },
-    "Front counter": { tone: "red", icon: "🧾" },
-    "Back counter chiller": { tone: "teal", icon: "🧀" },
-    "Sauce": { tone: "purple", icon: "🧴" },
+  function renderHome() {
+  setTopbarVisible(true);
+  updateSessionPill();
+
+  // Count items per category (store-filtered already)
+  const counts = {};
+  for (const c of CATEGORIES) counts[c] = 0;
+  for (const it of state.items) {
+    const cat = (it.category || "").trim();
+    if (counts[cat] !== undefined) counts[cat]++;
+  }
+
+  const ICONS = {
+    box: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8.5 12 3 3 8.5 12 14l9-5.5Z"></path><path d="M21 8.5V16l-9 5-9-5V8.5"></path><path d="M12 14v7"></path></svg>`,
+    snow: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"></path><path d="M4.5 7.5 19.5 16.5"></path><path d="M19.5 7.5 4.5 16.5"></path><path d="M6 6l2.5 1.5"></path><path d="M18 6l-2.5 1.5"></path><path d="M6 18l2.5-1.5"></path><path d="M18 18l-2.5-1.5"></path></svg>`,
+    leaf: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-8 0-14 6-14 14"></path><path d="M20 4c0 10-6 16-16 16"></path><path d="M7 13c2 0 4-1 6-3"></path></svg>`,
+    bottle: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2h4"></path><path d="M10 2v3l-1 2v3c0 1-1 2-1 3v6a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-6c0-1-1-2-1-3V7l-1-2V2"></path><path d="M9 10h6"></path></svg>`,
+    counter: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M6 7v12"></path><path d="M18 7v12"></path><path d="M4 19h16"></path><path d="M9 12h6"></path></svg>`,
+    receipt: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12v20l-2-1-2 1-2-1-2 1-2-1-2 1V2Z"></path><path d="M9 7h6"></path><path d="M9 11h6"></path><path d="M9 15h4"></path></svg>`,
+    fridge: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10a2 2 0 0 1 2 2v18"></path><path d="M5 22V4a2 2 0 0 1 2-2"></path><path d="M5 12h14"></path><path d="M8 7h1"></path><path d="M8 16h1"></path></svg>`,
+    sandwich: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10c0-2 2-4 8-4s8 2 8 4"></path><path d="M5 10l1 9h12l1-9"></path><path d="M7 14h10"></path><path d="M8 6c1-2 3-3 4-3s3 1 4 3"></path></svg>`,
   };
+
+  const TILE_META = {
+    "Prepared items": { tone: "green", icon: "sandwich" },
+    "Unopened chiller": { tone: "blue", icon: "fridge" },
+    "Thawing": { tone: "cyan", icon: "snow" },
+    "Vegetables": { tone: "lime", icon: "leaf" },
+    "Backroom": { tone: "orange", icon: "box" },
+    "Back counter": { tone: "yellow", icon: "counter" },
+    "Front counter": { tone: "red", icon: "receipt" },
+    "Back counter chiller": { tone: "teal", icon: "fridge" },
+    "Sauce": { tone: "purple", icon: "bottle" },
+  };
+
+  main.innerHTML = `
+    <section class="home-surface">
+      <div class="home-title">Categories</div>
+
+      <section class="grid tiles-grid">
+        ${CATEGORIES.map((cat) => {
+          const meta = TILE_META[cat] || { tone: "green", icon: "sandwich" };
+          const count = counts[cat] ?? 0;
+          return `
+            <button class="tile tile--${meta.tone}" data-cat="${escapeHtml(cat)}" type="button">
+              <div class="tile-top">
+                <div class="tile-icon" aria-hidden="true">
+                  ${ICONS[meta.icon] || ICONS.sandwich}
+                </div>
+              </div>
+              <div class="tile-title">${escapeHtml(cat)}</div>
+              <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
+            </button>
+          `;
+        }).join("")}
+      </section>
+    </section>
+  `;
+
+  main.querySelectorAll("[data-cat]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cat = btn.getAttribute("data-cat");
+      if (cat === "Sauce") state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
+      else state.view = { page: "category", category: cat, sauceSub: null };
+      render();
+    });
+  });
+}
+
 
   main.innerHTML = `
     <section class="home-surface">
