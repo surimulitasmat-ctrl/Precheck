@@ -1,6 +1,13 @@
-/* PreCheck - public/app.js (FULL FILE — copy/paste top-to-bottom) */
+/* PreCheck - public/app.js (FULL FILE — copy/paste top-to-bottom)
+   Assumes index.html contains:
+   #main, #modalBackdrop, #modalTitle, #modalBody, #modalClose
+   #btnHome, #btnAlerts, #btnLogout, #sessionPill
+*/
 
 (() => {
+  // -----------------------------
+  // DOM helpers
+  // -----------------------------
   const $ = (sel) => document.querySelector(sel);
 
   function escapeHtml(str) {
@@ -12,7 +19,9 @@
       .replaceAll("'", "&#039;");
   }
 
-  function pad2(n) { return String(n).padStart(2, "0"); }
+  function pad2(n) {
+    return String(n).padStart(2, "0");
+  }
 
   // "24 May 2026"
   function formatDateLong(d) {
@@ -27,12 +36,8 @@
     return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   }
 
-  function endOfDay2359(dateObj) {
-    return new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 23, 59, 0, 0);
-  }
-
-  function endOfToday2359() {
-    return endOfDay2359(todayLocalMidnight());
+  function endOfDay2359(d) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0);
   }
 
   function toIso(d) {
@@ -40,19 +45,18 @@
     return d.toISOString();
   }
 
-  function normalizeName(n) { return String(n ?? "").trim(); }
-  function normalizeCat(c) { return String(c ?? "").trim(); }
+  function normalizeName(n) {
+    return String(n ?? "").trim();
+  }
+
+  function normalizeCat(c) {
+    return String(c ?? "").trim();
+  }
 
   // -----------------------------
-  // Session
+  // Session storage
   // -----------------------------
   const SESSION_KEY = "precheck_session_v1";
-
-  const state = {
-    session: null,
-    items: [],
-    view: { page: "session", category: null, sauceSub: null },
-  };
 
   function loadSession() {
     try {
@@ -61,14 +65,30 @@
       const obj = JSON.parse(raw);
       if (!obj?.store || !obj?.shift || !obj?.staff) return null;
       return obj;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
-  function saveSession(sess) { localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); }
-  function clearSession() { localStorage.removeItem(SESSION_KEY); }
+  function saveSession(sess) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(sess));
+  }
+
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+  }
 
   // -----------------------------
-  // Menus
+  // App state
+  // -----------------------------
+  const state = {
+    session: null,
+    items: [],
+    view: { page: "session", category: null, sauceSub: null }, // session | home | sauce_menu | category | alerts
+  };
+
+  // -----------------------------
+  // Final Menus
   // -----------------------------
   const CATEGORIES = [
     "Prepared items",
@@ -85,7 +105,8 @@
   const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
 
   // -----------------------------
-  // Rules
+  // Expiry rules
+  // MANUAL = DATE ONLY (no time)
   // -----------------------------
   const FORCE_MANUAL_NAMES = new Set([
     "Canola Oil",
@@ -110,16 +131,16 @@
   const HOURLY_FIXED_NAMES = new Set(["Bread", "Tomato Soup (H)", "Mushroom Soup (H)"]);
   const EOD_NAMES = new Set(["Chicken Bacon"]);
 
-  // IMPORTANT: your DB currently has "Beef Taco" in Front counter.
-  // We will treat Front counter "Beef Taco" as SKH-only hourly item (displayed as Beef Taco (H)).
+  // Your DB has "Beef Taco" in Front counter. Treat that as SKH-only HOURLY, show label "(H)".
   const BEEF_TACO_H_LABEL = "Beef Taco (H)";
-
   function isFrontCounterBeefTaco(item) {
     return normalizeCat(item.category) === "Front counter" && normalizeName(item.name) === "Beef Taco";
   }
 
   function getEffectiveShelfLifeDays(item) {
+    // Special rule: Cajun Spice Open Inner => AUTO 5 days
     if (normalizeName(item.name) === "Cajun Spice Open Inner") return 5;
+
     const raw = Number(item.shelf_life_days);
     return Number.isFinite(raw) ? raw : 0;
   }
@@ -128,22 +149,25 @@
     const name = normalizeName(item.name);
     const category = normalizeCat(item.category);
 
-    // Category rule
+    // Unopened chiller always manual date
     if (category === "Unopened chiller") return "MANUAL_DATE";
 
     // Shelf life > 7 => manual date
-    const sl = getEffectiveShelfLifeDays(item);
-    if (sl > 7) return "MANUAL_DATE";
+    if (getEffectiveShelfLifeDays(item) > 7) return "MANUAL_DATE";
 
-    // Forced manual list => manual date
+    // Forced manual names => manual date
     if (FORCE_MANUAL_NAMES.has(name)) return "MANUAL_DATE";
 
-    // Beef Taco (Front counter) => HOURLY (SKH only)
+    // Beef Taco in Front counter => HOURLY (SKH only)
     if (isFrontCounterBeefTaco(item)) return "HOURLY";
 
+    // Hourly fixed
     if (HOURLY_FIXED_NAMES.has(name)) return "HOURLY_FIXED";
+
+    // EOD
     if (EOD_NAMES.has(name)) return "EOD";
 
+    // Default AUTO
     return "AUTO";
   }
 
@@ -161,7 +185,7 @@
   // API
   // -----------------------------
   async function apiGet(url) {
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`GET ${url} failed: ${res.status}`);
     return res.json();
   }
@@ -169,12 +193,14 @@
   async function apiPost(url, body) {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
     });
     const text = await res.text();
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch {}
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {}
     if (!res.ok) throw new Error(json?.error || text || `POST ${url} failed: ${res.status}`);
     return json;
   }
@@ -189,10 +215,8 @@
         return true;
       })
       .map((it) => {
-        // For SKH, display Front counter Beef Taco as "Beef Taco (H)" label
-        if (isFrontCounterBeefTaco(it) && store === "SKH") {
-          return { ...it, name: BEEF_TACO_H_LABEL };
-        }
+        // For SKH, display it as Beef Taco (H)
+        if (isFrontCounterBeefTaco(it) && store === "SKH") return { ...it, name: BEEF_TACO_H_LABEL };
         return it;
       });
   }
@@ -203,18 +227,29 @@
   }
 
   // -----------------------------
-  // UI
+  // UI Elements
   // -----------------------------
   const main = $("#main");
   const modalBackdrop = $("#modalBackdrop");
-  const modalBody = $("#modalBody");
   const modalTitle = $("#modalTitle");
+  const modalBody = $("#modalBody");
   const modalClose = $("#modalClose");
 
   const btnHome = $("#btnHome");
   const btnAlerts = $("#btnAlerts");
   const btnLogout = $("#btnLogout");
   const sessionPill = $("#sessionPill");
+
+  // If any required nodes missing -> show error instead of blank
+  const required = { main, modalBackdrop, modalTitle, modalBody, modalClose, btnHome, btnAlerts, btnLogout, sessionPill };
+  for (const [k, v] of Object.entries(required)) {
+    if (!v) {
+      document.body.innerHTML = `<div style="padding:16px;font-family:system-ui;color:#fff;background:#111">
+        Missing required element: <b>${escapeHtml(k)}</b>. Check your <code>index.html</code> IDs.
+      </div>`;
+      return;
+    }
+  }
 
   function setTopbarVisible(visible) {
     btnHome.classList.toggle("hidden", !visible);
@@ -240,7 +275,9 @@
   }
 
   modalClose.addEventListener("click", closeModal);
-  modalBackdrop.addEventListener("click", (e) => { if (e.target === modalBackdrop) closeModal(); });
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
 
   btnHome.addEventListener("click", () => {
     state.view = { page: "home", category: null, sauceSub: null };
@@ -322,9 +359,8 @@
         return;
       }
 
-      const sess = { store, shift, staff };
-      state.session = sess;
-      saveSession(sess);
+      state.session = { store, shift, staff };
+      saveSession(state.session);
 
       try {
         await loadItems();
@@ -346,15 +382,18 @@
     setTopbarVisible(true);
     updateSessionPill();
 
-    const tiles = CATEGORIES.map(cat => `
-      <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
-        <div class="tile-title">${escapeHtml(cat)}</div>
-      </button>
-    `).join("");
+    main.innerHTML = `
+      <section class="grid">
+        ${CATEGORIES.map(
+          (cat) => `
+          <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
+            <div class="tile-title">${escapeHtml(cat)}</div>
+          </button>`
+        ).join("")}
+      </section>
+    `;
 
-    main.innerHTML = `<section class="grid">${tiles}</section>`;
-
-    main.querySelectorAll("[data-cat]").forEach(btn => {
+    main.querySelectorAll("[data-cat]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const cat = btn.getAttribute("data-cat");
         if (cat === "Sauce") state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
@@ -371,18 +410,20 @@
     setTopbarVisible(true);
     updateSessionPill();
 
-    const cards = SAUCE_SUBS.map(s => `
-      <button class="tile" data-sauce="${escapeHtml(s)}" type="button">
-        <div class="tile-title">${escapeHtml(s)}</div>
-      </button>
-    `).join("");
-
     main.innerHTML = `
       <div class="page-head">
         <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
         <div class="page-title">Sauce</div>
       </div>
-      <section class="grid">${cards}</section>
+
+      <section class="grid">
+        ${SAUCE_SUBS.map(
+          (s) => `
+          <button class="tile" data-sauce="${escapeHtml(s)}" type="button">
+            <div class="tile-title">${escapeHtml(s)}</div>
+          </button>`
+        ).join("")}
+      </section>
     `;
 
     $("#backBtn").addEventListener("click", () => {
@@ -390,7 +431,7 @@
       render();
     });
 
-    main.querySelectorAll("[data-sauce]").forEach(btn => {
+    main.querySelectorAll("[data-sauce]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const sub = btn.getAttribute("data-sauce");
         state.view = { page: "category", category: "Sauce", sauceSub: sub };
@@ -405,9 +446,11 @@
   function getItemsForCurrentList() {
     const { category, sauceSub } = state.view;
 
-    let list = state.items.filter(it => normalizeCat(it.category) === category);
+    let list = state.items.filter((it) => normalizeCat(it.category) === category);
 
-    if (category === "Sauce") list = list.filter(it => (it.sub_category || "") === (sauceSub || ""));
+    if (category === "Sauce") {
+      list = list.filter((it) => (it.sub_category || "") === (sauceSub || ""));
+    }
 
     list.sort((a, b) => normalizeName(a.name).localeCompare(normalizeName(b.name)));
     return list;
@@ -422,22 +465,30 @@
 
     const list = getItemsForCurrentList();
 
-    const rows = list.map(it => `
-      <button class="list-row" data-item-id="${it.id}" type="button">
-        <div class="list-row-main">
-          <div class="list-row-title">${escapeHtml(it.name)}</div>
-          <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
-        </div>
-        <div class="chev">›</div>
-      </button>
-    `).join("");
-
     main.innerHTML = `
       <div class="page-head">
         <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
         <div class="page-title">${escapeHtml(title)}</div>
       </div>
-      <section class="list">${rows || `<div class="empty">No items found.</div>`}</section>
+
+      <section class="list">
+        ${
+          list.length
+            ? list
+                .map(
+                  (it) => `
+          <button class="list-row" data-item-id="${it.id}" type="button">
+            <div class="list-row-main">
+              <div class="list-row-title">${escapeHtml(it.name)}</div>
+              <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
+            </div>
+            <div class="chev">›</div>
+          </button>`
+                )
+                .join("")
+            : `<div class="empty">No items found.</div>`
+        }
+      </section>
     `;
 
     $("#backBtn").addEventListener("click", () => {
@@ -446,18 +497,17 @@
       render();
     });
 
-    main.querySelectorAll("[data-item-id]").forEach(btn => {
+    main.querySelectorAll("[data-item-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = Number(btn.getAttribute("data-item-id"));
-        const item = state.items.find(x => Number(x.id) === id);
-        if (!item) return;
-        openLogModal(item);
+        const item = state.items.find((x) => Number(x.id) === id);
+        if (item) openLogModal(item);
       });
     });
   }
 
   // -----------------------------
-  // Expiry inputs
+  // Expiry input builders
   // -----------------------------
   function buildAutoDateOptions(shelfLifeDays) {
     const base = todayLocalMidnight();
@@ -476,7 +526,8 @@
     const opts = [];
     for (let h = 0; h < 24; h++) {
       for (let m = 0; m < 60; m += stepMinutes) {
-        const hh = pad2(h), mm = pad2(m);
+        const hh = pad2(h);
+        const mm = pad2(m);
         const d = new Date(2000, 0, 1, h, m, 0, 0);
         const label = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
         opts.push({ label, value: `${hh}:${mm}` });
@@ -495,19 +546,18 @@
   }
 
   // -----------------------------
-  // Log modal (IMPORTANT: MANUAL = DATE ONLY)
+  // Log modal
   // -----------------------------
   function openLogModal(item) {
     const mode = getExpiryMode(item);
-    const helper = getHelperText(item);
     const shelfLife = getEffectiveShelfLifeDays(item);
 
     let expiryFieldHtml = "";
 
     if (mode === "AUTO") {
-      const options = buildAutoDateOptions(shelfLife).map(o =>
-        `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
-      ).join("");
+      const options = buildAutoDateOptions(shelfLife)
+        .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+        .join("");
       expiryFieldHtml = `
         <div class="field">
           <label class="label">Expiry Date</label>
@@ -515,7 +565,7 @@
             <option value="">Select date</option>
             ${options}
           </select>
-          <div class="helper">${escapeHtml(helper)}</div>
+          <div class="helper">${escapeHtml(getHelperText(item))}</div>
         </div>
       `;
     }
@@ -525,7 +575,7 @@
         <div class="field">
           <label class="label">Expiry Date</label>
           <input id="expiryDate" class="input" type="date" />
-          <div class="helper">${escapeHtml(helper)}</div>
+          <div class="helper">${escapeHtml(getHelperText(item))}</div>
         </div>
       `;
     }
@@ -536,15 +586,15 @@
         <div class="field">
           <label class="label">Expiry</label>
           <div class="pill">${escapeHtml(label)}</div>
-          <div class="helper">${escapeHtml(helper)}</div>
+          <div class="helper">${escapeHtml(getHelperText(item))}</div>
         </div>
       `;
     }
 
     if (mode === "HOURLY") {
-      const options = buildHourlyTimeOptions(30).map(o =>
-        `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
-      ).join("");
+      const options = buildHourlyTimeOptions(30)
+        .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+        .join("");
       expiryFieldHtml = `
         <div class="field">
           <label class="label">Expiry Time</label>
@@ -552,15 +602,15 @@
             <option value="">Select time</option>
             ${options}
           </select>
-          <div class="helper">${escapeHtml(helper)}</div>
+          <div class="helper">${escapeHtml(getHelperText(item))}</div>
         </div>
       `;
     }
 
     if (mode === "HOURLY_FIXED") {
-      const options = buildHourlyFixedOptions().map(o =>
-        `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
-      ).join("");
+      const options = buildHourlyFixedOptions()
+        .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+        .join("");
       expiryFieldHtml = `
         <div class="field">
           <label class="label">Expiry Time</label>
@@ -568,12 +618,14 @@
             <option value="">Select time</option>
             ${options}
           </select>
-          <div class="helper">${escapeHtml(helper)}</div>
+          <div class="helper">${escapeHtml(getHelperText(item))}</div>
         </div>
       `;
     }
 
-    openModal("Log Item", `
+    openModal(
+      "Log Item",
+      `
       <div class="modal-item-title">${escapeHtml(item.name)}</div>
 
       <div class="field">
@@ -586,16 +638,14 @@
 
       <div id="formError" class="error"></div>
       <button id="saveBtn" class="btn btn-primary" type="button">Save</button>
-    `);
+    `
+    );
 
     $("#saveBtn").addEventListener("click", async () => {
       $("#formError").textContent = "";
 
       const qtyRaw = $("#qtyInput")?.value;
-      const qty =
-        qtyRaw === "" || qtyRaw === null || qtyRaw === undefined
-          ? null
-          : Number(qtyRaw);
+      const qty = qtyRaw === "" || qtyRaw === null || qtyRaw === undefined ? null : Number(qtyRaw);
 
       let expiryIso = null;
 
@@ -607,7 +657,7 @@
       }
 
       if (mode === "MANUAL_DATE") {
-        const v = $("#expiryDate").value; // YYYY-MM-DD
+        const v = $("#expiryDate").value;
         if (!v) return ($("#formError").textContent = "Please select an expiry date.");
         const [yy, mm, dd] = v.split("-").map(Number);
         expiryIso = toIso(endOfDay2359(new Date(yy, mm - 1, dd)));
@@ -642,7 +692,6 @@
           quantity: qty,
           expiry: expiryIso,
         });
-
         closeModal();
         showToast("Saved");
       } catch (e) {
@@ -652,7 +701,7 @@
   }
 
   // -----------------------------
-  // Alerts
+  // Alerts page
   // -----------------------------
   async function renderAlerts() {
     setTopbarVisible(true);
@@ -680,14 +729,14 @@
       const expiry = await apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
       $("#expiryAlerts").innerHTML = renderAlertList(expiry || [], "expiry");
     } catch (e) {
-      $("#expiryAlerts").textContent = `Failed to load: ${e.message}`;
+      $("#expiryAlerts").textContent = `Failed: ${e.message}`;
     }
 
     try {
       const low = await apiGet(`/api/low_stock?store=${encodeURIComponent(store)}`);
       $("#lowStock").innerHTML = renderAlertList(low || [], "low");
     } catch (e) {
-      $("#lowStock").textContent = `Failed to load: ${e.message}`;
+      $("#lowStock").textContent = `Failed: ${e.message}`;
     }
   }
 
@@ -695,33 +744,22 @@
     if (!list || list.length === 0) return `<div class="empty">No alerts.</div>`;
 
     return `<div class="alert-list">${
-      list.map(x => {
-        const name = x.name || `Item ${x.item_id || ""}`;
-        const extra =
-          kind === "expiry"
-            ? (x.expiry ? new Date(x.expiry).toLocaleString() : "")
-            : (x.quantity !== undefined && x.quantity !== null ? `Qty: ${x.quantity}` : "");
-        return `
-          <div class="alert-row">
-            <div class="alert-name">${escapeHtml(name)}</div>
-            <div class="alert-extra">${escapeHtml(String(extra || ""))}</div>
-          </div>
-        `;
-      }).join("")
+      list
+        .map((x) => {
+          const name = x.name || `Item ${x.item_id || ""}`;
+          const extra =
+            kind === "expiry"
+              ? (x.expiry ? new Date(x.expiry).toLocaleString() : "")
+              : (x.quantity !== undefined && x.quantity !== null ? `Qty: ${x.quantity}` : "");
+          return `
+            <div class="alert-row">
+              <div class="alert-name">${escapeHtml(name)}</div>
+              <div class="alert-extra">${escapeHtml(String(extra || ""))}</div>
+            </div>
+          `;
+        })
+        .join("")
     }</div>`;
-  }
-
-  // -----------------------------
-  // Modal
-  // -----------------------------
-  function openModal(title, html) {
-    modalTitle.textContent = title;
-    modalBody.innerHTML = html;
-    modalBackdrop.classList.remove("hidden");
-  }
-  function closeModal() {
-    modalBackdrop.classList.add("hidden");
-    modalBody.innerHTML = "";
   }
 
   // -----------------------------
@@ -743,7 +781,7 @@
   }
 
   // -----------------------------
-  // Render pages
+  // Router / Render
   // -----------------------------
   function render() {
     if (!state.session) return renderSession();
@@ -755,188 +793,6 @@
     return renderHome();
   }
 
-  function renderSession() {
-    setTopbarVisible(false);
-    main.innerHTML = `
-      <section class="card">
-        <h1 class="h1">Start Session</h1>
-
-        <div class="field">
-          <label class="label">Store</label>
-          <select id="storeSelect" class="input">
-            <option value="">Select store</option>
-            <option value="PDD">PDD</option>
-            <option value="SKH">SKH</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label class="label">Shift</label>
-          <select id="shiftSelect" class="input">
-            <option value="">Select shift</option>
-            <option value="AM">AM</option>
-            <option value="PM">PM</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label class="label">Staff</label>
-          <input id="staffInput" class="input" type="text" placeholder="Enter staff name/ID" />
-        </div>
-
-        <button id="startBtn" class="btn btn-primary" type="button">Continue</button>
-        <div id="sessionError" class="error"></div>
-      </section>
-    `;
-
-    const storeSelect = $("#storeSelect");
-    const shiftSelect = $("#shiftSelect");
-    const staffInput = $("#staffInput");
-    const startBtn = $("#startBtn");
-    const sessionError = $("#sessionError");
-
-    const old = loadSession();
-    if (old) {
-      storeSelect.value = old.store || "";
-      shiftSelect.value = old.shift || "";
-      staffInput.value = old.staff || "";
-    }
-
-    startBtn.addEventListener("click", async () => {
-      sessionError.textContent = "";
-      const store = storeSelect.value;
-      const shift = shiftSelect.value;
-      const staff = staffInput.value.trim();
-      if (!store || !shift || !staff) {
-        sessionError.textContent = "Please select Store, Shift, and enter Staff.";
-        return;
-      }
-
-      state.session = { store, shift, staff };
-      saveSession(state.session);
-
-      try {
-        await loadItems();
-      } catch (e) {
-        sessionError.textContent = `Failed to load items: ${e.message}`;
-        return;
-      }
-
-      updateSessionPill();
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
-    });
-  }
-
-  function renderHome() {
-    setTopbarVisible(true);
-    updateSessionPill();
-
-    main.innerHTML = `
-      <section class="grid">
-        ${CATEGORIES.map(cat => `
-          <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
-            <div class="tile-title">${escapeHtml(cat)}</div>
-          </button>
-        `).join("")}
-      </section>
-    `;
-
-    main.querySelectorAll("[data-cat]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const cat = btn.getAttribute("data-cat");
-        state.view = (cat === "Sauce")
-          ? { page: "sauce_menu", category: "Sauce", sauceSub: null }
-          : { page: "category", category: cat, sauceSub: null };
-        render();
-      });
-    });
-  }
-
-  function renderSauceMenu() {
-    setTopbarVisible(true);
-    updateSessionPill();
-
-    main.innerHTML = `
-      <div class="page-head">
-        <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
-        <div class="page-title">Sauce</div>
-      </div>
-      <section class="grid">
-        ${SAUCE_SUBS.map(s => `
-          <button class="tile" data-sauce="${escapeHtml(s)}" type="button">
-            <div class="tile-title">${escapeHtml(s)}</div>
-          </button>
-        `).join("")}
-      </section>
-    `;
-
-    $("#backBtn").addEventListener("click", () => {
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
-    });
-
-    main.querySelectorAll("[data-sauce]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const sub = btn.getAttribute("data-sauce");
-        state.view = { page: "category", category: "Sauce", sauceSub: sub };
-        render();
-      });
-    });
-  }
-
-  function getItemsForCurrentList() {
-    const { category, sauceSub } = state.view;
-    let list = state.items.filter(it => normalizeCat(it.category) === category);
-    if (category === "Sauce") list = list.filter(it => (it.sub_category || "") === (sauceSub || ""));
-    list.sort((a, b) => normalizeName(a.name).localeCompare(normalizeName(b.name)));
-    return list;
-  }
-
-  function renderCategoryList() {
-    setTopbarVisible(true);
-    updateSessionPill();
-
-    const { category, sauceSub } = state.view;
-    const title = category === "Sauce" ? `Sauce • ${sauceSub}` : category;
-
-    const list = getItemsForCurrentList();
-
-    main.innerHTML = `
-      <div class="page-head">
-        <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
-        <div class="page-title">${escapeHtml(title)}</div>
-      </div>
-
-      <section class="list">
-        ${list.length ? list.map(it => `
-          <button class="list-row" data-item-id="${it.id}" type="button">
-            <div class="list-row-main">
-              <div class="list-row-title">${escapeHtml(it.name)}</div>
-              <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
-            </div>
-            <div class="chev">›</div>
-          </button>
-        `).join("") : `<div class="empty">No items found.</div>`}
-      </section>
-    `;
-
-    $("#backBtn").addEventListener("click", () => {
-      state.view = (category === "Sauce")
-        ? { page: "sauce_menu", category: "Sauce", sauceSub: null }
-        : { page: "home", category: null, sauceSub: null };
-      render();
-    });
-
-    main.querySelectorAll("[data-item-id]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = Number(btn.getAttribute("data-item-id"));
-        const item = state.items.find(x => Number(x.id) === id);
-        if (item) openLogModal(item);
-      });
-    });
-  }
-
   // -----------------------------
   // Boot
   // -----------------------------
@@ -944,7 +800,6 @@
     state.session = loadSession();
 
     if (state.session) {
-      updateSessionPill();
       try {
         await loadItems();
         state.view = { page: "home", category: null, sauceSub: null };
@@ -956,29 +811,6 @@
     }
 
     render();
-  }
-
-  // Topbar modal hooks
-  const modalTitle = $("#modalTitle");
-  const modalBody = $("#modalBody");
-  const modalClose = $("#modalClose");
-  modalClose.addEventListener("click", closeModal);
-
-  const btnHome = $("#btnHome");
-  const btnAlerts = $("#btnAlerts");
-  const btnLogout = $("#btnLogout");
-  const sessionPill = $("#sessionPill");
-
-  function setTopbarVisible(visible) {
-    btnHome.classList.toggle("hidden", !visible);
-    btnAlerts.classList.toggle("hidden", !visible);
-    btnLogout.classList.toggle("hidden", !visible);
-    sessionPill.classList.toggle("hidden", !visible);
-  }
-
-  function updateSessionPill() {
-    if (!state.session) return;
-    sessionPill.textContent = `${state.session.store} • ${state.session.shift} • ${state.session.staff}`;
   }
 
   boot();
