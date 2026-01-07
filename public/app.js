@@ -778,14 +778,42 @@
   // -----------------------------
   // Router
   // -----------------------------
-  function render() {
-    if (!state.session) return renderSession();
-    if (state.view.page === "home") return renderHome();
-    if (state.view.page === "sauce_menu") return renderSauceMenu();
-    if (state.view.page === "category") return renderCategoryList();
-    if (state.view.page === "alerts") return renderAlerts();
-    return renderHome();
+function render() {
+  // Not logged in
+  if (!state.session) {
+    renderSession();
+    return;
   }
+
+  // 🔒 SAFETY: default to home if view is missing
+  if (!state.view || !state.view.page) {
+    state.view = { page: "home", category: null, sauceSub: null };
+  }
+
+  switch (state.view.page) {
+    case "home":
+      renderHome();
+      break;
+
+    case "category":
+      renderCategory();
+      break;
+
+    case "sauce_menu":
+      renderSauceMenu();
+      break;
+
+    case "alerts":
+      renderAlerts();
+      break;
+
+    default:
+      // 🔒 fallback
+      state.view = { page: "home", category: null, sauceSub: null };
+      renderHome();
+  }
+}
+
 
   // -----------------------------
   // Boot
