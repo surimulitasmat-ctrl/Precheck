@@ -218,3 +218,32 @@ body {
   border-radius: 999px;
   z-index: 60;
 }
+/* --- FORCE FIX MODAL (override any old rules / cached conflicts) --- */
+.backdrop{
+  opacity: 1 !important;              /* important: avoid dimming children */
+  background: rgba(0,0,0,0.62) !important;
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 14px !important;
+}
+
+.modal{
+  opacity: 1 !important;
+  transform: none !important;
+  width: min(560px, 100%) !important;
+  max-height: 86vh !important;
+  overflow: auto !important;
+}
+
+.modal-head{
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+
+.modal-title{ color: var(--text) !important; }
+.modal-body{ color: var(--text) !important; }
