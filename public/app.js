@@ -1,7 +1,7 @@
-/* PreCheck - public/app.js (FULL FILE — copy/paste top-to-bottom)
-   Assumes index.html contains:
-   #main, #modalBackdrop, #modalTitle, #modalBody, #modalClose
-   #btnHome, #btnAlerts, #btnLogout, #sessionPill
+/* PreCheck - public/app.js (CLEAN FULL FILE)
+   Requires these IDs in index.html:
+   main, modalBackdrop, modalTitle, modalBody, modalClose,
+   btnHome, btnAlerts, btnLogout, sessionPill
 */
 
 (() => {
@@ -38,6 +38,10 @@
 
   function endOfDay2359(d) {
     return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0);
+  }
+
+  function endOfToday2359() {
+    return endOfDay2359(todayLocalMidnight());
   }
 
   function toIso(d) {
@@ -88,7 +92,7 @@
   };
 
   // -----------------------------
-  // Final Menus
+  // Menus
   // -----------------------------
   const CATEGORIES = [
     "Prepared items",
@@ -106,7 +110,7 @@
 
   // -----------------------------
   // Expiry rules
-  // MANUAL = DATE ONLY (no time)
+  // MANUAL = DATE ONLY
   // -----------------------------
   const FORCE_MANUAL_NAMES = new Set([
     "Canola Oil",
@@ -131,16 +135,14 @@
   const HOURLY_FIXED_NAMES = new Set(["Bread", "Tomato Soup (H)", "Mushroom Soup (H)"]);
   const EOD_NAMES = new Set(["Chicken Bacon"]);
 
-  // Your DB has "Beef Taco" in Front counter. Treat that as SKH-only HOURLY, show label "(H)".
+  // DB has "Beef Taco" in Front counter
   const BEEF_TACO_H_LABEL = "Beef Taco (H)";
   function isFrontCounterBeefTaco(item) {
     return normalizeCat(item.category) === "Front counter" && normalizeName(item.name) === "Beef Taco";
   }
 
   function getEffectiveShelfLifeDays(item) {
-    // Special rule: Cajun Spice Open Inner => AUTO 5 days
     if (normalizeName(item.name) === "Cajun Spice Open Inner") return 5;
-
     const raw = Number(item.shelf_life_days);
     return Number.isFinite(raw) ? raw : 0;
   }
@@ -149,25 +151,14 @@
     const name = normalizeName(item.name);
     const category = normalizeCat(item.category);
 
-    // Unopened chiller always manual date
     if (category === "Unopened chiller") return "MANUAL_DATE";
-
-    // Shelf life > 7 => manual date
     if (getEffectiveShelfLifeDays(item) > 7) return "MANUAL_DATE";
-
-    // Forced manual names => manual date
     if (FORCE_MANUAL_NAMES.has(name)) return "MANUAL_DATE";
 
-    // Beef Taco in Front counter => HOURLY (SKH only)
     if (isFrontCounterBeefTaco(item)) return "HOURLY";
-
-    // Hourly fixed
     if (HOURLY_FIXED_NAMES.has(name)) return "HOURLY_FIXED";
-
-    // EOD
     if (EOD_NAMES.has(name)) return "EOD";
 
-    // Default AUTO
     return "AUTO";
   }
 
@@ -210,12 +201,10 @@
 
     return (items || [])
       .filter((it) => {
-        // Hide Front counter Beef Taco for PDD
-        if (isFrontCounterBeefTaco(it) && store !== "SKH") return false;
+        if (isFrontCounterBeefTaco(it) && store !== "SKH") return false; // hide on PDD
         return true;
       })
       .map((it) => {
-        // For SKH, display it as Beef Taco (H)
         if (isFrontCounterBeefTaco(it) && store === "SKH") return { ...it, name: BEEF_TACO_H_LABEL };
         return it;
       });
@@ -227,7 +216,7 @@
   }
 
   // -----------------------------
-  // UI Elements
+  // UI elements
   // -----------------------------
   const main = $("#main");
   const modalBackdrop = $("#modalBackdrop");
@@ -240,12 +229,11 @@
   const btnLogout = $("#btnLogout");
   const sessionPill = $("#sessionPill");
 
-  // If any required nodes missing -> show error instead of blank
   const required = { main, modalBackdrop, modalTitle, modalBody, modalClose, btnHome, btnAlerts, btnLogout, sessionPill };
   for (const [k, v] of Object.entries(required)) {
     if (!v) {
-      document.body.innerHTML = `<div style="padding:16px;font-family:system-ui;color:#fff;background:#111">
-        Missing required element: <b>${escapeHtml(k)}</b>. Check your <code>index.html</code> IDs.
+      document.body.innerHTML = `<div style="padding:16px;font-family:system-ui">
+        Missing required element: <b>${escapeHtml(k)}</b>. Check your index.html IDs.
       </div>`;
       return;
     }
@@ -507,7 +495,7 @@
   }
 
   // -----------------------------
-  // Expiry input builders
+  // Expiry option builders
   // -----------------------------
   function buildAutoDateOptions(shelfLifeDays) {
     const base = todayLocalMidnight();
@@ -701,7 +689,7 @@
   }
 
   // -----------------------------
-  // Alerts page
+  // Alerts
   // -----------------------------
   async function renderAlerts() {
     setTopbarVisible(true);
@@ -781,11 +769,10 @@
   }
 
   // -----------------------------
-  // Router / Render
+  // Router
   // -----------------------------
   function render() {
     if (!state.session) return renderSession();
-
     if (state.view.page === "home") return renderHome();
     if (state.view.page === "sauce_menu") return renderSauceMenu();
     if (state.view.page === "category") return renderCategoryList();
