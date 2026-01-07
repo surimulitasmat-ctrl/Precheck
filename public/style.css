@@ -295,3 +295,5 @@ body {
 .grid{
   gap: 14px;
 }
+/* Always allow hidden to hide the modal backdrop */
+.backdrop.hidden { display: none !important; }
