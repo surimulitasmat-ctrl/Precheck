@@ -1,12 +1,18 @@
 /* PreCheck - public/app.js (CLEAN FULL FILE)
-   Requires these IDs in index.html:
+   API used:
+   GET  /api/items
+   POST /api/log
+   GET  /api/expiry?store=...
+   GET  /api/low_stock?store=...   (optional)
+
+   Required IDs in index.html:
    main, modalBackdrop, modalTitle, modalBody, modalClose,
    btnHome, btnAlerts, btnLogout, sessionPill
 */
 
 (() => {
   // -----------------------------
-  // DOM helpers
+  // Helpers
   // -----------------------------
   const $ = (sel) => document.querySelector(sel);
 
@@ -49,16 +55,12 @@
     return d.toISOString();
   }
 
-  function normalizeName(n) {
-    return String(n ?? "").trim();
-  }
-
-  function normalizeCat(c) {
-    return String(c ?? "").trim();
+  function norm(s) {
+    return String(s ?? "").trim();
   }
 
   // -----------------------------
-  // Session storage
+  // Session
   // -----------------------------
   const SESSION_KEY = "precheck_session_v1";
 
@@ -83,12 +85,12 @@
   }
 
   // -----------------------------
-  // App state
+  // State
   // -----------------------------
   const state = {
     session: null,
     items: [],
-    view: { page: "session", category: null, sauceSub: null }, // session | home | sauce_menu | category | alerts
+    view: { page: "session", category: null, sauceSub: null }, // session|home|sauce_menu|category|alerts
   };
 
   // -----------------------------
@@ -110,8 +112,8 @@
 
   // -----------------------------
   // Expiry rules
-  // MANUAL = DATE ONLY
   // -----------------------------
+  // Force MANUAL (DATE ONLY)
   const FORCE_MANUAL_NAMES = new Set([
     "Canola Oil",
     "Salt Open Inner",
@@ -135,33 +137,46 @@
   const HOURLY_FIXED_NAMES = new Set(["Bread", "Tomato Soup (H)", "Mushroom Soup (H)"]);
   const EOD_NAMES = new Set(["Chicken Bacon"]);
 
-  // DB has "Beef Taco" in Front counter
   const BEEF_TACO_H_LABEL = "Beef Taco (H)";
   function isFrontCounterBeefTaco(item) {
-    return normalizeCat(item.category) === "Front counter" && normalizeName(item.name) === "Beef Taco";
+    return norm(item.category) === "Front counter" && norm(item.name) === "Beef Taco";
   }
 
+  // Shelf-life overrides
   function getEffectiveShelfLifeDays(item) {
-    if (normalizeName(item.name) === "Cajun Spice Open Inner") return 5;
+    if (norm(item.name) === "Cajun Spice Open Inner") return 5; // final rule
     const raw = Number(item.shelf_life_days);
     return Number.isFinite(raw) ? raw : 0;
   }
 
+  // Mode selection (internal only)
   function getExpiryMode(item) {
-    const name = normalizeName(item.name);
-    const category = normalizeCat(item.category);
+    const name = norm(item.name);
+    const category = norm(item.category);
 
+    // Category rule
     if (category === "Unopened chiller") return "MANUAL_DATE";
+
+    // Shelf life > 7 => MANUAL
     if (getEffectiveShelfLifeDays(item) > 7) return "MANUAL_DATE";
+
+    // Forced manual names
     if (FORCE_MANUAL_NAMES.has(name)) return "MANUAL_DATE";
 
+    // Special store-only item rule
     if (isFrontCounterBeefTaco(item)) return "HOURLY";
+
+    // Hourly fixed list
     if (HOURLY_FIXED_NAMES.has(name)) return "HOURLY_FIXED";
+
+    // EOD list
     if (EOD_NAMES.has(name)) return "EOD";
 
+    // Default
     return "AUTO";
   }
 
+  // Helper text (no big mode names)
   function getHelperText(item) {
     const mode = getExpiryMode(item);
     if (mode === "AUTO") return "Select expiry date.";
@@ -187,11 +202,14 @@
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
     });
+
     const text = await res.text();
     let json = null;
     try {
       json = text ? JSON.parse(text) : null;
-    } catch {}
+    } catch {
+      // ignore
+    }
     if (!res.ok) throw new Error(json?.error || text || `POST ${url} failed: ${res.status}`);
     return json;
   }
@@ -201,10 +219,12 @@
 
     return (items || [])
       .filter((it) => {
-        if (isFrontCounterBeefTaco(it) && store !== "SKH") return false; // hide on PDD
+        // Beef Taco (H) must NEVER appear on PDD
+        if (isFrontCounterBeefTaco(it) && store !== "SKH") return false;
         return true;
       })
       .map((it) => {
+        // Rename for SKH display only
         if (isFrontCounterBeefTaco(it) && store === "SKH") return { ...it, name: BEEF_TACO_H_LABEL };
         return it;
       });
@@ -216,7 +236,7 @@
   }
 
   // -----------------------------
-  // UI elements
+  // DOM refs
   // -----------------------------
   const main = $("#main");
   const modalBackdrop = $("#modalBackdrop");
@@ -255,15 +275,15 @@
     modalTitle.textContent = title;
     modalBody.innerHTML = html;
     modalBackdrop.classList.remove("hidden");
+    modalBackdrop.setAttribute("aria-hidden", "false");
   }
 
- function closeModal() {
-  modalBackdrop.classList.add("hidden");
-  modalBackdrop.setAttribute("aria-hidden", "true");
-  modalBody.innerHTML = "";
-  modalTitle.textContent = "";
-}
-
+  function closeModal() {
+    modalBackdrop.classList.add("hidden");
+    modalBackdrop.setAttribute("aria-hidden", "true");
+    modalBody.innerHTML = "";
+    modalTitle.textContent = "";
+  }
 
   modalClose.addEventListener("click", closeModal);
   modalBackdrop.addEventListener("click", (e) => {
@@ -285,11 +305,12 @@
     state.session = null;
     state.items = [];
     state.view = { page: "session", category: null, sauceSub: null };
+    closeModal();
     render();
   });
 
   // -----------------------------
-  // Session screen
+  // Screens
   // -----------------------------
   function renderSession() {
     setTopbarVisible(false);
@@ -366,27 +387,24 @@
     });
   }
 
-  // -----------------------------
-  // Home
-  // -----------------------------
   function renderHome() {
     setTopbarVisible(true);
     updateSessionPill();
 
-   main.innerHTML = `
-  <section class="home-surface">
-    <div class="home-title">Categories</div>
+    main.innerHTML = `
+      <section class="home-surface">
+        <div class="home-title">Categories</div>
 
-    <section class="grid">
-      ${CATEGORIES.map(
-        (cat) => `
-        <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
-          <div class="tile-title">${escapeHtml(cat)}</div>
-        </button>`
-      ).join("")}
-    </section>
-  </section>
-`;
+        <section class="grid">
+          ${CATEGORIES.map(
+            (cat) => `
+            <button class="tile" data-cat="${escapeHtml(cat)}" type="button">
+              <div class="tile-title">${escapeHtml(cat)}</div>
+            </button>`
+          ).join("")}
+        </section>
+      </section>
+    `;
 
     main.querySelectorAll("[data-cat]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -398,9 +416,6 @@
     });
   }
 
-  // -----------------------------
-  // Sauce menu
-  // -----------------------------
   function renderSauceMenu() {
     setTopbarVisible(true);
     updateSessionPill();
@@ -435,19 +450,16 @@
     });
   }
 
-  // -----------------------------
-  // Category list
-  // -----------------------------
   function getItemsForCurrentList() {
     const { category, sauceSub } = state.view;
 
-    let list = state.items.filter((it) => normalizeCat(it.category) === category);
+    let list = state.items.filter((it) => norm(it.category) === category);
 
     if (category === "Sauce") {
       list = list.filter((it) => (it.sub_category || "") === (sauceSub || ""));
     }
 
-    list.sort((a, b) => normalizeName(a.name).localeCompare(normalizeName(b.name)));
+    list.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
     return list;
   }
 
@@ -502,8 +514,9 @@
   }
 
   // -----------------------------
-  // Expiry option builders
+  // Expiry input builders
   // -----------------------------
+  // AUTO: N+1 dates (Today..Today+N)
   function buildAutoDateOptions(shelfLifeDays) {
     const base = todayLocalMidnight();
     const options = [];
@@ -517,20 +530,20 @@
     return options;
   }
 
+  // HOURLY: time dropdown (past allowed). 30-min steps.
   function buildHourlyTimeOptions(stepMinutes = 30) {
     const opts = [];
     for (let h = 0; h < 24; h++) {
       for (let m = 0; m < 60; m += stepMinutes) {
-        const hh = pad2(h);
-        const mm = pad2(m);
         const d = new Date(2000, 0, 1, h, m, 0, 0);
         const label = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-        opts.push({ label, value: `${hh}:${mm}` });
+        opts.push({ label, value: `${pad2(h)}:${pad2(m)}` });
       }
     }
     return opts;
   }
 
+  // HOURLY_FIXED
   function buildHourlyFixedOptions() {
     return [
       { label: "11:00 AM", value: "11:00" },
@@ -639,11 +652,13 @@
     $("#saveBtn").addEventListener("click", async () => {
       $("#formError").textContent = "";
 
+      // Quantity optional: blank allowed + 0 allowed
       const qtyRaw = $("#qtyInput")?.value;
       const qty = qtyRaw === "" || qtyRaw === null || qtyRaw === undefined ? null : Number(qtyRaw);
 
       let expiryIso = null;
 
+      // AUTO dropdown -> end of that selected date 23:59
       if (mode === "AUTO") {
         const v = $("#expirySelect").value;
         if (!v) return ($("#formError").textContent = "Please select an expiry date.");
@@ -651,6 +666,7 @@
         expiryIso = toIso(endOfDay2359(new Date(yy, mm - 1, dd)));
       }
 
+      // MANUAL DATE ONLY -> end of selected date 23:59
       if (mode === "MANUAL_DATE") {
         const v = $("#expiryDate").value;
         if (!v) return ($("#formError").textContent = "Please select an expiry date.");
@@ -658,10 +674,12 @@
         expiryIso = toIso(endOfDay2359(new Date(yy, mm - 1, dd)));
       }
 
+      // EOD
       if (mode === "EOD") {
         expiryIso = toIso(endOfToday2359());
       }
 
+      // HOURLY / HOURLY_FIXED -> combine today + chosen time (past allowed)
       if (mode === "HOURLY") {
         const v = $("#expiryTime").value;
         if (!v) return ($("#formError").textContent = "Please select an expiry time.");
@@ -696,7 +714,7 @@
   }
 
   // -----------------------------
-  // Alerts
+  // Alerts screen
   // -----------------------------
   async function renderAlerts() {
     setTopbarVisible(true);
@@ -744,8 +762,12 @@
           const name = x.name || `Item ${x.item_id || ""}`;
           const extra =
             kind === "expiry"
-              ? (x.expiry ? new Date(x.expiry).toLocaleString() : "")
-              : (x.quantity !== undefined && x.quantity !== null ? `Qty: ${x.quantity}` : "");
+              ? x.expiry
+                ? new Date(x.expiry).toLocaleString()
+                : ""
+              : x.quantity !== undefined && x.quantity !== null
+              ? `Qty: ${x.quantity}`
+              : "";
           return `
             <div class="alert-row">
               <div class="alert-name">${escapeHtml(name)}</div>
@@ -776,68 +798,61 @@
   }
 
   // -----------------------------
-  // Router
+  // Router (defensive)
   // -----------------------------
-function render() {
-  // Not logged in
-  if (!state.session) {
-    renderSession();
-    return;
-  }
+  function render() {
+    if (!state.session) {
+      renderSession();
+      return;
+    }
 
-  // 🔒 SAFETY: default to home if view is missing
-  if (!state.view || !state.view.page) {
-    state.view = { page: "home", category: null, sauceSub: null };
-  }
-
-  switch (state.view.page) {
-    case "home":
-      renderHome();
-      break;
-
-    case "category":
-      renderCategory();
-      break;
-
-    case "sauce_menu":
-      renderSauceMenu();
-      break;
-
-    case "alerts":
-      renderAlerts();
-      break;
-
-    default:
-      // 🔒 fallback
+    if (!state.view || !state.view.page) {
       state.view = { page: "home", category: null, sauceSub: null };
-      renderHome();
-  }
-}
+    }
 
+    switch (state.view.page) {
+      case "home":
+        renderHome();
+        break;
+      case "sauce_menu":
+        renderSauceMenu();
+        break;
+      case "category":
+        renderCategoryList();
+        break;
+      case "alerts":
+        renderAlerts();
+        break;
+      default:
+        state.view = { page: "home", category: null, sauceSub: null };
+        renderHome();
+        break;
+    }
+  }
 
   // -----------------------------
   // Boot
   // -----------------------------
- async function boot() {
-  state.session = loadSession();
+  async function boot() {
+    // Always start with modal hidden
+    closeModal();
 
-  // ✅ force hide modal if it was stuck visible
-  closeModal();
+    state.session = loadSession();
 
-  if (state.session) {
-    try {
-      await loadItems();
-      state.view = { page: "home", category: null, sauceSub: null };
-    } catch {
-      clearSession();
-      state.session = null;
+    if (state.session) {
+      try {
+        await loadItems();
+        state.view = { page: "home", category: null, sauceSub: null };
+      } catch {
+        clearSession();
+        state.session = null;
+        state.view = { page: "session", category: null, sauceSub: null };
+      }
+    } else {
       state.view = { page: "session", category: null, sauceSub: null };
     }
-  }
 
-  render();
-}
-
+    render();
   }
 
   boot();
