@@ -6,6 +6,16 @@ import { createClient } from "@supabase/supabase-js";
 const app = express();
 app.use(express.json());
 
+// -------------------- Health (MUST be before anything else) --------------------
+app.get("/health", (req, res) => {
+  res.status(200).type("text/plain").send("ok");
+});
+
+// Also provide /api/health (nice for testing if your frontend routing ever interferes)
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 // -------------------- Supabase --------------------
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
 const SUPABASE_KEY = (
@@ -14,25 +24,16 @@ const SUPABASE_KEY = (
   ""
 ).trim();
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false },
+  });
+} else {
   console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).");
 }
 
-// Only create client if env is present (prevents crash loops)
-const supabase =
-  SUPABASE_URL && SUPABASE_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } })
-    : null;
-
-// -------------------- API routes (MUST stay ABOVE the static catch-all) --------------------
-
-// Health check (IMPORTANT)
-// If /health shows your home page, it means this route is missing or below the "*" catch-all.
-app.get("/health", (req, res) => {
-  if (!SUPABASE_URL) return res.status(500).send("missing SUPABASE_URL");
-  if (!SUPABASE_KEY) return res.status(500).send("missing SUPABASE_SERVICE_ROLE_KEY");
-  return res.status(200).send("ok");
-});
+// -------------------- API routes --------------------
 
 // GET /api/items
 app.get("/api/items", async (req, res) => {
@@ -70,17 +71,11 @@ app.post("/api/log", async (req, res) => {
       expiry,
     } = req.body || {};
 
-    if (!store || !shift || !staff) {
-      return res.status(400).json({ error: "store, shift, staff are required" });
-    }
-    if (!item_id) {
-      return res.status(400).json({ error: "item_id is required" });
-    }
-    if (!expiry) {
-      return res.status(400).json({ error: "expiry is required" });
-    }
+    if (!store || !shift || !staff) return res.status(400).json({ error: "store, shift, staff are required" });
+    if (!item_id) return res.status(400).json({ error: "item_id is required" });
+    if (!expiry) return res.status(400).json({ error: "expiry is required" });
 
-    // Quantity: optional, blank allowed, 0 allowed
+    // Quantity: optional; blank allowed; 0 allowed
     let qtyToSave = null;
     if (quantity === 0) qtyToSave = 0;
     else if (quantity === "" || quantity === null || quantity === undefined) qtyToSave = null;
@@ -98,16 +93,12 @@ app.post("/api/log", async (req, res) => {
       shift,
       staff,
       quantity: qtyToSave,
-      expiry, // ISO string
+      expiry,
     };
 
-    const { data, error } = await supabase
-      .from("stock_logs")
-      .insert(payload)
-      .select("*")
-      .single();
-
+    const { data, error } = await supabase.from("stock_logs").insert(payload).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
+
     return res.json({ ok: true, data });
   } catch (e) {
     return res.status(500).json({ error: e.message || "Failed to save log" });
@@ -211,7 +202,8 @@ const __dirname = path.dirname(__filename);
 
 app.use(express.static(path.join(__dirname, "public")));
 
-app.get("*", (req, res) => {
+// IMPORTANT: Catch-all should NOT steal /api/* or /health
+app.get(/^\/(?!api\/|health$).*/, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
