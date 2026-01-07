@@ -787,21 +787,26 @@
   // -----------------------------
   // Boot
   // -----------------------------
-  async function boot() {
-    state.session = loadSession();
+ async function boot() {
+  state.session = loadSession();
 
-    if (state.session) {
-      try {
-        await loadItems();
-        state.view = { page: "home", category: null, sauceSub: null };
-      } catch {
-        clearSession();
-        state.session = null;
-        state.view = { page: "session", category: null, sauceSub: null };
-      }
+  // ✅ force hide modal if it was stuck visible
+  closeModal();
+
+  if (state.session) {
+    try {
+      await loadItems();
+      state.view = { page: "home", category: null, sauceSub: null };
+    } catch {
+      clearSession();
+      state.session = null;
+      state.view = { page: "session", category: null, sauceSub: null };
     }
+  }
 
-    render();
+  render();
+}
+
   }
 
   boot();
