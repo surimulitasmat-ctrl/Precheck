@@ -6,15 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 const app = express();
 app.use(express.json());
 
-// -------------------- Health (MUST be before anything else) --------------------
-app.get("/health", (req, res) => {
-  res.status(200).type("text/plain").send("ok");
-});
-
-// Also provide /api/health (nice for testing if your frontend routing ever interferes)
-app.get("/api/health", (req, res) => {
-  res.status(200).json({ ok: true });
-});
+// -------------------- Health --------------------
+app.get("/health", (req, res) => res.status(200).type("text/plain").send("ok"));
+app.get("/api/health", (req, res) => res.status(200).json({ ok: true }));
 
 // -------------------- Supabase --------------------
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
@@ -26,14 +20,22 @@ const SUPABASE_KEY = (
 
 let supabase = null;
 if (SUPABASE_URL && SUPABASE_KEY) {
-  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false },
-  });
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 } else {
   console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).");
 }
 
-// -------------------- API routes --------------------
+async function loadItemsMap() {
+  const { data, error } = await supabase
+    .from("items")
+    .select("id,name,category,sub_category,shelf_life_days");
+  if (error) throw new Error(error.message);
+  const map = new Map();
+  for (const it of data || []) map.set(Number(it.id), it);
+  return map;
+}
+
+// -------------------- API --------------------
 
 // GET /api/items
 app.get("/api/items", async (req, res) => {
@@ -55,27 +57,19 @@ app.get("/api/items", async (req, res) => {
 });
 
 // POST /api/log
+// IMPORTANT: insert ONLY columns that definitely exist in your stock_logs.
+// Your error proves `category` does NOT exist, so we do minimal payload.
 app.post("/api/log", async (req, res) => {
   try {
     if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
-    const {
-      item_id,
-      item_name,
-      category,
-      sub_category,
-      store,
-      shift,
-      staff,
-      quantity,
-      expiry,
-    } = req.body || {};
+    const { item_id, store, shift, staff, quantity, expiry } = req.body || {};
 
     if (!store || !shift || !staff) return res.status(400).json({ error: "store, shift, staff are required" });
     if (!item_id) return res.status(400).json({ error: "item_id is required" });
     if (!expiry) return res.status(400).json({ error: "expiry is required" });
 
-    // Quantity: optional; blank allowed; 0 allowed
+    // Quantity optional, blank allowed, 0 allowed
     let qtyToSave = null;
     if (quantity === 0) qtyToSave = 0;
     else if (quantity === "" || quantity === null || quantity === undefined) qtyToSave = null;
@@ -86,19 +80,20 @@ app.post("/api/log", async (req, res) => {
 
     const payload = {
       item_id,
-      item_name: item_name || null,
-      category: category || null,
-      sub_category: sub_category || null,
       store,
       shift,
       staff,
       quantity: qtyToSave,
-      expiry,
+      expiry, // ISO string
     };
 
-    const { data, error } = await supabase.from("stock_logs").insert(payload).select("*").single();
-    if (error) return res.status(500).json({ error: error.message });
+    const { data, error } = await supabase
+      .from("stock_logs")
+      .insert(payload)
+      .select("*")
+      .single();
 
+    if (error) return res.status(500).json({ error: error.message });
     return res.json({ ok: true, data });
   } catch (e) {
     return res.status(500).json({ error: e.message || "Failed to save log" });
@@ -106,40 +101,45 @@ app.post("/api/log", async (req, res) => {
 });
 
 // GET /api/expiry?store=...
+// Uses latest log per item_id, and joins name from items table (so no need item_name column)
 app.get("/api/expiry", async (req, res) => {
   try {
     if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-
     const store = String(req.query.store || "").trim();
     if (!store) return res.status(400).json({ error: "store is required" });
 
     const now = new Date();
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
+    const itemsMap = await loadItemsMap();
+
     const { data: logs, error } = await supabase
       .from("stock_logs")
-      .select("item_id,item_name,expiry,quantity,created_at")
+      .select("item_id,expiry,quantity,created_at")
       .eq("store", store)
       .not("expiry", "is", null)
       .order("created_at", { ascending: false })
-      .limit(2000);
+      .limit(3000);
 
     if (error) return res.status(500).json({ error: error.message });
 
     const latestByItem = new Map();
     for (const row of logs || []) {
-      if (!row.item_id) continue;
-      if (!latestByItem.has(row.item_id)) latestByItem.set(row.item_id, row);
+      const id = Number(row.item_id);
+      if (!id) continue;
+      if (!latestByItem.has(id)) latestByItem.set(id, row);
     }
 
     const alerts = [];
-    for (const row of latestByItem.values()) {
+    for (const [id, row] of latestByItem.entries()) {
       const exp = new Date(row.expiry);
       if (isNaN(exp.getTime())) continue;
+
       if (exp <= in24h) {
+        const item = itemsMap.get(id);
         alerts.push({
-          item_id: row.item_id,
-          name: row.item_name || "Item",
+          item_id: id,
+          name: item?.name || `Item ${id}`,
           expiry: row.expiry,
           quantity: row.quantity,
           created_at: row.created_at,
@@ -158,31 +158,34 @@ app.get("/api/expiry", async (req, res) => {
 app.get("/api/low_stock", async (req, res) => {
   try {
     if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-
     const store = String(req.query.store || "").trim();
     if (!store) return res.status(400).json({ error: "store is required" });
 
+    const itemsMap = await loadItemsMap();
+
     const { data: logs, error } = await supabase
       .from("stock_logs")
-      .select("item_id,item_name,quantity,created_at")
+      .select("item_id,quantity,created_at")
       .eq("store", store)
       .order("created_at", { ascending: false })
-      .limit(2000);
+      .limit(3000);
 
     if (error) return res.status(500).json({ error: error.message });
 
     const latestByItem = new Map();
     for (const row of logs || []) {
-      if (!row.item_id) continue;
-      if (!latestByItem.has(row.item_id)) latestByItem.set(row.item_id, row);
+      const id = Number(row.item_id);
+      if (!id) continue;
+      if (!latestByItem.has(id)) latestByItem.set(id, row);
     }
 
     const low = [];
-    for (const row of latestByItem.values()) {
+    for (const [id, row] of latestByItem.entries()) {
       if (row.quantity === 0) {
+        const item = itemsMap.get(id);
         low.push({
-          item_id: row.item_id,
-          name: row.item_name || "Item",
+          item_id: id,
+          name: item?.name || `Item ${id}`,
           quantity: row.quantity,
           created_at: row.created_at,
         });
