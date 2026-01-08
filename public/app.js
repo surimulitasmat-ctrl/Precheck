@@ -369,12 +369,18 @@ function openStartPopup() {
       if (!shift) return showToast("Please select shift.", true);
       if (!staff) return showToast("Please enter staff.", true);
 
-      state.session = { store, shift, staff };
-      saveSession(state.session);
+     state.session = { store, shift, staff };
+saveSession(state.session);
 
-      await loadItems();
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
+await loadItems();
+state.view = { page: "home", category: null, sauceSub: null };
+render();
+
+// show reminder popup once per session/day
+if (shouldShowStartPopup()) {
+  openStartPopup();
+}
+
     });
   }
 
