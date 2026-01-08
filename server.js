@@ -1,11 +1,18 @@
-// server.js (CommonJS)
-const express = require("express");
-const path = require("path");
-const { Pool } = require("pg");
-const crypto = require("crypto");
+// server.js (ESM)
+import express from "express";
+import path from "path";
+import crypto from "crypto";
+import pg from "pg";
+import { fileURLToPath } from "url";
+
+const { Pool } = pg;
 
 const app = express();
 app.use(express.json());
+
+// -------------------- Paths (ESM) --------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // -------------------- DB --------------------
 if (!process.env.DATABASE_URL) {
@@ -26,7 +33,7 @@ async function query(text, params) {
   }
 }
 
-// Cache stock_logs columns so inserts won't fail when your schema changes
+// Cache stock_logs columns so inserts won't fail when schema changes
 let STOCK_LOGS_COLS = null;
 async function getStockLogsCols() {
   if (STOCK_LOGS_COLS) return STOCK_LOGS_COLS;
@@ -42,9 +49,13 @@ async function getStockLogsCols() {
   return STOCK_LOGS_COLS;
 }
 
-// -------------------- Manager Token (simple stateless HMAC) --------------------
+// -------------------- Manager Token (stateless HMAC) --------------------
 function base64url(buf) {
-  return Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return Buffer.from(buf)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 function signToken(payloadObj) {
   const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
@@ -59,7 +70,9 @@ function verifyToken(token) {
     if (!payload || !sig) return null;
     const expected = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
     if (expected !== sig) return null;
-    const obj = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+
+    const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const obj = JSON.parse(json);
     if (obj.exp && Date.now() > obj.exp) return null;
     return obj;
   } catch {
@@ -78,8 +91,7 @@ function requireManager(req, res, next) {
 // -------------------- Health --------------------
 app.get("/health", (req, res) => res.send("ok"));
 
-// -------------------- Your existing APIs --------------------
-
+// -------------------- Items --------------------
 // GET /api/items
 app.get("/api/items", async (req, res) => {
   try {
@@ -96,15 +108,13 @@ app.get("/api/items", async (req, res) => {
   }
 });
 
-// POST /api/log  (insert only columns that exist in your stock_logs table)
+// -------------------- Logs --------------------
+// POST /api/log  (insert only columns that exist)
 app.post("/api/log", async (req, res) => {
   try {
     const cols = await getStockLogsCols();
-
-    // Payload from frontend (we accept extra fields, but only insert what exists)
     const body = req.body || {};
 
-    // Map common fields
     const row = {
       item_id: body.item_id ?? body.itemId ?? null,
       item_name: body.item_name ?? body.itemName ?? null,
@@ -120,7 +130,6 @@ app.post("/api/log", async (req, res) => {
       created_at: body.created_at ?? null,
     };
 
-    // Build insert lists only for existing columns
     const insertCols = [];
     const insertVals = [];
     const params = [];
@@ -148,15 +157,13 @@ app.post("/api/log", async (req, res) => {
   }
 });
 
+// -------------------- Expiry --------------------
 // GET /api/expiry?store=PDD
-// NOTE: this is a minimal example; if you already have your own, keep yours.
-// This version returns items expiring today/tomorrow based on latest log per item.
 app.get("/api/expiry", async (req, res) => {
   try {
-    const store = (req.query.store || "").toString();
+    const store = String(req.query.store || "");
     if (!store) return res.status(400).json({ error: "missing_store" });
 
-    // latest expiry per item for store
     const r = await query(
       `
       WITH latest AS (
@@ -184,6 +191,9 @@ app.get("/api/expiry", async (req, res) => {
 
 // -------------------- Manager APIs --------------------
 
+// Optional ping to confirm route is deployed
+app.get("/api/manager/ping", (req, res) => res.json({ ok: true }));
+
 // POST /api/manager/login  { pin: "8686" }
 app.post("/api/manager/login", (req, res) => {
   const pin = String((req.body && req.body.pin) || "");
@@ -200,7 +210,6 @@ app.post("/api/manager/login", (req, res) => {
   res.json({ ok: true, token });
 });
 
-// Example manager edit endpoints (optional for later UI)
 // GET manager items
 app.get("/api/manager/items", requireManager, async (req, res) => {
   try {
@@ -247,6 +256,7 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
 // -------------------- Static hosting --------------------
 app.use(express.static(path.join(__dirname, "public")));
 
+// Always return index.html for SPA routes (keep last)
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
