@@ -557,14 +557,32 @@
     const expiryAtIso = getExpiryAtFromUi(item, mode);
     if (!expiryAtIso) return;
 
-    const payload = {
-      store: state.session.store,
-      staff: state.session.staff,
-      shift: state.session.shift, // if server supports; harmless if ignored
-      item_id: Number(item.id),
-      qty: qty,
-      expiry_at: expiryAtIso,
-    };
+   const payload = {
+  // session
+  store: state.session.store,
+  staff: state.session.staff,
+  shift: state.session.shift,
+
+  // item
+  item_id: Number(item.id),
+  itemId: Number(item.id),
+  name: item.name,
+  item_name: item.name,
+  category: canonicalCategory(item.category),
+  sub_category: item.sub_category || null,
+
+  // qty (optional)
+  qty: qty,
+  quantity: qty,
+
+  // expiry (send multiple keys so server always receives what it expects)
+  expiry_at: expiryAtIso,
+  expiryAt: expiryAtIso,
+  expiry: expiryAtIso,
+  expiry_datetime: expiryAtIso,
+  expiry_date: expiryAtIso,
+};
+
 
     try {
       const r = await fetch(`${API}/api/log`, {
