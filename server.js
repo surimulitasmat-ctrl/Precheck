@@ -57,28 +57,33 @@ function base64url(buf) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
 }
+
 function signToken(payloadObj) {
   const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
   const payload = base64url(JSON.stringify(payloadObj));
   const sig = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
   return `${payload}.${sig}`;
 }
+
 function verifyToken(token) {
   try {
     const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
     const [payload, sig] = (token || "").split(".");
     if (!payload || !sig) return null;
+
     const expected = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
     if (expected !== sig) return null;
 
     const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
     const obj = JSON.parse(json);
+
     if (obj.exp && Date.now() > obj.exp) return null;
     return obj;
   } catch {
     return null;
   }
 }
+
 function requireManager(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -149,6 +154,7 @@ app.post("/api/log", async (req, res) => {
     const sql = `INSERT INTO public.stock_logs (${insertCols.join(",")})
                  VALUES (${insertVals.join(",")})
                  RETURNING *`;
+
     const r = await query(sql, params);
     res.json({ ok: true, row: r.rows[0] });
   } catch (e) {
@@ -226,6 +232,43 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
   }
 });
 
+// ✅ POST manager item (THIS FIXES YOUR 404 WHEN ADD ITEM)
+app.post("/api/manager/items", requireManager, async (req, res) => {
+  try {
+    const { name, category, sub_category, shelf_life_days } = req.body || {};
+
+    const cleanName = String(name || "").trim();
+    const cleanCategory = String(category || "").trim();
+    const cleanSub = sub_category === "" || sub_category === undefined ? null : String(sub_category).trim();
+
+    if (!cleanName || !cleanCategory) {
+      return res.status(400).json({ error: "name_and_category_required" });
+    }
+
+    const shelf = shelf_life_days === "" || shelf_life_days === null || shelf_life_days === undefined
+      ? 0
+      : Number(shelf_life_days);
+
+    if (Number.isNaN(shelf) || shelf < 0) {
+      return res.status(400).json({ error: "invalid_shelf_life_days" });
+    }
+
+    const r = await query(
+      `
+      INSERT INTO public.items (name, category, sub_category, shelf_life_days)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, name, category, sub_category, shelf_life_days
+      `,
+      [cleanName, cleanCategory, cleanSub, shelf]
+    );
+
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_create_failed", detail: String(e.message || e) });
+  }
+});
+
 // PATCH manager item
 app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
   try {
@@ -250,6 +293,19 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "manager_update_failed" });
+  }
+});
+
+// (Optional) DELETE manager item
+app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const r = await query(`DELETE FROM public.items WHERE id=$1 RETURNING id`, [id]);
+    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_delete_failed" });
   }
 });
 
