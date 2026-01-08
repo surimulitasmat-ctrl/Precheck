@@ -181,6 +181,41 @@
     if (!res.ok) throw new Error(data?.error || `${res.status} ${res.statusText}`);
     return data;
   }
+// ================= MANAGER AUTH HELPERS =================
+function getManagerToken() {
+  return localStorage.getItem("managerToken") || "";
+}
+
+function setManagerToken(token) {
+  if (token) localStorage.setItem("managerToken", token);
+  else localStorage.removeItem("managerToken");
+}
+
+async function apiManager(path, { method = "GET", body } = {}) {
+  const token = getManagerToken();
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+// ========================================================
 
   async function apiPut(url, body, extraHeaders = {}) {
     const res = await fetch(url, {
@@ -1090,7 +1125,8 @@
 
     let all = [];
     try {
-      const data = await apiGet("/api/manager/items");
+      const data = await apiManager("/api/manager/items")
+;
       all = data?.items || [];
     } catch (e) {
       $("#mgrList").innerHTML = `<div class="error">Failed: ${escapeHtml(e?.message || "")}</div>`;
