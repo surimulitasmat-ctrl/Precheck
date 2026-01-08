@@ -386,3 +386,108 @@ body{
   .tile{ padding: 14px; }
   .tile-title{ font-size: 15px; }
 }
+/* ==========================
+   PreCheck UI Polish (Paste at END)
+   ========================== */
+
+/* Better global rhythm */
+.container { padding: 14px; padding-bottom: 36px; }
+.card { margin: 12px 0; }
+.h1 { letter-spacing: -0.2px; }
+.page-title { letter-spacing: -0.2px; }
+
+/* Topbar spacing on small screens */
+.topbar { padding: 12px 14px; }
+.topbar-actions { gap: 8px; flex-wrap: wrap; }
+.btn { padding: 10px 14px; min-height: 42px; }
+.btn-primary { font-weight: 900; }
+
+/* Home surface feel */
+.home-surface {
+  padding: 14px;
+  border-radius: 22px;
+  backdrop-filter: blur(6px);
+}
+
+/* Tiles polish */
+.tiles-grid { gap: 12px; }
+
+.tile {
+  border-radius: 20px;
+  box-shadow: 0 14px 28px rgba(0,0,0,0.10);
+  transform: translateZ(0);
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+.tile:hover { filter: brightness(1.02); }
+.tile:active { transform: scale(0.985); box-shadow: 0 10px 22px rgba(0,0,0,0.10); }
+
+.tile-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  font-size: 22px;
+}
+
+.tile-title { font-size: 15px; }
+.tile-sub { font-size: 12px; opacity: 0.92; }
+
+/* Make the grid feel like an app on phones */
+@media (max-width: 420px){
+  .grid { gap: 12px; }
+  .tile { padding: 14px; border-radius: 18px; }
+  .tile-icon { width: 44px; height: 44px; border-radius: 14px; }
+  .tile-title { font-size: 14px; }
+}
+
+/* List rows polish */
+.list { gap: 10px; }
+.list-row {
+  padding: 14px 14px;
+  border-radius: 18px;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.07);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.list-row:active { transform: scale(0.992); box-shadow: 0 8px 18px rgba(0,0,0,0.07); }
+.list-row-title { font-size: 15px; letter-spacing: -0.1px; }
+.list-row-sub { font-size: 12px; }
+.chev { font-weight: 900; }
+
+/* Inputs feel */
+.input {
+  border-radius: 16px;
+  padding: 12px 12px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.05);
+}
+.input:focus {
+  border-color: rgba(0,154,68,0.45);
+  box-shadow: 0 0 0 3px rgba(0,154,68,0.12), 0 6px 14px rgba(0,0,0,0.05);
+}
+
+/* Modal polish */
+.backdrop { backdrop-filter: blur(4px); }
+.modal {
+  border-radius: 20px;
+  overflow: hidden;
+}
+.modal-head {
+  padding: 12px 14px;
+}
+.modal-title { font-size: 14px; }
+.modal-body { padding: 14px; }
+.modal-item-title { font-size: 18px; letter-spacing: -0.2px; }
+
+/* Icon button nicer */
+.icon-btn {
+  border-radius: 14px;
+  padding: 8px 10px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.06);
+}
+.icon-btn:active { transform: scale(0.98); }
+
+/* Toast polish */
+.toast {
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 900;
+  letter-spacing: -0.1px;
+}
