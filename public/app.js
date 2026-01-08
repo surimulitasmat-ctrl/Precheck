@@ -75,7 +75,7 @@
   );
 
   // EOD items
-  const EOD_ITEMS = new Set(["chicken bacon"].map(norm));
+ const EOD_ITEMS = new Set([]); // keep empty (Chicken Bacon (C) handled in getMode)
 
   // HOURLY items (time dropdown)
   // (Front counter Beef Taco treated as HOURLY for SKH; hidden for PDD)
@@ -617,38 +617,40 @@
   // ----------------------------
   // Expiry modes + UI
   // ----------------------------
-  function getMode(item) {
-    const cat = canonicalCategory(item.category);
-    const nameN = norm(item.name);
-// Chicken Bacon (C) → End of Day
-if (norm(item.name) === "chicken bacon (c)") return "EOD";
+ function getMode(item) {
+  const cat = canonicalCategory(item.category);
+  const nameN = norm(item.name);
 
-    // Unopened chiller always manual date-only
-    if (cat === "Unopened chiller") return "MANUAL_DATE";
+  // ✅ Only Chicken Bacon (C) in Prepared items is EOD
+  if (cat === "Prepared items" && nameN === "chicken bacon (c)") return "EOD";
 
-    // Always manual list
-    if (MANUAL_ALWAYS.has(nameN)) return "MANUAL_DATE";
+  // Unopened chiller always manual date-only
+  if (cat === "Unopened chiller") return "MANUAL_DATE";
 
-    // Special: Cajun Spice Open Inner AUTO 5 days
-    if (nameN === norm("Cajun Spice Open Inner")) return "AUTO";
+  // Always manual list
+  if (MANUAL_ALWAYS.has(nameN)) return "MANUAL_DATE";
 
-    // Fixed time dropdown
-    if (HOURLY_FIXED_ITEMS.has(nameN)) return "HOURLY_FIXED";
+  // Special: Cajun Spice Open Inner AUTO 5 days
+  if (nameN === norm("Cajun Spice Open Inner")) return "AUTO";
 
-    // EOD auto set 23:59 today
-    if (EOD_ITEMS.has(nameN)) return "EOD";
+  // Fixed time dropdown
+  if (HOURLY_FIXED_ITEMS.has(nameN)) return "HOURLY_FIXED";
 
-    // Front counter Beef Taco treated as HOURLY (SKH only)
-    if (canonicalCategory(item.category) === "Front counter" && nameN === norm("Beef Taco")) return "HOURLY";
-    if (HOURLY_ITEMS.has(nameN)) return "HOURLY";
+  // ⚠️ Keep this ONLY if EOD_ITEMS does NOT include "chicken bacon"
+  if (EOD_ITEMS.has(nameN)) return "EOD";
 
-    // Shelf life > 7 => manual date
-    const sl = getShelfLifeDays(item);
-    if (sl > 7) return "MANUAL_DATE";
+  // Front counter Beef Taco treated as HOURLY (SKH only)
+  if (cat === "Front counter" && nameN === norm("Beef Taco")) return "HOURLY";
+  if (HOURLY_ITEMS.has(nameN)) return "HOURLY";
 
-    // Default AUTO (date dropdown)
-    return "AUTO";
-  }
+  // Shelf life > 7 => manual date
+  const sl = getShelfLifeDays(item);
+  if (sl > 7) return "MANUAL_DATE";
+
+  // Default AUTO (date dropdown)
+  return "AUTO";
+}
+
 
   function getShelfLifeDays(item) {
     const nameN = norm(item.name);
