@@ -1,212 +1,253 @@
-import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-import { createClient } from "@supabase/supabase-js";
+// server.js (CommonJS)
+const express = require("express");
+const path = require("path");
+const { Pool } = require("pg");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
 
+// -------------------- DB --------------------
+if (!process.env.DATABASE_URL) {
+  console.error("Missing DATABASE_URL");
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+});
+
+async function query(text, params) {
+  const client = await pool.connect();
+  try {
+    return await client.query(text, params);
+  } finally {
+    client.release();
+  }
+}
+
+// Cache stock_logs columns so inserts won't fail when your schema changes
+let STOCK_LOGS_COLS = null;
+async function getStockLogsCols() {
+  if (STOCK_LOGS_COLS) return STOCK_LOGS_COLS;
+  const r = await query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='stock_logs'
+    `,
+    []
+  );
+  STOCK_LOGS_COLS = new Set(r.rows.map((x) => x.column_name));
+  return STOCK_LOGS_COLS;
+}
+
+// -------------------- Manager Token (simple stateless HMAC) --------------------
+function base64url(buf) {
+  return Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+function signToken(payloadObj) {
+  const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
+  const payload = base64url(JSON.stringify(payloadObj));
+  const sig = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
+  return `${payload}.${sig}`;
+}
+function verifyToken(token) {
+  try {
+    const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
+    const [payload, sig] = (token || "").split(".");
+    if (!payload || !sig) return null;
+    const expected = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
+    if (expected !== sig) return null;
+    const obj = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    if (obj.exp && Date.now() > obj.exp) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+function requireManager(req, res, next) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const obj = verifyToken(token);
+  if (!obj) return res.status(401).json({ error: "unauthorized" });
+  req.manager = obj;
+  next();
+}
+
 // -------------------- Health --------------------
-app.get("/health", (req, res) => res.status(200).type("text/plain").send("ok"));
-app.get("/api/health", (req, res) => res.status(200).json({ ok: true }));
+app.get("/health", (req, res) => res.send("ok"));
 
-// -------------------- Supabase --------------------
-const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
-const SUPABASE_KEY = (
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  ""
-).trim();
-
-let supabase = null;
-if (SUPABASE_URL && SUPABASE_KEY) {
-  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
-} else {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).");
-}
-
-async function loadItemsMap() {
-  const { data, error } = await supabase
-    .from("items")
-    .select("id,name,category,sub_category,shelf_life_days");
-  if (error) throw new Error(error.message);
-  const map = new Map();
-  for (const it of data || []) map.set(Number(it.id), it);
-  return map;
-}
-
-// -------------------- API --------------------
+// -------------------- Your existing APIs --------------------
 
 // GET /api/items
 app.get("/api/items", async (req, res) => {
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-
-    const { data, error } = await supabase
-      .from("items")
-      .select("id,name,category,sub_category,shelf_life_days")
-      .order("category", { ascending: true })
-      .order("sub_category", { ascending: true })
-      .order("name", { ascending: true });
-
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json(data || []);
+    const r = await query(
+      `SELECT id, name, category, sub_category, shelf_life_days
+       FROM public.items
+       ORDER BY category ASC, sub_category ASC NULLS FIRST, name ASC`,
+      []
+    );
+    res.json(r.rows);
   } catch (e) {
-    return res.status(500).json({ error: e.message || "Failed to load items" });
+    console.error(e);
+    res.status(500).json({ error: "items_failed" });
   }
 });
 
-// POST /api/log
-// IMPORTANT: insert ONLY columns that definitely exist in your stock_logs.
-// Your error proves `category` does NOT exist, so we do minimal payload.
+// POST /api/log  (insert only columns that exist in your stock_logs table)
 app.post("/api/log", async (req, res) => {
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const cols = await getStockLogsCols();
 
-    const { item_id, store, shift, staff, quantity, expiry } = req.body || {};
+    // Payload from frontend (we accept extra fields, but only insert what exists)
+    const body = req.body || {};
 
-    if (!store || !shift || !staff) return res.status(400).json({ error: "store, shift, staff are required" });
-    if (!item_id) return res.status(400).json({ error: "item_id is required" });
-    if (!expiry) return res.status(400).json({ error: "expiry is required" });
-
-    // Quantity optional, blank allowed, 0 allowed
-    let qtyToSave = null;
-    if (quantity === 0) qtyToSave = 0;
-    else if (quantity === "" || quantity === null || quantity === undefined) qtyToSave = null;
-    else {
-      const n = Number(quantity);
-      qtyToSave = Number.isFinite(n) ? n : null;
-    }
-
-    const payload = {
-      item_id,
-      store,
-      shift,
-      staff,
-      quantity: qtyToSave,
-      expiry, // ISO string
+    // Map common fields
+    const row = {
+      item_id: body.item_id ?? body.itemId ?? null,
+      item_name: body.item_name ?? body.itemName ?? null,
+      category: body.category ?? null,
+      sub_category: body.sub_category ?? body.subCategory ?? null,
+      store: body.store ?? null,
+      staff: body.staff ?? null,
+      shift: body.shift ?? null,
+      qty: body.qty ?? body.quantity ?? null,
+      quantity: body.quantity ?? body.qty ?? null,
+      expiry_at: body.expiry_at ?? body.expiryAt ?? null,
+      expiry: body.expiry ?? null,
+      created_at: body.created_at ?? null,
     };
 
-    const { data, error } = await supabase
-      .from("stock_logs")
-      .insert(payload)
-      .select("*")
-      .single();
+    // Build insert lists only for existing columns
+    const insertCols = [];
+    const insertVals = [];
+    const params = [];
 
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json({ ok: true, data });
+    Object.entries(row).forEach(([k, v]) => {
+      if (v === undefined) return;
+      if (!cols.has(k)) return;
+      insertCols.push(k);
+      params.push(v);
+      insertVals.push(`$${params.length}`);
+    });
+
+    if (!insertCols.length) {
+      return res.status(400).json({ error: "no_valid_columns_to_insert" });
+    }
+
+    const sql = `INSERT INTO public.stock_logs (${insertCols.join(",")})
+                 VALUES (${insertVals.join(",")})
+                 RETURNING *`;
+    const r = await query(sql, params);
+    res.json({ ok: true, row: r.rows[0] });
   } catch (e) {
-    return res.status(500).json({ error: e.message || "Failed to save log" });
+    console.error(e);
+    res.status(500).json({ error: "log_failed", detail: String(e.message || e) });
   }
 });
 
-// GET /api/expiry?store=...
-// Uses latest log per item_id, and joins name from items table (so no need item_name column)
+// GET /api/expiry?store=PDD
+// NOTE: this is a minimal example; if you already have your own, keep yours.
+// This version returns items expiring today/tomorrow based on latest log per item.
 app.get("/api/expiry", async (req, res) => {
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-    const store = String(req.query.store || "").trim();
-    if (!store) return res.status(400).json({ error: "store is required" });
+    const store = (req.query.store || "").toString();
+    if (!store) return res.status(400).json({ error: "missing_store" });
 
-    const now = new Date();
-    const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    // latest expiry per item for store
+    const r = await query(
+      `
+      WITH latest AS (
+        SELECT DISTINCT ON (item_id)
+          item_id, expiry_at, expiry, created_at, store
+        FROM public.stock_logs
+        WHERE store = $1
+        ORDER BY item_id, created_at DESC NULLS LAST
+      )
+      SELECT i.id, i.name, i.category, i.sub_category,
+             COALESCE(l.expiry_at::text, l.expiry::text) AS expiry_value
+      FROM public.items i
+      JOIN latest l ON l.item_id = i.id
+      ORDER BY i.category, i.sub_category NULLS FIRST, i.name
+      `,
+      [store]
+    );
 
-    const itemsMap = await loadItemsMap();
-
-    const { data: logs, error } = await supabase
-      .from("stock_logs")
-      .select("item_id,expiry,quantity,created_at")
-      .eq("store", store)
-      .not("expiry", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(3000);
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    const latestByItem = new Map();
-    for (const row of logs || []) {
-      const id = Number(row.item_id);
-      if (!id) continue;
-      if (!latestByItem.has(id)) latestByItem.set(id, row);
-    }
-
-    const alerts = [];
-    for (const [id, row] of latestByItem.entries()) {
-      const exp = new Date(row.expiry);
-      if (isNaN(exp.getTime())) continue;
-
-      if (exp <= in24h) {
-        const item = itemsMap.get(id);
-        alerts.push({
-          item_id: id,
-          name: item?.name || `Item ${id}`,
-          expiry: row.expiry,
-          quantity: row.quantity,
-          created_at: row.created_at,
-        });
-      }
-    }
-
-    alerts.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
-    return res.json(alerts);
+    res.json(r.rows);
   } catch (e) {
-    return res.status(500).json({ error: e.message || "expiry failed" });
+    console.error(e);
+    res.status(500).json({ error: "expiry_failed" });
   }
 });
 
-// GET /api/low_stock?store=...
-app.get("/api/low_stock", async (req, res) => {
+// -------------------- Manager APIs --------------------
+
+// POST /api/manager/login  { pin: "8686" }
+app.post("/api/manager/login", (req, res) => {
+  const pin = String((req.body && req.body.pin) || "");
+  const expected = String(process.env.MANAGER_PIN || "");
+  if (!expected) return res.status(500).json({ error: "MANAGER_PIN_not_set" });
+
+  if (pin !== expected) return res.status(401).json({ error: "invalid_pin" });
+
+  const token = signToken({
+    role: "manager",
+    exp: Date.now() + 1000 * 60 * 60 * 12, // 12 hours
+  });
+
+  res.json({ ok: true, token });
+});
+
+// Example manager edit endpoints (optional for later UI)
+// GET manager items
+app.get("/api/manager/items", requireManager, async (req, res) => {
   try {
-    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
-    const store = String(req.query.store || "").trim();
-    if (!store) return res.status(400).json({ error: "store is required" });
-
-    const itemsMap = await loadItemsMap();
-
-    const { data: logs, error } = await supabase
-      .from("stock_logs")
-      .select("item_id,quantity,created_at")
-      .eq("store", store)
-      .order("created_at", { ascending: false })
-      .limit(3000);
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    const latestByItem = new Map();
-    for (const row of logs || []) {
-      const id = Number(row.item_id);
-      if (!id) continue;
-      if (!latestByItem.has(id)) latestByItem.set(id, row);
-    }
-
-    const low = [];
-    for (const [id, row] of latestByItem.entries()) {
-      if (row.quantity === 0) {
-        const item = itemsMap.get(id);
-        low.push({
-          item_id: id,
-          name: item?.name || `Item ${id}`,
-          quantity: row.quantity,
-          created_at: row.created_at,
-        });
-      }
-    }
-
-    low.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return res.json(low);
+    const r = await query(
+      `SELECT id, name, category, sub_category, shelf_life_days
+       FROM public.items
+       ORDER BY category ASC, sub_category ASC NULLS FIRST, name ASC`,
+      []
+    );
+    res.json(r.rows);
   } catch (e) {
-    return res.status(500).json({ error: e.message || "low_stock failed" });
+    console.error(e);
+    res.status(500).json({ error: "manager_items_failed" });
   }
 });
 
-// -------------------- Static + SPA catch-all --------------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// PATCH manager item
+app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { name, category, sub_category, shelf_life_days } = req.body || {};
 
+    const r = await query(
+      `
+      UPDATE public.items
+      SET name = COALESCE($2, name),
+          category = COALESCE($3, category),
+          sub_category = $4,
+          shelf_life_days = COALESCE($5, shelf_life_days)
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, name ?? null, category ?? null, sub_category ?? null, shelf_life_days ?? null]
+    );
+
+    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_update_failed" });
+  }
+});
+
+// -------------------- Static hosting --------------------
 app.use(express.static(path.join(__dirname, "public")));
 
-// IMPORTANT: Catch-all should NOT steal /api/* or /health
-app.get(/^\/(?!api\/|health$).*/, (req, res) => {
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
