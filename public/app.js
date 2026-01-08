@@ -620,6 +620,8 @@
   function getMode(item) {
     const cat = canonicalCategory(item.category);
     const nameN = norm(item.name);
+// Chicken Bacon (C) → End of Day
+if (norm(item.name) === "chicken bacon (c)") return "EOD";
 
     // Unopened chiller always manual date-only
     if (cat === "Unopened chiller") return "MANUAL_DATE";
