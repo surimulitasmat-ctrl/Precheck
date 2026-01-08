@@ -31,6 +31,16 @@
   // ----------------------------
   const API = ""; // same origin
   const LS_KEY = "precheck_session_v2";
+const START_POPUP_KEY = "precheck_start_popup_v1";
+const START_POPUP_ITEMS = [
+  "Liquid Egg",
+  "Flatbread Thawing",
+  "Mac & Cheese",
+  "Chicken Bacon (C)",
+  "Avocado",
+  "Mix Green",
+  "Lettuce",
+];
 
   const CATEGORIES = [
     "Prepared items",
@@ -146,6 +156,63 @@
       if (e.target === modalBackdrop) closeModal();
     });
   }
+function closeModal() {
+  modalBackdrop.classList.add("hidden");
+  modalBackdrop.setAttribute("aria-hidden", "true");
+  modalBody.innerHTML = "";
+  state.modalItem = null;
+}
+
+/* =============================
+   Session start reminder popup
+============================= */
+function shouldShowStartPopup() {
+  if (!state.session) return false;
+  const key = `precheck_start_popup_v1:${state.session.store}:${state.session.shift}:${state.session.staff}`;
+  const today = new Date().toISOString().slice(0, 10);
+  return localStorage.getItem(key) !== today;
+}
+
+function markStartPopupShown() {
+  const key = `precheck_start_popup_v1:${state.session.store}:${state.session.shift}:${state.session.staff}`;
+  const today = new Date().toISOString().slice(0, 10);
+  localStorage.setItem(key, today);
+}
+
+function openStartPopup() {
+  modalTitleEl.textContent = "Reminder";
+  modalBody.innerHTML = `
+    <div class="modal-item-title">PLEASE check expiry day for the items below</div>
+    <div class="card" style="box-shadow:none; border:1px solid var(--border); margin:0;">
+      ${[
+        "Liquid Egg",
+        "Flatbread Thawing",
+        "Mac & Cheese",
+        "Chicken Bacon (C)",
+        "Avocado",
+        "Mix Green",
+        "Lettuce",
+      ]
+        .map(
+          (x, i) => `
+        <div class="alert-row">
+          <div class="alert-name">${i + 1}. ${escapeHtml(x)}</div>
+        </div>`
+        )
+        .join("")}
+    </div>
+    <div class="field" style="margin-top:14px;">
+      <button id="startPopupOk" class="btn btn-primary" type="button">OK</button>
+    </div>
+  `;
+
+  $("#startPopupOk").addEventListener("click", () => {
+    markStartPopupShown();
+    closeModal();
+  });
+
+  showModal();
+}
 
   // ----------------------------
   // Data
