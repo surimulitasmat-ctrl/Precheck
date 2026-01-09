@@ -1,32 +1,18 @@
-/* =========================================================
-   PreCheck - public/app.js (FULL FILE)
-   - Subway UI (green/white/yellow), bottom nav
-   - Staff session: Store + Shift + Staff
-   - Home category tiles (color + emoji icons)
-   - Sauce: Sauce -> Sandwich Unit / Standby / Open Inner -> items
-   - Item log: optional Qty, required expiry depending on rules
-   - Expiry modes:
-       AUTO: date dropdown (N+1 options: Today..Today+N), required
-       MANUAL_DATE: date picker (date only), required
-       EOD: auto set 23:59 today, no user input
-       HOURLY: time dropdown (past allowed), required
-       HOURLY_FIXED: fixed time dropdown 11am/3pm/7pm/11pm, required
-     Special:
-       - Unopened chiller = MANUAL_DATE always
-       - shelf_life_days > 7 => MANUAL_DATE
-       - Cajun Spice Open Inner = AUTO (5 days dropdown, today..today+5)
-       - Chicken Bacon (C) = EOD ONLY (thawing Chicken Bacon stays normal)
-       - Beef Taco (H) exists ONLY for SKH under Front counter; mode HOURLY
-   - Alerts page separate
-   - Manager login (PIN), manager badge (red), staff badge (blue)
-   - Manager: view/edit/add/delete items + manage categories list (local)
-   - Swipe-back inside app (left edge swipe)
-   ========================================================= */
+/* PreCheck public/app.js (single-file, safe copy/paste)
+   - Subway colors (uses your style.css)
+   - Bottom nav: Home / Alerts / Manager
+   - Manager PIN login + logout manager mode
+   - Manager can: Add/Edit/Delete items, Rename categories, Move items out of category, Delete category (with confirmation)
+   - Expiry rules: AUTO dropdown (N+1), MANUAL date-only, EOD, HOURLY, HOURLY_FIXED
+   - Sauce menu: 2-level (Sauce -> sub -> items)
+   - Swipe right = Back with confirmation guard
+*/
 
+/* ---------- Helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* -------------------- Utils -------------------- */
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -38,104 +24,49 @@ function escapeHtml(s) {
 function norm(s) {
   return String(s ?? "").trim().toLowerCase();
 }
-function toTitle(s) {
-  const t = String(s ?? "").trim();
-  return t ? t[0].toUpperCase() + t.slice(1) : t;
-}
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
-function todayYMD() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-function parseYMD(ymd) {
-  const [y, m, d] = String(ymd).split("-").map((x) => Number(x));
-  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
-}
-function formatDatePretty(d) {
+function formatDateLabel(d) {
   // "24 May 2026"
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const dd = d.getDate();
-  const mm = months[d.getMonth()];
-  const yy = d.getFullYear();
-  return `${dd} ${mm} ${yy}`;
+  const day = d.getDate();
+  const month = d.toLocaleString("en-GB", { month: "short" }); // May
+  const year = d.getFullYear();
+  return `${day} ${month} ${year}`;
 }
-function clampInt(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+function ymd(d) {
+  const yyyy = d.getFullYear();
+  const mm = pad2(d.getMonth() + 1);
+  const dd = pad2(d.getDate());
+  return `${yyyy}-${mm}-${dd}`;
 }
 function toast(msg) {
-  const el = document.createElement("div");
-  el.className = "toast";
+  let el = $("#toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.className = "toast hidden";
+    document.body.appendChild(el);
+  }
   el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2200);
+  el.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add("hidden"), 1700);
 }
 
-/* -------------------- DOM -------------------- */
+/* ---------- DOM ---------- */
 const main = $("#main");
 
 const sessionPill = $("#sessionPill");
-const btnHome = $("#btnHome");
-const btnAlerts = $("#btnAlerts");
-const btnLogout = $("#btnLogout");
+const btnHomeTop = $("#btnHome");
+const btnAlertsTop = $("#btnAlerts");
+const btnLogoutTop = $("#btnLogout");
 
 const modalBackdrop = $("#modalBackdrop");
 const modalTitleEl = $("#modalTitle");
 const modalBodyEl = $("#modalBody");
 const modalCloseBtn = $("#modalClose");
 
-// Bottom nav (from your index.html)
-const bottomNav = $("#bottomNav");
-const navHome = $("#navHome");
-const navAlerts = $("#navAlerts");
-const navManager = $("#navManager");
-
-/* -------------------- State -------------------- */
-const state = {
-  session: { store: "", shift: "", staff: "" },
-  items: [],
-  alerts: [],
-  view: { page: "session", category: null, sauceSub: null },
-  selectedItem: null,
-  // local categories (for manager add/delete category UI)
-  customCategories: [],
-  // one-time session popup guard
-  didSessionPopup: false,
-};
-
-/* -------------------- Constants -------------------- */
-const BASE_CATEGORIES = [
-  "Prepared items",
-  "Unopened chiller",
-  "Thawing",
-  "Vegetables",
-  "Backroom",
-  "Back counter",
-  "Front counter",
-  "Back counter chiller",
-  "Sauce",
-];
-
-const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
-
-// Home tile meta (emoji icons + tones)
-const TILE_META = {
-  "Prepared items": { tone: "green", icon: "🥪" },
-  "Unopened chiller": { tone: "blue", icon: "🧊" },
-  "Thawing": { tone: "cyan", icon: "❄️" },
-  "Vegetables": { tone: "lime", icon: "🥬" },
-  "Backroom": { tone: "orange", icon: "📦" },
-  "Back counter": { tone: "yellow", icon: "🧂" },
-  "Front counter": { tone: "red", icon: "🧾" },
-  "Back counter chiller": { tone: "teal", icon: "🧀" },
-  "Sauce": { tone: "purple", icon: "🧴" },
-};
-
-const MANAGER_PIN_DEFAULT = "8686";
-
-/* -------------------- Modal -------------------- */
 function hasModal() {
   return !!(modalBackdrop && modalTitleEl && modalBodyEl);
 }
@@ -155,12 +86,61 @@ function closeModal() {
   modalBackdrop.setAttribute("aria-hidden", "true");
   modalBodyEl.innerHTML = "";
 }
-modalCloseBtn?.addEventListener("click", closeModal);
-modalBackdrop?.addEventListener("click", (e) => {
-  if (e.target === modalBackdrop) closeModal();
-});
+if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+if (modalBackdrop) {
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
+}
 
-/* -------------------- Manager token -------------------- */
+/* ---------- Bottom Nav (create if missing) ---------- */
+function ensureBottomNav() {
+  let nav = $("#bottomNav");
+  if (nav) return nav;
+
+  nav = document.createElement("nav");
+  nav.id = "bottomNav";
+  nav.className = "bottom-nav hidden";
+  nav.innerHTML = `
+    <button id="navHome" class="bottom-tab" type="button">Home</button>
+    <button id="navAlerts" class="bottom-tab" type="button">Alerts</button>
+    <button id="navManager" class="bottom-tab" type="button">Manager</button>
+  `;
+  document.body.appendChild(nav);
+  return nav;
+}
+ensureBottomNav();
+
+const navHome = $("#navHome");
+const navAlerts = $("#navAlerts");
+const navManager = $("#navManager");
+const bottomNav = $("#bottomNav");
+
+/* ---------- Anim CSS injection (tiles float-in) ---------- */
+(function injectAnimCss() {
+  if ($("#precheckAnimStyle")) return;
+  const style = document.createElement("style");
+  style.id = "precheckAnimStyle";
+  style.textContent = `
+    .tile-anim { opacity:0; transform: translateY(10px); animation: tileIn .45s ease-out forwards; }
+    @keyframes tileIn { to { opacity:1; transform: translateY(0); } }
+  `;
+  document.head.appendChild(style);
+})();
+
+/* ---------- Storage ---------- */
+function loadSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem("session") || "null");
+    if (s && typeof s === "object") return s;
+  } catch {}
+  return { store: "", shift: "", staff: "" };
+}
+function saveSession(session) {
+  localStorage.setItem("session", JSON.stringify(session));
+}
+
+/* ---------- Manager token ---------- */
 function getManagerToken() {
   return localStorage.getItem("managerToken") || "";
 }
@@ -172,39 +152,13 @@ function isManagerMode() {
   return !!getManagerToken();
 }
 
-/* -------------------- Session persistence -------------------- */
-function loadSession() {
-  try {
-    const s = JSON.parse(localStorage.getItem("session") || "null");
-    if (s && typeof s === "object") {
-      state.session.store = s.store || "";
-      state.session.shift = s.shift || "";
-      state.session.staff = s.staff || "";
-    }
-  } catch {}
-}
-function saveSession() {
-  localStorage.setItem("session", JSON.stringify(state.session));
-}
-
-/* -------------------- Categories persistence -------------------- */
-function loadCustomCategories() {
-  try {
-    const arr = JSON.parse(localStorage.getItem("customCategories") || "[]");
-    if (Array.isArray(arr)) state.customCategories = arr.map((x) => String(x)).filter(Boolean);
-  } catch {
-    state.customCategories = [];
-  }
-}
-function saveCustomCategories() {
-  localStorage.setItem("customCategories", JSON.stringify(state.customCategories));
-}
-
-/* -------------------- API helpers -------------------- */
+/* ---------- API helpers ---------- */
 async function apiGet(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-  return await res.json();
+  let data = null;
+  try { data = await res.json(); } catch {}
+  if (!res.ok) throw new Error(data?.error || `Request failed: ${res.status}`);
+  return data;
 }
 async function apiPost(url, body) {
   const res = await fetch(url, {
@@ -213,9 +167,7 @@ async function apiPost(url, body) {
     body: JSON.stringify(body ?? {}),
   });
   let data = null;
-  try {
-    data = await res.json();
-  } catch {}
+  try { data = await res.json(); } catch {}
   if (!res.ok) throw new Error(data?.error || `Request failed: ${res.status}`);
   return data;
 }
@@ -224,320 +176,78 @@ async function apiManager(method, url, body) {
   const res = await fetch(url, {
     method,
     headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
+      "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  let data = null;
+  try { data = await res.json(); } catch {}
+
   if (res.status === 401) {
     setManagerToken("");
-    updateTopbar();
-    updateSessionPill();
-    toast("Manager session expired.");
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
+    updateTopAndNav();
+    toast("Manager session expired. Please login again.");
     throw new Error("unauthorized");
   }
-
-  let data = null;
-  try {
-    data = await res.json();
-  } catch {}
 
   if (!res.ok) throw new Error(data?.error || `Request failed: ${res.status}`);
   return data;
 }
 
-/* -------------------- Top UI (badges, nav) -------------------- */
-function badgeHtml(text, bg) {
-  return `
-    <span style="
-      display:inline-flex;align-items:center;gap:6px;
-      padding:4px 10px;border-radius:999px;
-      font-size:12px;font-weight:950;color:#fff;background:${bg};
-      box-shadow:0 6px 14px rgba(0,0,0,0.12);
-      ">
-      ${escapeHtml(text)}
-    </span>
-  `;
-}
+/* ---------- App state ---------- */
+const state = {
+  session: loadSession(),
+  items: [],
+  alerts: [],
+  view: { page: "session", category: null, sauceSub: null }, // pages: session, home, sauce_menu, category, alerts, manager
+  onceSessionPopupShown: false,
+};
 
-function updateSessionPill() {
-  if (!sessionPill) return;
+/* ---------- Categories ---------- */
+const CATEGORIES = [
+  "Prepared items",
+  "Unopened chiller",
+  "Thawing",
+  "Vegetables",
+  "Backroom",
+  "Back counter",
+  "Front counter",
+  "Back counter chiller",
+  "Sauce",
+];
+const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
 
-  const store = state.session.store || "";
-  const shift = state.session.shift || "";
-  const staff = state.session.staff || "";
+/* ---------- Tile metadata (emoji icons, different colors) ---------- */
+const TILE_META = {
+  "Prepared items": { tone: "green", icon: "🥪" },
+  "Unopened chiller": { tone: "blue", icon: "🧊" },
+  "Thawing": { tone: "cyan", icon: "❄️" },
+  "Vegetables": { tone: "lime", icon: "🥬" },
+  "Backroom": { tone: "orange", icon: "📦" },
+  "Back counter": { tone: "yellow", icon: "🧂" },
+  "Front counter": { tone: "red", icon: "🧾" },
+  "Back counter chiller": { tone: "teal", icon: "🧀" },
+  "Sauce": { tone: "purple", icon: "🧴" },
+};
 
-  const staffBadge = badgeHtml("STAFF", "#1E88E5"); // blue
-  const managerBadge = isManagerMode() ? badgeHtml("MANAGER", "#E53935") : ""; // red
-
-  const parts = [];
-  if (store) parts.push(store);
-  if (shift) parts.push(shift);
-  if (staff) parts.push(staff);
-
-  sessionPill.innerHTML = `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
-      ${managerBadge}${staffBadge}
-    </div>
-    <div style="font-weight:1000;font-size:16px">${escapeHtml(parts.join(" • ") || "No session yet")}</div>
-  `;
-  sessionPill.classList.remove("hidden");
-}
-
-function setActiveNav(page) {
-  navHome?.classList.toggle("active", page === "home");
-  navAlerts?.classList.toggle("active", page === "alerts");
-  navManager?.classList.toggle("active", page === "manager");
-}
-
-function updateTopbar() {
-  const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
-
-  // topbar buttons
-  btnHome?.classList.toggle("hidden", !hasSession);
-  btnAlerts?.classList.toggle("hidden", !hasSession);
-
-  if (btnLogout) {
-    btnLogout.textContent = isManagerMode() ? "Exit Manager" : "Logout";
-    // show logout if session exists OR manager exists
-    btnLogout.classList.toggle("hidden", !hasSession && !isManagerMode());
-  }
-
-  // bottom nav only when session exists
-  bottomNav?.classList.toggle("hidden", !hasSession);
-}
-
-function bindTopButtonsOnce() {
-  if (btnLogout && btnLogout.dataset.bound === "1") return;
-  if (btnHome) btnHome.dataset.bound = "1";
-  if (btnAlerts) btnAlerts.dataset.bound = "1";
-  if (btnLogout) btnLogout.dataset.bound = "1";
-
-  btnHome?.addEventListener("click", () => {
-    state.view = { page: "home", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
-
-  btnAlerts?.addEventListener("click", () => {
-    state.view = { page: "alerts", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
-
-  btnLogout?.addEventListener("click", () => {
-    if (isManagerMode()) {
-      if (!confirm("Exit manager mode?")) return;
-      setManagerToken("");
-      state.view = { page: "home", category: null, sauceSub: null };
-      pushNavState();
-      render();
-      return;
-    }
-    if (!confirm("Logout staff session?")) return;
-    state.session = { store: "", shift: "", staff: "" };
-    saveSession();
-    state.didSessionPopup = false;
-    state.view = { page: "session", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
-
-  // bottom nav
-  if (navHome && navHome.dataset.bound !== "1") {
-    navHome.dataset.bound = "1";
-    navHome.addEventListener("click", () => {
-      state.view = { page: "home", category: null, sauceSub: null };
-      pushNavState();
-      render();
-    });
-  }
-
-  if (navAlerts && navAlerts.dataset.bound !== "1") {
-    navAlerts.dataset.bound = "1";
-    navAlerts.addEventListener("click", () => {
-      state.view = { page: "alerts", category: null, sauceSub: null };
-      pushNavState();
-      render();
-    });
-  }
-
-  if (navManager && navManager.dataset.bound !== "1") {
-    navManager.dataset.bound = "1";
-    navManager.addEventListener("click", () => {
-      if (isManagerMode()) {
-        state.view = { page: "manager", category: null, sauceSub: null };
-        pushNavState();
-        render();
-      } else {
-        openManagerLogin();
-      }
-    });
-  }
-}
-
-/* -------------------- Navigation + swipe-back -------------------- */
-function pushNavState() {
-  // Keep a shallow history for in-app back
-  const page = state.view?.page || "home";
-  const payload = {
-    page,
-    category: state.view.category || null,
-    sauceSub: state.view.sauceSub || null,
-    t: Date.now(),
-  };
-  try {
-    history.pushState(payload, "", location.pathname);
-  } catch {}
-}
-
-window.addEventListener("popstate", () => {
-  // In-app back
-  goBackWithinApp();
-});
-
-// Edge swipe back (left edge swipe)
-let touchStartX = 0;
-let touchStartY = 0;
-let trackingSwipe = false;
-
-document.addEventListener(
-  "touchstart",
-  (e) => {
-    if (!e.touches || e.touches.length !== 1) return;
-    const t = e.touches[0];
-    touchStartX = t.clientX;
-    touchStartY = t.clientY;
-    trackingSwipe = touchStartX < 22; // left edge only
-  },
-  { passive: true }
-);
-
-document.addEventListener(
-  "touchmove",
-  (e) => {
-    if (!trackingSwipe || !e.touches || e.touches.length !== 1) return;
-    const t = e.touches[0];
-    const dx = t.clientX - touchStartX;
-    const dy = Math.abs(t.clientY - touchStartY);
-
-    // horizontal swipe threshold
-    if (dx > 70 && dy < 30) {
-      trackingSwipe = false;
-      confirmBeforeExitOrBack();
-    }
-  },
-  { passive: true }
-);
-
-function confirmBeforeExitOrBack() {
-  // If we can go back inside app, do it without exit
-  const canBack = canGoBackInsideApp();
-  if (canBack) {
-    goBackWithinApp();
-    return;
-  }
-
-  // If at top level, confirm (prevents accidental close)
-  openModal(
-    "Exit?",
-    `
-      <div class="muted" style="margin-bottom:12px">
-        You are at the start. Do you want to exit?
-      </div>
-      <div style="display:flex;gap:10px">
-        <button id="exitNo" class="btn btn-ghost" type="button">Stay</button>
-        <button id="exitYes" class="btn btn-primary" type="button">Exit</button>
-      </div>
-    `
-  );
-
-  $("#exitNo")?.addEventListener("click", closeModal);
-  $("#exitYes")?.addEventListener("click", () => {
-    closeModal();
-    // attempt to close - may be blocked by browser; fallback: go to blank
-    try {
-      window.close();
-    } catch {}
-  });
-}
-
-function canGoBackInsideApp() {
-  const p = state.view?.page;
-  if (p === "session") return false;
-  if (p === "home") return false;
-  return true;
-}
-
-function goBackWithinApp() {
-  const p = state.view?.page;
-
-  if (p === "category") {
-    if (norm(state.view.category) === "sauce") {
-      state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
-    } else {
-      state.view = { page: "home", category: null, sauceSub: null };
-    }
-    render();
-    return;
-  }
-
-  if (p === "sauce_menu") {
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-    return;
-  }
-
-  if (p === "alerts" || p === "manager") {
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-    return;
-  }
-
-  if (p === "item_form") {
-    // item form returns to list
-    const { category, sauceSub } = state.selectedItem || {};
-    state.view = { page: "category", category: category || "Prepared items", sauceSub: sauceSub || null };
-    render();
-    return;
-  }
-}
-
-/* -------------------- Data normalization -------------------- */
+/* ---------- Canonical category ---------- */
 function canonicalCategory(cat) {
-  const raw = String(cat ?? "").trim();
-  const n = norm(raw);
-
-  // map variants
-  if (n === "prepared items" || n === "prepared item") return "Prepared items";
-  if (n === "unopened chiller") return "Unopened chiller";
-  if (n === "backroom") return "Backroom";
-  if (n === "back counter") return "Back counter";
-  if (n === "front counter") return "Front counter";
-  if (n === "back counter chiller") return "Back counter chiller";
-  if (n === "vegetables") return "Vegetables";
-  if (n === "thawing") return "Thawing";
-  if (n === "sauce" || n === "sauces") return "Sauce";
-
-  // fallback: title the raw
-  return raw || "Unknown";
+  const n = norm(cat);
+  if (n === "sauces") return "Sauce";
+  const hit = CATEGORIES.find((c) => norm(c) === n);
+  return hit || String(cat || "").trim();
 }
 
-function normalizeItem(it) {
-  const out = { ...it };
-  out.id = Number(it.id);
-  out.name = String(it.name ?? "").trim();
-  out.category = canonicalCategory(it.category);
-  out.sub_category = it.sub_category ?? null;
-  out.shelf_life_days = clampInt(it.shelf_life_days, 0);
-  return out;
+/* ---------- Shelf life ---------- */
+function getShelfLifeDays(item) {
+  const raw = Number(item?.shelf_life_days ?? 0);
+  if (!Number.isFinite(raw)) return 0;
+  return raw;
 }
 
-/* -------------------- Expiry Modes (RULES) -------------------- */
-// Always manual date-only items (name normalized)
+/* ---------- Expiry mode rules ---------- */
 const MANUAL_ALWAYS = new Set(
   [
     "canola oil",
@@ -556,41 +266,20 @@ const MANUAL_ALWAYS = new Set(
     "olive oil",
     "milo",
     "tea bag",
+    "cajun spice packet",
   ].map(norm)
 );
 
-const HOURLY_FIXED_ITEMS = new Set([norm("Bread"), norm("Tomato Soup (H)"), norm("Mushroom Soup (H)")]);
-
-// If you still keep a generic EOD list, keep it empty except Chicken Bacon (C) below
-const EOD_ITEMS = new Set([]);
-
-// HOURLY (non-fixed) items list (optional) — we mainly use Beef Taco (H) rule
-const HOURLY_ITEMS = new Set([]);
-
-// Shelf life override
-function getShelfLifeDays(item) {
-  // Cajun Spice Open Inner must be 5 days dropdown even if DB is 0
-  if (norm(item.name) === norm("Cajun Spice Open Inner")) return 5;
-  return clampInt(item.shelf_life_days, 0);
-}
-
-// IMPORTANT: Chicken Bacon (C) only, not thawing Chicken Bacon
-function isChickenBaconC(item) {
-  return norm(item.name) === norm("Chicken Bacon (C)");
-}
-
-function isBeefTacoH(item) {
-  // match "Beef Taco (H)" (common variants)
-  const n = norm(item.name);
-  return n === norm("Beef Taco (H)") || n === "beef taco h" || n === "beef taco (h)";
-}
+const HOURLY_FIXED_ITEMS = new Set(
+  ["bread", "tomato soup (h)", "mushroom soup (h)"].map(norm)
+);
 
 function getMode(item) {
   const cat = canonicalCategory(item.category);
   const nameN = norm(item.name);
 
-  // Chicken Bacon (C) -> EOD
-  if (isChickenBaconC(item)) return "EOD";
+  // Chicken Bacon (C) ONLY → EOD
+  if (nameN === norm("Chicken Bacon (C)") || nameN === norm("Chicken Bacon (c)")) return "EOD";
 
   // Unopened chiller always manual date-only
   if (norm(cat) === norm("Unopened chiller")) return "MANUAL_DATE";
@@ -598,187 +287,321 @@ function getMode(item) {
   // Always manual list
   if (MANUAL_ALWAYS.has(nameN)) return "MANUAL_DATE";
 
-  // Cajun Spice Open Inner AUTO (5 days)
+  // Cajun Spice Open Inner AUTO 5 days
   if (nameN === norm("Cajun Spice Open Inner")) return "AUTO";
 
-  // Fixed time dropdown
+  // Fixed times
   if (HOURLY_FIXED_ITEMS.has(nameN)) return "HOURLY_FIXED";
 
-  // Any other EOD items (if you add later)
-  if (EOD_ITEMS.has(nameN)) return "EOD";
+  // Beef Taco (H) Front counter SKH-only should be HOURLY (time dropdown)
+  if (norm(cat) === norm("Front counter") && (nameN === norm("Beef Taco (H)") || nameN === norm("Beef Taco (h)"))) {
+    return "HOURLY";
+  }
 
-  // Beef Taco (H) is HOURLY (SKH only display handled in filtering)
-  if (norm(cat) === norm("Front counter") && isBeefTacoH(item)) return "HOURLY";
-
-  // extra HOURLY list if needed
-  if (HOURLY_ITEMS.has(nameN)) return "HOURLY";
-
-  // shelf life > 7 => manual date
+  // Shelf life > 7 => manual date
   const sl = getShelfLifeDays(item);
   if (sl > 7) return "MANUAL_DATE";
 
-  // default AUTO
+  // Default AUTO
   return "AUTO";
 }
 
+/* ---------- Helper text (no big mode labels) ---------- */
 function getHelperText(item) {
   const mode = getMode(item);
-  if (mode === "AUTO") return "Select an expiry date (dropdown)";
-  if (mode === "MANUAL_DATE") return "Select an expiry date";
-  if (mode === "EOD") return "Expiry will be end of day (23:59)";
-  if (mode === "HOURLY") return "Select an expiry time";
-  if (mode === "HOURLY_FIXED") return "Select 11am / 3pm / 7pm / 11pm";
-  return "";
-}
-
-/* -------------------- Build dropdown options -------------------- */
-function buildAutoDateOptions(item) {
+  const cat = canonicalCategory(item.category);
   const sl = getShelfLifeDays(item);
-  // AUTO: N+1 options including today
-  const base = parseYMD(todayYMD());
-  const out = [];
-  for (let i = 0; i <= sl; i++) {
+
+  if (mode === "EOD") return "Expiry will be set automatically to 23:59 today";
+  if (mode === "HOURLY_FIXED") return "Select time: 11am / 3pm / 7pm / 11pm";
+  if (mode === "HOURLY") return "Select a time (past time allowed)";
+  if (mode === "MANUAL_DATE") {
+    if (norm(cat) === norm("Unopened chiller")) return "Select an expiry date (manual)";
+    if (sl > 7) return "Select an expiry date (manual)";
+    return "Select an expiry date (manual)";
+  }
+  // AUTO
+  return sl > 0 ? `Select expiry date from list (Today to +${sl} days)` : "Select expiry date from list";
+}
+
+/* ---------- Expiry inputs builders ---------- */
+function buildAutoDateOptions(days) {
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
+
+  const opts = [];
+  const N = Math.max(0, Number(days) || 0);
+
+  for (let i = 0; i <= N; i++) {
     const d = new Date(base);
-    d.setDate(d.getDate() + i);
-    out.push({ value: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`, label: formatDatePretty(d) });
+    d.setDate(base.getDate() + i);
+    opts.push({
+      value: `${ymd(d)}T23:59:00`,
+      label: formatDateLabel(d),
+    });
   }
-  return out;
+  return opts;
 }
-
-function buildHourlyOptions() {
-  // 30 min increments; past allowed
-  const out = [];
-  for (let h = 0; h < 24; h++) {
-    out.push(`${pad2(h)}:00`);
-    out.push(`${pad2(h)}:30`);
-  }
-  return out;
-}
-
 function buildHourlyFixedOptions() {
   return [
-    { value: "11:00", label: "11:00 AM" },
-    { value: "15:00", label: "3:00 PM" },
-    { value: "19:00", label: "7:00 PM" },
-    { value: "23:00", label: "11:00 PM" },
+    { label: "11:00 AM", value: "11:00" },
+    { label: "3:00 PM", value: "15:00" },
+    { label: "7:00 PM", value: "19:00" },
+    { label: "11:00 PM", value: "23:00" },
   ];
 }
-
-/* -------------------- Items filtering -------------------- */
-function getAllCategories() {
-  // Base categories + any custom categories (manager)
-  const merged = [...BASE_CATEGORIES];
-  for (const c of state.customCategories) {
-    if (!merged.some((x) => norm(x) === norm(c))) merged.push(c);
-  }
-  return merged;
-}
-
-function getItemsForList(category, sauceSub) {
-  const store = state.session.store;
-
-  let list = state.items
-    .map(normalizeItem)
-    .filter((it) => norm(it.category) === norm(category));
-
-  // Sauce sub filter
-  if (norm(category) === "sauce") {
-    list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
-  }
-
-  // SKH-only Beef Taco (H): must never appear in PDD
-  list = list.filter((it) => {
-    if (isBeefTacoH(it) && norm(it.category) === norm("Front counter")) {
-      return norm(store) === "skh";
+function buildHourlyOptions() {
+  const opts = [];
+  // every 30 mins (00:00 to 23:30)
+  for (let h = 0; h < 24; h++) {
+    for (let m of [0, 30]) {
+      const hh = pad2(h);
+      const mm = pad2(m);
+      const label = new Date(2000, 0, 1, h, m).toLocaleTimeString("en-GB", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      opts.push({ label, value: `${hh}:${mm}` });
     }
-    return true;
-  });
-
-  // sort by name
-  list.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
-  return list;
+  }
+  return opts;
 }
 
-/* -------------------- Load data -------------------- */
-async function loadItems() {
-  const rows = await apiGet("/api/items");
-  state.items = Array.isArray(rows) ? rows.map(normalizeItem) : [];
+/* ---------- UI: badges ---------- */
+function badgeHtml(text, bg) {
+  return `
+    <span style="
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:950;
+      color:#fff;
+      background:${bg};
+      margin-right:8px;
+    ">${escapeHtml(text)}</span>
+  `;
 }
-async function loadAlerts() {
-  const store = state.session.store;
-  if (!store) {
-    state.alerts = [];
+function updateSessionPill() {
+  if (!sessionPill) return;
+
+  const s = state.session;
+  const parts = [];
+  if (s.store) parts.push(s.store);
+  if (s.shift) parts.push(s.shift);
+  if (s.staff) parts.push(s.staff);
+
+  const staffBadge = badgeHtml("STAFF", "#1E88E5"); // blue
+  const managerBadge = isManagerMode() ? badgeHtml("MANAGER", "#E53935") : ""; // red
+
+  sessionPill.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:6px;">
+      ${managerBadge}${staffBadge}
+    </div>
+    <div style="font-weight:1000;font-size:15px;letter-spacing:.2px">
+      ${escapeHtml(parts.join(" • ") || "No session")}
+    </div>
+  `;
+  sessionPill.classList.remove("hidden");
+}
+
+/* ---------- Top/Bottom nav visibility ---------- */
+function setActiveNav(page) {
+  if (!navHome || !navAlerts || !navManager) return;
+
+  navHome.classList.toggle("active", page === "home" || page === "sauce_menu" || page === "category");
+  navAlerts.classList.toggle("active", page === "alerts");
+  navManager.classList.toggle("active", page === "manager");
+}
+
+function updateTopAndNav() {
+  const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
+
+  if (btnHomeTop) btnHomeTop.classList.toggle("hidden", !hasSession);
+  if (btnAlertsTop) btnAlertsTop.classList.toggle("hidden", !hasSession);
+
+  if (btnLogoutTop) {
+    // When manager mode, this is "Exit Manager" OR "Logout" if not session
+    btnLogoutTop.textContent = isManagerMode() ? "Exit Manager" : "Logout";
+    btnLogoutTop.classList.toggle("hidden", !hasSession && !isManagerMode());
+  }
+
+  if (bottomNav) bottomNav.classList.toggle("hidden", !hasSession && !isManagerMode());
+
+  // Manager tab visible only if session exists (so staff can enter manager)
+  if (navManager) navManager.style.display = hasSession || isManagerMode() ? "" : "none";
+
+  setActiveNav(state.view.page);
+  updateSessionPill();
+}
+
+/* ---------- Navigation ---------- */
+function go(page, extra = {}) {
+  state.view = { page, category: null, sauceSub: null, ...extra };
+  updateTopAndNav();
+  render();
+}
+function goBack() {
+  // back rules
+  const p = state.view.page;
+  if (p === "category") {
+    if (norm(state.view.category) === "sauce") return go("sauce_menu");
+    return go("home");
+  }
+  if (p === "sauce_menu") return go("home");
+  if (p === "alerts") return go("home");
+  if (p === "manager") return go("home");
+  if (p === "home") {
+    // home back: confirm (avoid accidental close)
+    openConfirm("Exit app?", "If you go back, the browser may close this page.", () => {
+      history.back();
+    });
     return;
   }
-  const rows = await apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
-  state.alerts = Array.isArray(rows) ? rows : [];
+  if (p === "session") {
+    openConfirm("Exit app?", "If you go back, the browser may close this page.", () => {
+      history.back();
+    });
+    return;
+  }
+  go("home");
 }
 
-/* -------------------- Session start popup -------------------- */
-function maybeShowSessionPopup() {
-  if (state.didSessionPopup) return;
+/* ---------- Confirm modal ---------- */
+function openConfirm(title, text, onYes) {
+  openModal(
+    title,
+    `
+    <div class="muted">${escapeHtml(text)}</div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button id="cNo" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="cYes" class="btn btn-primary" type="button">OK</button>
+    </div>
+  `
+  );
+  const no = $("#cNo");
+  const yes = $("#cYes");
+  if (no) no.addEventListener("click", closeModal);
+  if (yes) yes.addEventListener("click", () => { closeModal(); onYes?.(); });
+}
+
+/* ---------- Swipe back (touch) + popstate guard ---------- */
+function setupSwipeBack() {
+  let startX = 0, startY = 0, moved = false;
+
+  window.addEventListener("touchstart", (e) => {
+    if (!e.touches || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    startX = t.clientX;
+    startY = t.clientY;
+    moved = false;
+  }, { passive: true });
+
+  window.addEventListener("touchmove", () => { moved = true; }, { passive: true });
+
+  window.addEventListener("touchend", (e) => {
+    if (!moved) return;
+    const t = e.changedTouches?.[0];
+    if (!t) return;
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+
+    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx > 0) {
+        // swipe right = back
+        goBack();
+      }
+    }
+  }, { passive: true });
+
+  // Prevent accidental browser back closing the app
+  history.pushState({ precheck: true }, "");
+  window.addEventListener("popstate", () => {
+    // Ask before leaving
+    openConfirm("Go back?", "Going back may close the app. Continue?", () => {
+      // allow one step back
+      history.back();
+    });
+    // re-arm
+    history.pushState({ precheck: true }, "");
+  });
+}
+setupSwipeBack();
+
+/* ---------- Data loading ---------- */
+async function loadItems() {
+  const rows = await apiGet("/api/items");
+  // normalize categories
+  state.items = (rows || []).map((it) => ({
+    ...it,
+    category: canonicalCategory(it.category),
+    sub_category: it.sub_category ?? null,
+  }));
+}
+async function loadAlerts() {
+  if (!state.session.store) return;
+  state.alerts = await apiGet(`/api/expiry?store=${encodeURIComponent(state.session.store)}`);
+}
+
+/* ---------- Session start popup ---------- */
+function showSessionStartPopupOnce() {
+  if (state.onceSessionPopupShown) return;
   if (!(state.session.store && state.session.shift && state.session.staff)) return;
 
-  state.didSessionPopup = true;
+  state.onceSessionPopupShown = true;
 
   openModal(
     "PLEASE check expiry day for the items below",
     `
-      <div class="muted" style="margin-bottom:12px">
-        Please double-check these items before continuing:
-      </div>
-      <ol style="margin:0 0 14px 18px; padding:0; font-weight:900; line-height:1.7">
+    <div class="card" style="box-shadow:none;border:0;padding:0;margin:0">
+      <ol style="margin:0;padding-left:18px;line-height:1.6;font-weight:900;color:#14341f">
         <li>Liquid Egg</li>
         <li>Flatbread Thawing</li>
-        <li>Mc&cheese</li>
+        <li>Mac N Cheese</li>
         <li>Chicken Bacon (C)</li>
         <li>Avocado</li>
         <li>Mix Green</li>
         <li>Lettuce</li>
       </ol>
-      <button id="popupOk" class="btn btn-primary" type="button" style="width:100%">OK</button>
+      <div style="margin-top:14px">
+        <button id="popupOk" class="btn btn-primary" type="button">OK</button>
+      </div>
+    </div>
     `
   );
-
   $("#popupOk")?.addEventListener("click", closeModal);
 }
 
-/* -------------------- Manager login / logout -------------------- */
+/* ---------- Manager login/logout ---------- */
 function openManagerLogin() {
   openModal(
-    "Manager Login",
+    "Manager Access",
     `
-      <div class="field">
-        <label class="label">PIN</label>
-        <input id="mgrPin" class="input" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter PIN" />
-        <div class="helper">Default PIN is ${MANAGER_PIN_DEFAULT} (if your server uses MANAGER_PIN env).</div>
-      </div>
-
+    <div class="field">
+      <label class="label">PIN</label>
+      <input id="mgrPin" class="input" type="password" inputmode="numeric" placeholder="Enter PIN" />
       <div id="mgrErr" class="error hidden"></div>
+    </div>
 
-      <div style="display:flex;gap:10px">
-        <button id="mgrCancel" class="btn btn-ghost" type="button" style="flex:1">Cancel</button>
-        <button id="mgrLogin" class="btn btn-primary" type="button" style="flex:1">Login</button>
-      </div>
-    `
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button id="mgrCancel" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="mgrLogin" class="btn btn-primary" type="button">Login</button>
+    </div>
+  `
   );
 
   $("#mgrCancel")?.addEventListener("click", closeModal);
-
   $("#mgrLogin")?.addEventListener("click", async () => {
-    const pin = $("#mgrPin")?.value?.trim() || "";
+    const pin = ($("#mgrPin")?.value || "").trim();
     const err = $("#mgrErr");
-    if (err) {
-      err.textContent = "";
-      err.classList.add("hidden");
-    }
+    if (err) { err.classList.add("hidden"); err.textContent = ""; }
+
     try {
       const out = await apiPost("/api/manager/login", { pin });
       setManagerToken(out.token || "");
       closeModal();
-      state.view = { page: "manager", category: null, sauceSub: null };
-      pushNavState();
-      render();
+      go("manager");
       toast("Manager mode enabled");
     } catch (e) {
       if (err) {
@@ -789,473 +612,400 @@ function openManagerLogin() {
       }
     }
   });
-
-  setTimeout(() => $("#mgrPin")?.focus(), 50);
+}
+function exitManagerMode() {
+  openConfirm("Exit manager mode?", "You will return to staff mode.", () => {
+    setManagerToken("");
+    toast("Manager mode off");
+    go("home");
+  });
 }
 
-/* -------------------- Render helpers -------------------- */
+/* ---------- Logging ---------- */
+async function saveLog({ item, qty, expiry_at }) {
+  // qty optional: allow blank, 0 allowed
+  const payload = {
+    item_id: item.id,
+    item_name: item.name,
+    category: canonicalCategory(item.category),
+    sub_category: item.sub_category ?? null,
+    store: state.session.store,
+    staff: state.session.staff,
+    shift: state.session.shift,
+    qty: qty === "" ? null : qty,
+    expiry_at,
+    created_at: new Date().toISOString(),
+  };
+  await apiPost("/api/log", payload);
+}
+
+/* ---------- Render: Session page ---------- */
 function renderSession() {
-  updateTopbar();
-  updateSessionPill();
+  const s = state.session;
 
   main.innerHTML = `
     <div class="card">
       <div class="h1">Start Session</div>
-      <div class="muted">Select your store, shift, and staff name.</div>
+      <div class="muted">Select Store, Shift and enter Staff name/ID.</div>
 
       <div class="field">
         <label class="label">Store</label>
         <select id="storeSel" class="input">
-          <option value="">Select…</option>
-          <option value="PDD">PDD</option>
-          <option value="SKH">SKH</option>
+          <option value="" ${s.store ? "" : "selected"}>Select…</option>
+          <option value="PDD" ${s.store === "PDD" ? "selected" : ""}>PDD</option>
+          <option value="SKH" ${s.store === "SKH" ? "selected" : ""}>SKH</option>
         </select>
       </div>
 
       <div class="field">
         <label class="label">Shift</label>
         <select id="shiftSel" class="input">
-          <option value="">Select…</option>
-          <option value="AM">AM</option>
-          <option value="PM">PM</option>
+          <option value="" ${s.shift ? "" : "selected"}>Select…</option>
+          <option value="AM" ${s.shift === "AM" ? "selected" : ""}>AM</option>
+          <option value="PM" ${s.shift === "PM" ? "selected" : ""}>PM</option>
         </select>
       </div>
 
       <div class="field">
         <label class="label">Staff</label>
-        <input id="staffInput" class="input" placeholder="Your name / ID" />
+        <input id="staffInp" class="input" placeholder="Name / ID" value="${escapeHtml(s.staff)}" />
       </div>
 
+      <button id="startBtn" class="btn btn-primary" type="button" style="width:100%;margin-top:8px">Start</button>
       <div id="sessErr" class="error hidden"></div>
 
-      <button id="startBtn" class="btn btn-primary" type="button" style="width:100%;margin-top:8px">
-        Start
-      </button>
-
-      <div class="helper" style="margin-top:12px">
-        Tip: Manager can login anytime from bottom nav.
+      <div style="margin-top:12px" class="muted">
+        Tip: You can use Manager mode from the bottom “Manager” tab.
       </div>
     </div>
   `;
 
-  const storeSel = $("#storeSel");
-  const shiftSel = $("#shiftSel");
-  const staffInput = $("#staffInput");
-  const err = $("#sessErr");
-
-  storeSel.value = state.session.store || "";
-  shiftSel.value = state.session.shift || "";
-  staffInput.value = state.session.staff || "";
-
   $("#startBtn")?.addEventListener("click", async () => {
-    const store = storeSel.value;
-    const shift = shiftSel.value;
-    const staff = staffInput.value.trim();
+    const store = ($("#storeSel")?.value || "").trim();
+    const shift = ($("#shiftSel")?.value || "").trim();
+    const staff = ($("#staffInp")?.value || "").trim();
+    const err = $("#sessErr");
+    if (err) { err.classList.add("hidden"); err.textContent = ""; }
 
     if (!store || !shift || !staff) {
-      err.textContent = "Please fill Store, Shift, and Staff.";
-      err.classList.remove("hidden");
+      if (err) { err.textContent = "Please select Store, Shift and enter Staff."; err.classList.remove("hidden"); }
       return;
     }
 
     state.session = { store, shift, staff };
-    saveSession();
-    err.classList.add("hidden");
+    saveSession(state.session);
 
+    // load items, go home
     try {
       await loadItems();
+      go("home");
+      showSessionStartPopupOnce();
     } catch (e) {
-      err.textContent = "Cannot load items. Check server.";
-      err.classList.remove("hidden");
-      return;
+      if (err) { err.textContent = e?.message || "Failed to load items."; err.classList.remove("hidden"); }
     }
-
-    state.view = { page: "home", category: null, sauceSub: null };
-    pushNavState();
-    render();
   });
+
+  updateTopAndNav();
 }
 
-function computeCategoryCounts() {
+/* ---------- Render: Home ---------- */
+function countByCategory() {
   const counts = {};
-  const cats = getAllCategories();
-  for (const c of cats) counts[c] = 0;
+  for (const c of CATEGORIES) counts[c] = 0;
 
-  const store = state.session.store;
-
-  for (const raw of state.items) {
-    const it = normalizeItem(raw);
-    // ignore SKH-only Beef Taco (H) for PDD
-    if (isBeefTacoH(it) && norm(it.category) === norm("Front counter") && norm(store) !== "skh") continue;
-
-    const cat = it.category;
-    if (!counts[cat]) counts[cat] = 0;
-    counts[cat] += 1;
-  }
-
-  // Sauce counts should represent total sauce items (not sub-counts)
+  state.items.forEach((it) => {
+    const cat = canonicalCategory(it.category);
+    if (counts[cat] == null) counts[cat] = 0;
+    counts[cat]++;
+  });
   return counts;
 }
 
 function renderHome() {
-  updateTopbar();
-  updateSessionPill();
-  setActiveNav("home");
-
-  const cats = getAllCategories();
-  const counts = computeCategoryCounts();
+  const counts = countByCategory();
 
   main.innerHTML = `
     <section class="home-surface">
       <div class="home-title">Categories</div>
-
       <section class="grid tiles-grid">
-        ${cats
-          .map((cat) => {
-            const meta = TILE_META[cat] || { tone: "green", icon: "✅" };
-            const count = counts[cat] ?? 0;
-            return `
-              <button class="tile tile--${meta.tone}" data-cat="${escapeHtml(cat)}" type="button">
-                <div class="tile-top">
-                  <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
-                </div>
-                <div class="tile-title">${escapeHtml(cat)}</div>
-                <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
-              </button>
-            `;
-          })
-          .join("")}
+        ${CATEGORIES.map((cat, idx) => {
+          const meta = TILE_META[cat] || { tone: "green", icon: "✅" };
+          const count = counts[cat] ?? 0;
+          return `
+            <button class="tile tile--${meta.tone} tile-anim" style="animation-delay:${idx * 55}ms"
+              data-cat="${escapeHtml(cat)}" type="button">
+              <div class="tile-top">
+                <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
+              </div>
+              <div class="tile-title">${escapeHtml(cat)}</div>
+              <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
+            </button>
+          `;
+        }).join("")}
       </section>
     </section>
   `;
 
-  // simple appear animation
-  $$(".tile", main).forEach((t, i) => {
-    t.style.opacity = "0";
-    t.style.transform = "translateY(10px)";
-    setTimeout(() => {
-      t.style.transition = "all 300ms ease";
-      t.style.opacity = "1";
-      t.style.transform = "translateY(0)";
-    }, 40 + i * 45);
-  });
-
   $$("[data-cat]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const cat = btn.getAttribute("data-cat");
-      if (norm(cat) === "sauce") {
-        state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
-      } else {
-        state.view = { page: "category", category: cat, sauceSub: null };
-      }
-      pushNavState();
-      render();
+      if (cat === "Sauce") go("sauce_menu", { category: "Sauce", sauceSub: null });
+      else go("category", { category: cat, sauceSub: null });
     });
   });
 
-  // show session popup once after session started
-  maybeShowSessionPopup();
+  updateTopAndNav();
 }
 
+/* ---------- Render: Sauce menu ---------- */
 function renderSauceMenu() {
-  updateTopbar();
-  updateSessionPill();
-
   main.innerHTML = `
     <div class="page-head">
       <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
       <div class="page-title">Sauce</div>
     </div>
 
-    <section class="grid">
-      ${SAUCE_SUBS.map(
-        (s) => `
-          <button class="tile tile--purple" data-sauce="${escapeHtml(s)}" type="button">
+    <section class="grid tiles-grid">
+      ${SAUCE_SUBS.map((s, idx) => {
+        const meta = { tone: "purple", icon: s === "Sandwich Unit" ? "🥪" : (s === "Standby" ? "🫙" : "🧴") };
+        return `
+          <button class="tile tile--${meta.tone} tile-anim" style="animation-delay:${idx * 55}ms"
+            data-sauce="${escapeHtml(s)}" type="button">
             <div class="tile-top">
-              <div class="tile-icon" aria-hidden="true">🧴</div>
+              <div class="tile-icon">${meta.icon}</div>
             </div>
             <div class="tile-title">${escapeHtml(s)}</div>
             <div class="tile-sub">Tap to open</div>
           </button>
-        `
-      ).join("")}
+        `;
+      }).join("")}
     </section>
   `;
 
-  $("#backBtn")?.addEventListener("click", () => {
-    state.view = { page: "home", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
+  $("#backBtn")?.addEventListener("click", () => goBack());
 
   $$("[data-sauce]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const sub = btn.getAttribute("data-sauce");
-      state.view = { page: "category", category: "Sauce", sauceSub: sub };
-      pushNavState();
-      render();
+      go("category", { category: "Sauce", sauceSub: sub });
     });
   });
+
+  updateTopAndNav();
+}
+
+/* ---------- Items list for category ---------- */
+function getItemsForCurrentList() {
+  const cat = state.view.category;
+  const sauceSub = state.view.sauceSub;
+
+  let list = state.items
+    .map((it) => ({
+      ...it,
+      category: canonicalCategory(it.category),
+      sub_category: it.sub_category ?? null,
+    }))
+    .filter((it) => norm(it.category) === norm(cat));
+
+  if (norm(cat) === "sauce") {
+    list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
+  }
+
+  // SKH-only: Beef Taco (H) must never appear for PDD (Front counter)
+  if (norm(cat) === norm("Front counter") && state.session.store === "PDD") {
+    list = list.filter((it) => norm(it.name) !== norm("Beef Taco (H)") && norm(it.name) !== norm("Beef Taco (h)"));
+  }
+
+  list.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
+  return list;
 }
 
 function renderCategoryList() {
-  updateTopbar();
-  updateSessionPill();
-
-  const category = state.view.category;
+  const cat = state.view.category;
   const sauceSub = state.view.sauceSub;
-  const title = norm(category) === "sauce" ? `Sauce • ${sauceSub}` : category;
+  const title = norm(cat) === "sauce" ? `Sauce • ${sauceSub}` : cat;
 
-  const list = getItemsForList(category, sauceSub);
+  const list = getItemsForCurrentList();
 
   main.innerHTML = `
     <div class="page-head">
       <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
-      <div class="page-title">${escapeHtml(title || "")}</div>
+      <div class="page-title">${escapeHtml(title)}</div>
     </div>
 
     <section class="list">
       ${
         list.length
-          ? list
-              .map(
-                (it) => `
-                  <button class="list-row" data-item-id="${it.id}" type="button">
-                    <div class="list-row-main">
-                      <div class="list-row-title">${escapeHtml(it.name)}</div>
-                      <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
-                    </div>
-                    <div class="chev">›</div>
-                  </button>
-                `
-              )
-              .join("")
+          ? list.map((it) => `
+            <button class="list-row" data-item-id="${it.id}" type="button">
+              <div class="list-row-main">
+                <div class="list-row-title">${escapeHtml(it.name)}</div>
+                <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
+              </div>
+              <div class="chev">›</div>
+            </button>
+          `).join("")
           : `<div class="empty">No items found.</div>`
       }
     </section>
   `;
 
-  $("#backBtn")?.addEventListener("click", () => {
-    if (norm(category) === "sauce") {
-      state.view = { page: "sauce_menu", category: "Sauce", sauceSub: null };
-    } else {
-      state.view = { page: "home", category: null, sauceSub: null };
-    }
-    pushNavState();
-    render();
-  });
-
+  $("#backBtn")?.addEventListener("click", () => goBack());
   $$("[data-item-id]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = Number(btn.getAttribute("data-item-id"));
-      const it = state.items.map(normalizeItem).find((x) => x.id === id);
-      if (!it) return;
-
-      // store list context to go back correctly
-      state.selectedItem = { ...it, category: category, sauceSub: sauceSub || null };
-      state.view = { page: "item_form", category, sauceSub: sauceSub || null };
-      pushNavState();
-      render();
+      const it = state.items.find((x) => Number(x.id) === id);
+      if (it) openItemForm(it);
     });
   });
+
+  updateTopAndNav();
 }
 
-function renderItemForm() {
-  updateTopbar();
-  updateSessionPill();
+/* ---------- Item Form ---------- */
+function openItemForm(item) {
+  const mode = getMode(item);
+  const sl = getShelfLifeDays(item);
 
-  const it = normalizeItem(state.selectedItem || {});
-  const mode = getMode(it);
-
-  const helper = getHelperText(it);
-
-  // Build expiry UI based on mode
   let expiryBlockHtml = "";
-
-  if (mode === "AUTO") {
-    const opts = buildAutoDateOptions(it);
+  if (mode === "EOD") {
+    expiryBlockHtml = `
+      <div class="pill">
+        <div style="font-weight:950">Expiry</div>
+        <div class="muted">Auto: today 23:59</div>
+      </div>
+    `;
+  } else if (mode === "AUTO") {
+    const options = buildAutoDateOptions(sl);
     expiryBlockHtml = `
       <div class="field">
-        <label class="label">Expiry date</label>
-        <select id="expirySelect" class="input">
-          <option value="">Select date…</option>
-          ${opts.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}
+        <label class="label">Expiry Date</label>
+        <select id="expAuto" class="input">
+          <option value="" selected>Select…</option>
+          ${options.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}
         </select>
-        <div class="helper">${escapeHtml(helper)}</div>
+        <div class="helper">${escapeHtml(getHelperText(item))}</div>
       </div>
     `;
   } else if (mode === "MANUAL_DATE") {
     expiryBlockHtml = `
       <div class="field">
-        <label class="label">Expiry date</label>
-        <input id="expiryDate" class="input" type="date" />
-        <div class="helper">${escapeHtml(helper)}</div>
-      </div>
-    `;
-  } else if (mode === "EOD") {
-    expiryBlockHtml = `
-      <div class="field">
-        <label class="label">Expiry</label>
-        <div class="pill">
-          End of day (23:59)
-        </div>
-        <div class="helper">${escapeHtml(helper)}</div>
-      </div>
-    `;
-  } else if (mode === "HOURLY") {
-    const times = buildHourlyOptions();
-    expiryBlockHtml = `
-      <div class="field">
-        <label class="label">Expiry time</label>
-        <select id="expiryTime" class="input">
-          <option value="">Select time…</option>
-          ${times.map((t) => `<option value="${t}">${t}</option>`).join("")}
-        </select>
-        <div class="helper">${escapeHtml(helper)} (past time allowed)</div>
+        <label class="label">Expiry Date</label>
+        <input id="expManualDate" class="input" type="date" />
+        <div class="helper">${escapeHtml(getHelperText(item))}</div>
       </div>
     `;
   } else if (mode === "HOURLY_FIXED") {
-    const fixed = buildHourlyFixedOptions();
+    const options = buildHourlyFixedOptions();
     expiryBlockHtml = `
       <div class="field">
-        <label class="label">Expiry time</label>
-        <select id="expiryFixed" class="input">
-          <option value="">Select time…</option>
-          ${fixed.map((o) => `<option value="${o.value}">${escapeHtml(o.label)}</option>`).join("")}
+        <label class="label">Expiry Time</label>
+        <select id="expTime" class="input">
+          <option value="" selected>Select…</option>
+          ${options.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}
         </select>
-        <div class="helper">${escapeHtml(helper)} (past time allowed)</div>
+        <div class="helper">${escapeHtml(getHelperText(item))}</div>
+      </div>
+    `;
+  } else if (mode === "HOURLY") {
+    const options = buildHourlyOptions();
+    expiryBlockHtml = `
+      <div class="field">
+        <label class="label">Expiry Time</label>
+        <select id="expTime" class="input">
+          <option value="" selected>Select…</option>
+          ${options.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}
+        </select>
+        <div class="helper">${escapeHtml(getHelperText(item))}</div>
       </div>
     `;
   }
 
-  main.innerHTML = `
-    <div class="page-head">
-      <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
-      <div class="page-title">${escapeHtml(it.name || "")}</div>
+  openModal(
+    item.name,
+    `
+    <div class="modal-item-title">${escapeHtml(item.name)}</div>
+    <div class="muted" style="margin-bottom:10px">${escapeHtml(getHelperText(item))}</div>
+
+    <div class="field">
+      <label class="label">Quantity (optional)</label>
+      <input id="qty" class="input" inputmode="numeric" placeholder="Leave blank if not needed" />
+      <div class="helper">Blank allowed • 0 allowed</div>
     </div>
 
-    <div class="card">
-      <div class="card-title">${escapeHtml(it.name || "")}</div>
-      <div class="muted" style="margin-top:-6px">${escapeHtml(canonicalCategory(it.category))}${it.sub_category ? ` • ${escapeHtml(it.sub_category)}` : ""}</div>
+    ${expiryBlockHtml}
 
-      <div class="field">
-        <label class="label">Quantity (optional)</label>
-        <input id="qtyInput" class="input" inputmode="numeric" placeholder="Leave blank if not counting" />
-        <div class="helper">Blank allowed. 0 allowed. Quantity will never block save.</div>
-      </div>
+    <div id="formErr" class="error hidden"></div>
 
-      ${expiryBlockHtml}
-
-      <div id="formErr" class="error hidden"></div>
-
-      <button id="saveBtn" class="btn btn-primary" type="button" style="width:100%;margin-top:6px">
-        Save
-      </button>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button id="cancelBtn" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="saveBtn" class="btn btn-primary" type="button" style="flex:1">Save</button>
     </div>
-  `;
+    `
+  );
 
-  $("#backBtn")?.addEventListener("click", () => {
-    state.view = { page: "category", category: state.view.category, sauceSub: state.view.sauceSub };
-    pushNavState();
-    render();
-  });
+  $("#cancelBtn")?.addEventListener("click", closeModal);
 
   $("#saveBtn")?.addEventListener("click", async () => {
     const err = $("#formErr");
-    if (err) {
-      err.textContent = "";
-      err.classList.add("hidden");
-    }
+    if (err) { err.classList.add("hidden"); err.textContent = ""; }
 
-    // Quantity optional: allow blank
-    const qtyRaw = $("#qtyInput")?.value ?? "";
-    const qtyVal = String(qtyRaw).trim() === "" ? null : Number(qtyRaw);
+    const qtyRaw = ($("#qty")?.value ?? "").trim();
+    const qty = qtyRaw; // keep string; server will insert if column exists (optional)
 
-    // Determine expiry payload
-    let expiryISO = null;
-
-    if (mode === "AUTO") {
-      const ymd = $("#expirySelect")?.value || "";
-      if (!ymd) return showErr(err, "Expiry required.");
-      const d = parseYMD(ymd);
-      // default to end of day? NO: keep date-only but store as ISO at 00:00 (safe)
-      expiryISO = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).toISOString();
-    }
-
-    if (mode === "MANUAL_DATE") {
-      const ymd = $("#expiryDate")?.value || "";
-      if (!ymd) return showErr(err, "Expiry required.");
-      const d = parseYMD(ymd);
-      expiryISO = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).toISOString();
-    }
+    let expiry_at = null;
 
     if (mode === "EOD") {
-      const now = new Date();
-      expiryISO = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0, 0).toISOString();
-    }
-
-    if (mode === "HOURLY") {
-      const t = $("#expiryTime")?.value || "";
-      if (!t) return showErr(err, "Expiry required.");
-      const base = new Date();
+      const d = new Date();
+      d.setHours(23, 59, 0, 0);
+      expiry_at = d.toISOString();
+    } else if (mode === "AUTO") {
+      const v = ($("#expAuto")?.value || "").trim();
+      if (!v) {
+        if (err) { err.textContent = "Expiry required."; err.classList.remove("hidden"); }
+        return;
+      }
+      expiry_at = new Date(v).toISOString();
+    } else if (mode === "MANUAL_DATE") {
+      const dStr = ($("#expManualDate")?.value || "").trim();
+      if (!dStr) {
+        if (err) { err.textContent = "Expiry required."; err.classList.remove("hidden"); }
+        return;
+      }
+      const d = new Date(`${dStr}T23:59:00`);
+      expiry_at = d.toISOString();
+    } else if (mode === "HOURLY_FIXED" || mode === "HOURLY") {
+      const t = ($("#expTime")?.value || "").trim();
+      if (!t) {
+        if (err) { err.textContent = "Time required."; err.classList.remove("hidden"); }
+        return;
+      }
+      const today = new Date();
       const [hh, mm] = t.split(":").map((x) => Number(x));
-      expiryISO = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh || 0, mm || 0, 0, 0).toISOString();
+      const d = new Date(today);
+      d.setHours(hh || 0, mm || 0, 0, 0);
+      expiry_at = d.toISOString(); // past allowed (we do not block)
     }
-
-    if (mode === "HOURLY_FIXED") {
-      const t = $("#expiryFixed")?.value || "";
-      if (!t) return showErr(err, "Expiry required.");
-      const base = new Date();
-      const [hh, mm] = t.split(":").map((x) => Number(x));
-      expiryISO = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh || 0, mm || 0, 0, 0).toISOString();
-    }
-
-    const payload = {
-      item_id: it.id,
-      item_name: it.name,
-      category: canonicalCategory(it.category),
-      sub_category: it.sub_category || null,
-      store: state.session.store,
-      shift: state.session.shift,
-      staff: state.session.staff,
-      qty: qtyVal,
-      expiry_at: expiryISO,
-      created_at: new Date().toISOString(),
-    };
 
     try {
-      await apiPost("/api/log", payload);
+      await saveLog({ item, qty, expiry_at });
+      closeModal();
       toast("Saved");
-      // return to list
-      state.view = { page: "category", category: state.view.category, sauceSub: state.view.sauceSub };
-      pushNavState();
-      render();
+      // refresh alerts data silently
+      loadAlerts().catch(() => {});
     } catch (e) {
-      showErr(err, e?.message || "Save failed.");
+      if (err) {
+        err.textContent = e?.message || "Save failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Save failed.");
+      }
     }
   });
 }
 
-function showErr(el, msg) {
-  if (!el) {
-    alert(msg);
-    return;
-  }
-  el.textContent = msg;
-  el.classList.remove("hidden");
-}
-
-/* -------------------- Alerts -------------------- */
-function isSoon(expiryText) {
-  // optional helper
-  return !!expiryText;
-}
-
+/* ---------- Alerts page ---------- */
 function renderAlerts() {
-  updateTopbar();
-  updateSessionPill();
-  setActiveNav("alerts");
-
   main.innerHTML = `
     <div class="page-head">
       <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
@@ -1264,80 +1014,74 @@ function renderAlerts() {
 
     <div class="card">
       <div class="card-title">Expiry Alerts</div>
-      <div class="muted">Store: ${escapeHtml(state.session.store || "")}</div>
-
-      <div style="margin-top:12px" id="alertsBox">
-        <div class="muted">Loading…</div>
-      </div>
-
-      <button id="refreshAlerts" class="btn btn-primary" type="button" style="width:100%;margin-top:12px">
-        Refresh
-      </button>
+      <div id="alertsBox" class="muted">Loading…</div>
     </div>
   `;
 
-  $("#backBtn")?.addEventListener("click", () => {
-    state.view = { page: "home", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
+  $("#backBtn")?.addEventListener("click", () => goBack());
 
-  async function fill() {
-    const box = $("#alertsBox");
+  (async () => {
     try {
       await loadAlerts();
       const rows = state.alerts || [];
+      const box = $("#alertsBox");
+
+      if (!box) return;
 
       if (!rows.length) {
-        box.innerHTML = `<div class="muted">No expiry alerts found.</div>`;
+        box.innerHTML = `<div class="muted">No alerts found.</div>`;
         return;
       }
 
       box.innerHTML = `
-        <div>
-          ${rows
-            .map((r) => {
-              const name = r.name ?? r.item_name ?? "";
-              const exp = r.expiry_value ?? r.expiry_at ?? r.expiry ?? "";
-              const cat = canonicalCategory(r.category);
-              const sub = r.sub_category ? ` • ${r.sub_category}` : "";
-              return `
-                <div class="alert-row">
-                  <div>
-                    <div class="alert-name">${escapeHtml(name)}</div>
-                    <div class="alert-extra">${escapeHtml(cat + sub)}</div>
-                  </div>
-                  <div class="alert-extra">${escapeHtml(String(exp))}</div>
-                </div>
-              `;
-            })
-            .join("")}
-        </div>
+        ${rows.map((r) => {
+          const name = r.name || r.item_name || "Item";
+          const exp = r.expiry_value || "";
+          return `
+            <div class="alert-row">
+              <div>
+                <div class="alert-name">${escapeHtml(name)}</div>
+                <div class="alert-extra">${escapeHtml(r.category || "")}${r.sub_category ? " • " + escapeHtml(r.sub_category) : ""}</div>
+              </div>
+              <div class="alert-extra">${escapeHtml(exp)}</div>
+            </div>
+          `;
+        }).join("")}
       `;
     } catch (e) {
-      box.innerHTML = `<div class="error">Failed: ${escapeHtml(e?.message || "error")}</div>`;
+      const box = $("#alertsBox");
+      if (box) box.innerHTML = `<div class="error">Failed: ${escapeHtml(e?.message || "Error")}</div>`;
     }
-  }
+  })();
 
-  $("#refreshAlerts")?.addEventListener("click", fill);
-  fill();
+  updateTopAndNav();
 }
 
-/* -------------------- Manager page -------------------- */
-async function managerFetchItems() {
-  // try new manager endpoint; if missing show friendly error
-  try {
-    const rows = await apiManager("GET", "/api/manager/items");
-    return Array.isArray(rows) ? rows.map(normalizeItem) : [];
-  } catch (e) {
-    throw e;
-  }
+/* ---------- Manager page ---------- */
+function getAllCategoriesFromItems() {
+  const set = new Set();
+  state.items.forEach((it) => set.add(canonicalCategory(it.category)));
+  // include official list so manager can use them even if empty
+  CATEGORIES.forEach((c) => set.add(c));
+  return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+async function managerReloadItems() {
+  const rows = await apiManager("GET", "/api/manager/items");
+  state.items = (rows || []).map((it) => ({
+    ...it,
+    category: canonicalCategory(it.category),
+    sub_category: it.sub_category ?? null,
+  }));
 }
 
 function renderManager() {
-  updateTopbar();
-  updateSessionPill();
-  setActiveNav("manager");
+  if (!isManagerMode()) {
+    // require login first
+    openManagerLogin();
+    go("home");
+    return;
+  }
 
   main.innerHTML = `
     <div class="page-head">
@@ -1346,394 +1090,345 @@ function renderManager() {
     </div>
 
     <div class="card">
-      <div class="card-title">Manager Controls</div>
-      <div class="muted">
-        You can edit items now. Add/Delete items requires server routes.
+      <div class="card-title">Manager Tools</div>
+      <div class="muted" style="margin-bottom:10px">
+        You can add/edit/delete items, rename categories, and move items safely.
       </div>
 
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button id="mgrExit" class="btn btn-ghost" type="button" style="flex:1">Exit Manager</button>
-        <button id="mgrRefresh" class="btn btn-primary" type="button" style="flex:1">Refresh</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Categories</div>
-      <div class="muted">These categories are for home tiles + item creation.</div>
-
-      <div id="catList" style="margin-top:10px"></div>
-
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button id="addCat" class="btn btn-primary" type="button" style="flex:1">Add Category</button>
-        <button id="resetCats" class="btn btn-ghost" type="button" style="flex:1">Reset</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button id="mgrRefresh" class="btn btn-ghost" type="button">Refresh</button>
+        <button id="mgrAddItem" class="btn btn-primary" type="button">Add Item</button>
+        <button id="mgrCats" class="btn btn-ghost" type="button">Manage Categories</button>
+        <button id="mgrExit" class="btn btn-ghost" type="button">Exit Manager</button>
       </div>
     </div>
 
     <div class="card">
       <div class="card-title">Items</div>
-      <div class="muted">Tap an item to edit. Add/Delete needs API routes.</div>
 
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button id="addItem" class="btn btn-primary" type="button" style="flex:1">Add Item</button>
-        <button id="delItem" class="btn btn-ghost" type="button" style="flex:1">Delete Item</button>
+      <div class="field">
+        <input id="mgrSearch" class="input" placeholder="Search item name…" />
       </div>
 
-      <div id="mgrErr" class="error hidden" style="margin-top:10px"></div>
-      <div id="mgrBox" style="margin-top:12px"><div class="muted">Loading…</div></div>
+      <div id="mgrList" class="list"></div>
     </div>
   `;
 
-  $("#backBtn")?.addEventListener("click", () => {
-    state.view = { page: "home", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
+  $("#backBtn")?.addEventListener("click", () => goBack());
+  $("#mgrExit")?.addEventListener("click", exitManagerMode);
 
-  $("#mgrExit")?.addEventListener("click", () => {
-    if (!confirm("Exit manager mode?")) return;
-    setManagerToken("");
-    state.view = { page: "home", category: null, sauceSub: null };
-    pushNavState();
-    render();
-  });
+  const renderList = () => {
+    const q = norm($("#mgrSearch")?.value || "");
+    const list = $("#mgrList");
+    if (!list) return;
 
-  $("#mgrRefresh")?.addEventListener("click", () => {
-    fillManagerItems();
-    fillManagerCategories();
-  });
+    const items = state.items
+      .slice()
+      .sort((a, b) => norm(a.name).localeCompare(norm(b.name)))
+      .filter((it) => !q || norm(it.name).includes(q));
 
-  $("#addCat")?.addEventListener("click", () => {
-    const name = prompt("New category name:");
-    if (!name) return;
-    if (BASE_CATEGORIES.some((c) => norm(c) === norm(name)) || state.customCategories.some((c) => norm(c) === norm(name))) {
-      alert("Category already exists.");
-      return;
-    }
-    state.customCategories.push(name.trim());
-    saveCustomCategories();
-    fillManagerCategories();
-    toast("Category added");
-  });
+    list.innerHTML = items.map((it) => `
+      <button class="list-row" data-mid="${it.id}" type="button">
+        <div class="list-row-main">
+          <div class="list-row-title">${escapeHtml(it.name)}</div>
+          <div class="list-row-sub">${escapeHtml(canonicalCategory(it.category))}${it.sub_category ? " • " + escapeHtml(it.sub_category) : ""} • SL ${escapeHtml(it.shelf_life_days)}</div>
+        </div>
+        <div class="chev">›</div>
+      </button>
+    `).join("");
 
-  $("#resetCats")?.addEventListener("click", () => {
-    if (!confirm("Reset custom categories?")) return;
-    state.customCategories = [];
-    saveCustomCategories();
-    fillManagerCategories();
-  });
-
-  $("#addItem")?.addEventListener("click", () => openAddItemModal());
-  $("#delItem")?.addEventListener("click", () => openDeleteItemModal());
-
-  async function fillManagerCategories() {
-    const el = $("#catList");
-    const cats = getAllCategories();
-
-    el.innerHTML = `
-      <div class="list">
-        ${cats
-          .map((c) => {
-            const isBase = BASE_CATEGORIES.some((b) => norm(b) === norm(c));
-            return `
-              <div class="list-row" style="cursor:default">
-                <div class="list-row-main">
-                  <div class="list-row-title">${escapeHtml(c)}</div>
-                  <div class="list-row-sub">${isBase ? "Built-in" : "Custom"}</div>
-                </div>
-                ${
-                  isBase
-                    ? `<div class="muted">—</div>`
-                    : `<button class="btn btn-ghost" data-del-cat="${escapeHtml(c)}" type="button">Delete</button>`
-                }
-              </div>
-            `;
-          })
-          .join("")}
-      </div>
-      <div class="helper">Deleting a category only removes it from tiles. Items in DB keep their category text.</div>
-    `;
-
-    $$("[data-del-cat]", el).forEach((b) => {
-      b.addEventListener("click", () => {
-        const c = b.getAttribute("data-del-cat");
-        if (!confirm(`Delete category "${c}"?`)) return;
-        state.customCategories = state.customCategories.filter((x) => norm(x) !== norm(c));
-        saveCustomCategories();
-        fillManagerCategories();
-        toast("Category deleted");
+    $$("[data-mid]", list).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = Number(btn.getAttribute("data-mid"));
+        const it = state.items.find((x) => Number(x.id) === id);
+        if (it) openManagerItemEditor(it);
       });
     });
-  }
+  };
 
-  async function fillManagerItems() {
-    const box = $("#mgrBox");
-    const err = $("#mgrErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+  $("#mgrSearch")?.addEventListener("input", renderList);
 
-    box.innerHTML = `<div class="muted">Loading…</div>`;
-
+  $("#mgrRefresh")?.addEventListener("click", async () => {
     try {
-      const rows = await managerFetchItems();
-      // show short list UI
-      box.innerHTML = `
-        <section class="list">
-          ${rows
-            .map(
-              (it) => `
-            <button class="list-row" data-mid="${it.id}" type="button">
-              <div class="list-row-main">
-                <div class="list-row-title">${escapeHtml(it.name)}</div>
-                <div class="list-row-sub">
-                  ${escapeHtml(canonicalCategory(it.category))}
-                  ${it.sub_category ? ` • ${escapeHtml(it.sub_category)}` : ""}
-                  • shelf ${escapeHtml(String(it.shelf_life_days))}
-                </div>
-              </div>
-              <div class="chev">›</div>
-            </button>
-          `
-            )
-            .join("")}
-        </section>
-      `;
-
-      $$("[data-mid]", box).forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const id = Number(btn.getAttribute("data-mid"));
-          const it = rows.find((x) => x.id === id);
-          if (!it) return;
-          openEditItemModal(it);
-        });
-      });
+      await managerReloadItems();
+      toast("Updated");
+      renderList();
     } catch (e) {
-      err.textContent = `Failed to load manager items: ${e?.message || "error"}`;
-      err.classList.remove("hidden");
-      box.innerHTML = `<div class="muted">—</div>`;
+      alert(e?.message || "Refresh failed");
     }
-  }
+  });
 
-  function openEditItemModal(it) {
-    const cats = getAllCategories();
+  $("#mgrAddItem")?.addEventListener("click", () => openManagerNewItem());
+  $("#mgrCats")?.addEventListener("click", () => openManagerCategories());
 
-    openModal(
-      "Edit Item",
-      `
-      <div class="field">
-        <label class="label">Name</label>
-        <input id="eName" class="input" value="${escapeHtml(it.name)}" />
-      </div>
-
-      <div class="field">
-        <label class="label">Category</label>
-        <select id="eCat" class="input">
-          ${cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
-        </select>
-      </div>
-
-      <div class="field">
-        <label class="label">Sub-category (optional)</label>
-        <input id="eSub" class="input" value="${escapeHtml(it.sub_category || "")}" placeholder="e.g. Sandwich Unit / Standby / Open Inner" />
-      </div>
-
-      <div class="field">
-        <label class="label">Shelf life days</label>
-        <input id="eSL" class="input" inputmode="numeric" value="${escapeHtml(String(it.shelf_life_days ?? 0))}" />
-        <div class="helper">If > 7, app forces manual date. AUTO uses dropdown (today..today+N).</div>
-      </div>
-
-      <div id="eErr" class="error hidden"></div>
-
-      <div style="display:flex;gap:10px">
-        <button id="eCancel" class="btn btn-ghost" type="button" style="flex:1">Cancel</button>
-        <button id="eSave" class="btn btn-primary" type="button" style="flex:1">Save</button>
-      </div>
-      `
-    );
-
-    $("#eCat").value = canonicalCategory(it.category);
-
-    $("#eCancel")?.addEventListener("click", closeModal);
-
-    $("#eSave")?.addEventListener("click", async () => {
-      const err = $("#eErr");
-      err.classList.add("hidden");
-      err.textContent = "";
-
-      const name = $("#eName")?.value?.trim() || "";
-      const category = $("#eCat")?.value || "";
-      const sub_category = ($("#eSub")?.value || "").trim() || null;
-      const shelf_life_days = clampInt($("#eSL")?.value, 0);
-
-      if (!name || !category) {
-        err.textContent = "Name and Category required.";
-        err.classList.remove("hidden");
-        return;
-      }
-
-      try {
-        await apiManager("PATCH", `/api/manager/items/${it.id}`, { name, category, sub_category, shelf_life_days });
-        closeModal();
-        toast("Updated");
-        // reload public items too (so staff sees changes)
-        await loadItems();
-        fillManagerItems();
-      } catch (e) {
-        err.textContent = e?.message || "Update failed";
-        err.classList.remove("hidden");
-      }
-    });
-  }
-
-  function openAddItemModal() {
-    const cats = getAllCategories();
-
-    openModal(
-      "Add Item",
-      `
-      <div class="muted" style="margin-bottom:10px">
-        Requires server route: <b>POST /api/manager/items</b>
-      </div>
-
-      <div class="field">
-        <label class="label">Name</label>
-        <input id="aName" class="input" placeholder="Item name" />
-      </div>
-
-      <div class="field">
-        <label class="label">Category</label>
-        <select id="aCat" class="input">
-          ${cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
-        </select>
-      </div>
-
-      <div class="field">
-        <label class="label">Sub-category (optional)</label>
-        <input id="aSub" class="input" placeholder="For Sauce: Sandwich Unit / Standby / Open Inner" />
-      </div>
-
-      <div class="field">
-        <label class="label">Shelf life days</label>
-        <input id="aSL" class="input" inputmode="numeric" value="0" />
-      </div>
-
-      <div id="aErr" class="error hidden"></div>
-
-      <div style="display:flex;gap:10px">
-        <button id="aCancel" class="btn btn-ghost" type="button" style="flex:1">Cancel</button>
-        <button id="aSave" class="btn btn-primary" type="button" style="flex:1">Add</button>
-      </div>
-      `
-    );
-
-    $("#aCancel")?.addEventListener("click", closeModal);
-
-    $("#aSave")?.addEventListener("click", async () => {
-      const err = $("#aErr");
-      err.classList.add("hidden");
-      err.textContent = "";
-
-      const name = $("#aName")?.value?.trim() || "";
-      const category = $("#aCat")?.value || "";
-      const sub_category = ($("#aSub")?.value || "").trim() || null;
-      const shelf_life_days = clampInt($("#aSL")?.value, 0);
-
-      if (!name || !category) {
-        err.textContent = "Name and Category required.";
-        err.classList.remove("hidden");
-        return;
-      }
-
-      if (!confirm(`Add item "${name}"?`)) return;
-
-      try {
-        await apiManager("POST", `/api/manager/items`, { name, category, sub_category, shelf_life_days });
-        closeModal();
-        toast("Added");
-        await loadItems();
-        fillManagerItems();
-      } catch (e) {
-        err.textContent =
-          (e?.message || "Add failed") +
-          (String(e?.message || "").includes("404") ? " (Server route missing: POST /api/manager/items)" : "");
-        err.classList.remove("hidden");
-      }
-    });
-  }
-
-  function openDeleteItemModal() {
-    openModal(
-      "Delete Item",
-      `
-      <div class="muted" style="margin-bottom:10px">
-        Requires server route: <b>DELETE /api/manager/items/:id</b>
-      </div>
-
-      <div class="field">
-        <label class="label">Item ID</label>
-        <input id="dId" class="input" inputmode="numeric" placeholder="Enter item id" />
-        <div class="helper">Tip: open an item in the list to see its ID in the URL/console, or copy from Supabase.</div>
-      </div>
-
-      <div id="dErr" class="error hidden"></div>
-
-      <div style="display:flex;gap:10px">
-        <button id="dCancel" class="btn btn-ghost" type="button" style="flex:1">Cancel</button>
-        <button id="dGo" class="btn btn-primary" type="button" style="flex:1">Delete</button>
-      </div>
-      `
-    );
-
-    $("#dCancel")?.addEventListener("click", closeModal);
-
-    $("#dGo")?.addEventListener("click", async () => {
-      const err = $("#dErr");
-      err.classList.add("hidden");
-      err.textContent = "";
-
-      const id = clampInt($("#dId")?.value, 0);
-      if (!id) {
-        err.textContent = "Enter a valid item ID.";
-        err.classList.remove("hidden");
-        return;
-      }
-
-      if (!confirm(`Delete item id ${id}? This cannot be undone.`)) return;
-
-      try {
-        await apiManager("DELETE", `/api/manager/items/${id}`);
-        closeModal();
-        toast("Deleted");
-        await loadItems();
-        fillManagerItems();
-      } catch (e) {
-        err.textContent =
-          (e?.message || "Delete failed") +
-          (String(e?.message || "").includes("404") ? " (Server route missing: DELETE /api/manager/items/:id)" : "");
-        err.classList.remove("hidden");
-      }
-    });
-  }
-
-  // initial fill
-  fillManagerCategories();
-  fillManagerItems();
+  renderList();
+  updateTopAndNav();
 }
 
-/* -------------------- Main Render -------------------- */
+function openManagerNewItem() {
+  const cats = getAllCategoriesFromItems();
+  openModal(
+    "Add New Item",
+    `
+    <div class="field">
+      <label class="label">Name</label>
+      <input id="niName" class="input" placeholder="Item name" />
+    </div>
+
+    <div class="field">
+      <label class="label">Category</label>
+      <select id="niCat" class="input">
+        ${cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="label">Sub Category (optional)</label>
+      <select id="niSub" class="input">
+        <option value="" selected>None</option>
+        ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
+      </select>
+      <div class="helper">Use this only for Sauce items.</div>
+    </div>
+
+    <div class="field">
+      <label class="label">Shelf Life Days</label>
+      <input id="niSL" class="input" inputmode="numeric" placeholder="e.g. 3" />
+    </div>
+
+    <div id="niErr" class="error hidden"></div>
+
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button id="niCancel" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="niSave" class="btn btn-primary" type="button">Add</button>
+    </div>
+    `
+  );
+
+  $("#niCancel")?.addEventListener("click", closeModal);
+  $("#niSave")?.addEventListener("click", async () => {
+    const err = $("#niErr");
+    if (err) { err.classList.add("hidden"); err.textContent = ""; }
+
+    const name = ($("#niName")?.value || "").trim();
+    const category = ($("#niCat")?.value || "").trim();
+    const sub_category = ($("#niSub")?.value || "").trim() || null;
+    const shelf_life_days = Number(($("#niSL")?.value || "").trim() || 0);
+
+    if (!name || !category) {
+      if (err) { err.textContent = "Name and category required."; err.classList.remove("hidden"); }
+      return;
+    }
+
+    try {
+      await apiManager("POST", "/api/manager/items", { name, category, sub_category, shelf_life_days });
+      await managerReloadItems();
+      closeModal();
+      toast("Item added");
+      renderManager();
+    } catch (e) {
+      if (err) { err.textContent = e?.message || "Add failed"; err.classList.remove("hidden"); }
+      else alert(e?.message || "Add failed");
+    }
+  });
+}
+
+function openManagerItemEditor(item) {
+  const cats = getAllCategoriesFromItems();
+  openModal(
+    "Edit Item",
+    `
+    <div class="field">
+      <label class="label">Name</label>
+      <input id="eiName" class="input" value="${escapeHtml(item.name)}" />
+    </div>
+
+    <div class="field">
+      <label class="label">Category</label>
+      <select id="eiCat" class="input">
+        ${cats.map((c) =>
+          `<option value="${escapeHtml(c)}" ${norm(c) === norm(item.category) ? "selected" : ""}>${escapeHtml(c)}</option>`
+        ).join("")}
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="label">Sub Category</label>
+      <select id="eiSub" class="input">
+        <option value="" ${item.sub_category ? "" : "selected"}>None</option>
+        ${SAUCE_SUBS.map((s) =>
+          `<option value="${escapeHtml(s)}" ${norm(s) === norm(item.sub_category || "") ? "selected" : ""}>${escapeHtml(s)}</option>`
+        ).join("")}
+      </select>
+      <div class="helper">Use for Sauce only.</div>
+    </div>
+
+    <div class="field">
+      <label class="label">Shelf Life Days</label>
+      <input id="eiSL" class="input" inputmode="numeric" value="${escapeHtml(item.shelf_life_days)}" />
+    </div>
+
+    <div id="eiErr" class="error hidden"></div>
+
+    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <button id="eiCancel" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="eiSave" class="btn btn-primary" type="button" style="flex:1">Save</button>
+      <button id="eiDel" class="btn btn-ghost" type="button" style="border-color:#E53935;color:#E53935;background:#fff">Delete</button>
+    </div>
+    `
+  );
+
+  $("#eiCancel")?.addEventListener("click", closeModal);
+
+  $("#eiSave")?.addEventListener("click", async () => {
+    const err = $("#eiErr");
+    if (err) { err.classList.add("hidden"); err.textContent = ""; }
+
+    const name = ($("#eiName")?.value || "").trim();
+    const category = ($("#eiCat")?.value || "").trim();
+    const sub_category = ($("#eiSub")?.value || "").trim() || null;
+    const shelf_life_days = Number(($("#eiSL")?.value || "").trim() || 0);
+
+    if (!name || !category) {
+      if (err) { err.textContent = "Name and category required."; err.classList.remove("hidden"); }
+      return;
+    }
+
+    try {
+      await apiManager("PATCH", `/api/manager/items/${item.id}`, { name, category, sub_category, shelf_life_days });
+      await managerReloadItems();
+      closeModal();
+      toast("Saved");
+      renderManager();
+    } catch (e) {
+      if (err) { err.textContent = e?.message || "Save failed"; err.classList.remove("hidden"); }
+      else alert(e?.message || "Save failed");
+    }
+  });
+
+  $("#eiDel")?.addEventListener("click", () => {
+    openConfirm("Delete item?", `Delete "${item.name}" permanently?`, async () => {
+      try {
+        await apiManager("DELETE", `/api/manager/items/${item.id}`);
+        await managerReloadItems();
+        closeModal();
+        toast("Deleted");
+        renderManager();
+      } catch (e) {
+        alert(e?.message || "Delete failed");
+      }
+    });
+  });
+}
+
+function openManagerCategories() {
+  const cats = getAllCategoriesFromItems();
+  openModal(
+    "Manage Categories",
+    `
+    <div class="muted">Categories are stored inside items (no separate categories table).</div>
+
+    <div class="field">
+      <label class="label">Rename Category</label>
+      <select id="rcFrom" class="input">
+        ${cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+      </select>
+      <input id="rcTo" class="input" placeholder="New category name" style="margin-top:10px" />
+      <button id="rcBtn" class="btn btn-primary" type="button" style="width:100%;margin-top:10px">Rename</button>
+    </div>
+
+    <hr style="border:0;border-top:1px solid rgba(0,0,0,0.08);margin:14px 0" />
+
+    <div class="field">
+      <label class="label">Delete Category (safe)</label>
+      <div class="muted" style="margin-bottom:8px">
+        To delete a category, move all its items into another category.
+      </div>
+      <select id="dcFrom" class="input">
+        ${cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+      </select>
+      <select id="dcTo" class="input" style="margin-top:10px">
+        ${cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+      </select>
+      <button id="dcBtn" class="btn btn-primary" type="button" style="width:100%;margin-top:10px">Move & Delete</button>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button id="catClose" class="btn btn-ghost" type="button">Close</button>
+    </div>
+    `
+  );
+
+  $("#catClose")?.addEventListener("click", closeModal);
+
+  $("#rcBtn")?.addEventListener("click", async () => {
+    const from = ($("#rcFrom")?.value || "").trim();
+    const to = ($("#rcTo")?.value || "").trim();
+    if (!from || !to) return alert("Select old category and enter new category name.");
+
+    openConfirm("Rename category?", `Rename "${from}" to "${to}"?`, async () => {
+      try {
+        await apiManager("POST", "/api/manager/categories/rename", { from, to });
+        await managerReloadItems();
+        closeModal();
+        toast("Category renamed");
+        renderManager();
+      } catch (e) {
+        alert(e?.message || "Rename failed");
+      }
+    });
+  });
+
+  $("#dcBtn")?.addEventListener("click", async () => {
+    const from = ($("#dcFrom")?.value || "").trim();
+    const to = ($("#dcTo")?.value || "").trim();
+    if (!from || !to) return alert("Select categories.");
+    if (norm(from) === norm(to)) return alert("Choose a different destination category.");
+
+    openConfirm("Move & delete category?", `Move all items from "${from}" to "${to}"?`, async () => {
+      try {
+        await apiManager("POST", "/api/manager/categories/move", { from, to });
+        await managerReloadItems();
+        closeModal();
+        toast("Moved");
+        renderManager();
+      } catch (e) {
+        alert(e?.message || "Move failed");
+      }
+    });
+  });
+}
+
+/* ---------- Bind top buttons + bottom nav ---------- */
+function bindNav() {
+  // Top buttons
+  btnHomeTop?.addEventListener("click", () => go("home"));
+  btnAlertsTop?.addEventListener("click", () => go("alerts"));
+
+  btnLogoutTop?.addEventListener("click", () => {
+    if (isManagerMode()) return exitManagerMode();
+
+    openConfirm("Logout?", "End staff session and return to Start Session?", () => {
+      state.session = { store: "", shift: "", staff: "" };
+      saveSession(state.session);
+      state.onceSessionPopupShown = false;
+      go("session");
+    });
+  });
+
+  // Bottom nav
+  navHome?.addEventListener("click", () => go("home"));
+  navAlerts?.addEventListener("click", () => go("alerts"));
+  navManager?.addEventListener("click", () => {
+    if (isManagerMode()) go("manager");
+    else openManagerLogin();
+  });
+}
+bindNav();
+
+/* ---------- Render router ---------- */
 function render() {
-  bindTopButtonsOnce();
-  updateTopbar();
-  updateSessionPill();
-
-  // nav highlight
-  setActiveNav(state.view.page);
-
-  // ensure items loaded when needed
-  const needsSession = state.view.page !== "session";
-  if (needsSession && !(state.session.store && state.session.shift && state.session.staff)) {
-    state.view = { page: "session", category: null, sauceSub: null };
-  }
+  updateTopAndNav();
 
   const p = state.view.page;
 
@@ -1741,38 +1436,31 @@ function render() {
   if (p === "home") return renderHome();
   if (p === "sauce_menu") return renderSauceMenu();
   if (p === "category") return renderCategoryList();
-  if (p === "item_form") return renderItemForm();
   if (p === "alerts") return renderAlerts();
   if (p === "manager") return renderManager();
 
   // fallback
-  state.view = { page: "home", category: null, sauceSub: null };
   renderHome();
 }
 
-/* -------------------- Boot -------------------- */
-async function boot() {
-  loadSession();
-  loadCustomCategories();
+/* ---------- Boot ---------- */
+(async function boot() {
+  updateTopAndNav();
 
-  // Default route
-  if (state.session.store && state.session.shift && state.session.staff) {
-    try {
-      await loadItems();
-      state.view = { page: "home", category: null, sauceSub: null };
-    } catch {
-      state.view = { page: "session", category: null, sauceSub: null };
-    }
-  } else {
-    state.view = { page: "session", category: null, sauceSub: null };
-  }
+  // If session exists, load items then go home
+  const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
 
-  // initial history state
   try {
-    history.replaceState({ page: state.view.page, t: Date.now() }, "", location.pathname);
-  } catch {}
-
-  render();
-}
-
-boot();
+    if (hasSession) {
+      await loadItems();
+      go("home");
+      showSessionStartPopupOnce();
+      loadAlerts().catch(() => {});
+    } else {
+      go("session");
+    }
+  } catch (e) {
+    console.error(e);
+    go("session");
+  }
+})();
