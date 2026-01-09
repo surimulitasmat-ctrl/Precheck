@@ -7,8 +7,7 @@
 
     <!-- PWA -->
     <meta name="theme-color" content="#009A44" />
-   <link rel="manifest" href="/manifest.json?v=20260109a" />
-
+    <link rel="manifest" href="/manifest.json?v=20260109a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
     <!-- cache bust -->
@@ -32,19 +31,21 @@
 
     <main id="main" class="container"></main>
 
-    <!-- Bottom Nav -->
+    <!-- Bottom Nav (ONE ONLY) -->
     <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-      <button id="navHome" class="nav-btn" type="button" aria-label="Home">
-        <span class="nav-ico" aria-hidden="true" id="icoHome"></span>
-        <span class="nav-txt">Home</span>
+      <button id="navHome" class="bottom-tab" type="button">
+        <div class="bn-ico">🏠</div>
+        <div class="bn-txt">Home</div>
       </button>
-      <button id="navAlerts" class="nav-btn" type="button" aria-label="Alerts">
-        <span class="nav-ico" aria-hidden="true" id="icoAlerts"></span>
-        <span class="nav-txt">Alerts</span>
+
+      <button id="navAlerts" class="bottom-tab" type="button">
+        <div class="bn-ico">🔔</div>
+        <div class="bn-txt">Alerts</div>
       </button>
-      <button id="navManager" class="nav-btn hidden" type="button" aria-label="Manager">
-        <span class="nav-ico" aria-hidden="true" id="icoManager"></span>
-        <span class="nav-txt">Manager</span>
+
+      <button id="navManager" class="bottom-tab" type="button">
+        <div class="bn-ico">🛠️</div>
+        <div class="bn-txt">Manager</div>
       </button>
     </nav>
 
@@ -60,48 +61,7 @@
     </div>
 
     <div id="toast" class="toast hidden"></div>
-<!-- Bottom Nav -->
-<nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-  <button id="navHome" class="bottom-tab" type="button">
-    <div class="bn-ico">🏠</div>
-    <div class="bn-txt">Home</div>
-  </button>
-
-  <button id="navAlerts" class="bottom-tab" type="button">
-    <div class="bn-ico">🔔</div>
-    <div class="bn-txt">Alerts</div>
-  </button>
-
-  <button id="navManager" class="bottom-tab" type="button">
-    <div class="bn-ico">🛠️</div>
-    <div class="bn-txt">Manager</div>
-  </button>
-</nav>
 
     <script src="/app.js?v=20260109a"></script>
- <!-- Bottom Nav -->
-<nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-  <button id="navHome" class="bn-item" type="button">
-    <div class="bn-ico">🏠</div>
-    <div class="bn-txt">Home</div>
-  </button>
-
-  <button id="navAlerts" class="bn-item" type="button">
-    <div class="bn-ico">🔔</div>
-    <div class="bn-txt">Alerts</div>
-  </button>
-
-  <button id="navManager" class="bn-item" type="button">
-    <div class="bn-ico">🛠️</div>
-    <div class="bn-txt">Manager</div>
-  </button>
-</nav>
-<!-- Bottom Nav -->
-<nav id="bottomNav" class="bottom-nav hidden">
-  <button id="tabHome" class="bottom-tab" type="button">Home</button>
-  <button id="tabAlerts" class="bottom-tab" type="button">Alerts</button>
-  <button id="tabManager" class="bottom-tab" type="button">Manager</button>
-</nav>
-
   </body>
 </html>
