@@ -224,6 +224,40 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
     res.status(500).json({ error: "manager_items_failed" });
   }
 });
+// POST manager item (add new)
+app.post("/api/manager/items", requireManager, async (req, res) => {
+  try {
+    const { name, category, sub_category, shelf_life_days } = req.body || {};
+    if (!name || !category) return res.status(400).json({ error: "name_and_category_required" });
+
+    const r = await query(
+      `
+      INSERT INTO public.items (name, category, sub_category, shelf_life_days)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [name, category, sub_category ?? null, Number(shelf_life_days ?? 0)]
+    );
+
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_add_failed" });
+  }
+});
+
+// DELETE manager item
+app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const r = await query(`DELETE FROM public.items WHERE id = $1 RETURNING id`, [id]);
+    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_delete_failed" });
+  }
+});
 
 // POST manager item (ADD NEW ITEM)
 app.post("/api/manager/items", requireManager, async (req, res) => {
