@@ -3,6 +3,7 @@
    Single-file, safe copy/paste
    Works with your current style.css colors (green/white/yellow)
    Adds: Bottom nav (Home/Alerts/Manager/Logout), swipe-back, manager mode + CRUD (if server endpoints exist)
+   FIXED: bindBottomNav null.dataset crash + DOMContentLoaded boot guard
    ========================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -476,54 +477,59 @@ function bindSwipeBack() {
   } catch {}
 }
 
-/* ---------- Bottom nav bindings ---------- */
+/* ---------- Bottom nav bindings (FIXED) ---------- */
 function bindBottomNav() {
-  const navHome = $("#navHome");
-  const navAlerts = $("#navAlerts");
-  const navManager = $("#navManager");
-  const navLogout = $("#navLogout");
+  const nav = $("#bottomNav");
+  if (!nav) return;
 
-  if (!navHome || navHome.dataset.bound === "1") return;
+  // bind once
+  if (nav.dataset.bound === "1") return;
+  nav.dataset.bound = "1";
 
-  navHome.dataset.bound = "1";
-  navAlerts.dataset.bound = "1";
-  navManager.dataset.bound = "1";
-  navLogout.dataset.bound = "1";
+  nav.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
 
-  navHome.addEventListener("click", () => {
-    state.navStack = [];
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-  });
+    const id = btn.id;
 
-  navAlerts.addEventListener("click", () => {
-    setView({ page: "alerts", category: null, sauceSub: null }, true);
-  });
-
-  navManager.addEventListener("click", () => {
-    if (isManagerMode()) {
-      setView({ page: "manager" }, true);
-    } else {
-      openManagerLogin();
-    }
-  });
-
-  navLogout.addEventListener("click", () => {
-    if (isManagerMode()) {
-      if (!confirm("Exit manager mode?")) return;
-      setManagerToken("");
-      toast("Back to staff mode");
+    if (id === "navHome") {
+      state.navStack = [];
       state.view = { page: "home", category: null, sauceSub: null };
       render();
       return;
     }
 
-    if (!confirm("Logout staff session?")) return;
-    state.session = { store: "", shift: "", staff: "" };
-    saveSession();
-    state.navStack = [];
-    state.view = { page: "session", category: null, sauceSub: null };
-    render();
+    if (id === "navAlerts") {
+      setView({ page: "alerts", category: null, sauceSub: null }, true);
+      return;
+    }
+
+    if (id === "navManager") {
+      if (isManagerMode()) {
+        setView({ page: "manager" }, true);
+      } else {
+        openManagerLogin();
+      }
+      return;
+    }
+
+    if (id === "navLogout") {
+      if (isManagerMode()) {
+        if (!confirm("Exit manager mode?")) return;
+        setManagerToken("");
+        toast("Back to staff mode");
+        state.view = { page: "home", category: null, sauceSub: null };
+        render();
+        return;
+      }
+
+      if (!confirm("Logout staff session?")) return;
+      state.session = { store: "", shift: "", staff: "" };
+      saveSession();
+      state.navStack = [];
+      state.view = { page: "session", category: null, sauceSub: null };
+      render();
+    }
   });
 }
 
@@ -1380,11 +1386,18 @@ async function boot() {
   render();
 }
 
-boot().catch((e) => {
+/* ---------- Start after DOM ready (FIXED) ---------- */
+function bootCrash(e) {
   console.error(e);
   if (main) {
     main.innerHTML = `<div class="card"><div class="h1">Error</div><div class="error">${escapeHtml(
       e?.message || e
     )}</div></div>`;
   }
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => boot().catch(bootCrash));
+} else {
+  boot().catch(bootCrash);
+}
