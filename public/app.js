@@ -204,47 +204,12 @@ function updateTopbar() {
 }
 
 // Bind top buttons (SAFE)
-(function bindTopButtons() {
-  if (window.__precheckBound) return;
-  window.__precheckBound = true;
+function bindTopButtons() {
+  $("#btnHome").addEventListener("click", ...
+  $("#btnAlerts").addEventListener("click", ...
+  $("#btnLogout").addEventListener("click", ...
+}
 
-  if (btnHome) {
-    btnHome.addEventListener("click", () => {
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
-    });
-  }
-
-  if (btnAlerts) {
-    btnAlerts.addEventListener("click", async () => {
-      state.view = { page: "alerts", category: null, sauceSub: null };
-      await loadAlertsSafe();
-      render();
-    });
-  }
-
-  if (btnLogout) {
-    btnLogout.addEventListener("click", () => {
-      if (isManagerMode()) {
-        if (!confirm("Switch back to STAFF mode?")) return;
-        setManagerToken("");
-        updateTopbar();
-        updateSessionPill();
-        state.view = { page: "home", category: null, sauceSub: null };
-        render();
-        return;
-      }
-
-      if (!confirm("Logout and clear session?")) return;
-      localStorage.removeItem("session");
-      state.session = { store: "", shift: "", staff: "" };
-      state.view = { page: "session", category: null, sauceSub: null };
-      updateTopbar();
-      updateSessionPill();
-      render();
-    });
-  }
-})();
 
 // ---------- Data load ----------
 async function loadItems() {
