@@ -2,9 +2,10 @@
   "name": "PreCheck",
   "short_name": "PreCheck",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#FFFFFF",
-  "theme_color": "#0B6B3A",
+  "background_color": "#f6fbf7",
+  "theme_color": "#009A44",
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -18,4 +19,3 @@
     }
   ]
 }
-
