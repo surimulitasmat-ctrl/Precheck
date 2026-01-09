@@ -5,26 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>PreCheck</title>
 
+    <!-- PWA -->
+    <meta name="theme-color" content="#009A44" />
+    <link rel="manifest" href="/manifest.webmanifest?v=20260109a" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
     <!-- cache bust -->
     <link rel="stylesheet" href="/style.css?v=20260109a" />
   </head>
 
   <body>
-    <header class="topbar">
-      <div class="topbar-left">
-        <div class="brand">PreCheck</div>
-        <div id="sessionPill" class="session-pill hidden"></div>
-      </div>
+    <header class="topbar" id="topbar">
+      <div class="topbar-row">
+        <div class="brand-wrap">
+          <div class="brand">PreCheck</div>
+          <div id="sessionLine" class="session-line hidden"></div>
+        </div>
 
-      <!-- (kept for desktop fallback; mobile uses bottom nav) -->
-      <div class="topbar-actions">
-        <button id="btnHome" class="btn btn-ghost hidden" type="button">Home</button>
-        <button id="btnAlerts" class="btn btn-ghost hidden" type="button">Alerts</button>
-        <button id="btnLogout" class="btn btn-ghost hidden" type="button">Logout</button>
+        <div class="topbar-right">
+          <button id="btnManager" class="chip hidden" type="button" title="Manager">Manager</button>
+          <button id="btnLogout" class="chip chip--ghost hidden" type="button">Logout</button>
+        </div>
       </div>
     </header>
 
     <main id="main" class="container"></main>
+
+    <!-- Bottom Nav -->
+    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
+      <button id="navHome" class="nav-btn" type="button" aria-label="Home">
+        <span class="nav-ico" aria-hidden="true" id="icoHome"></span>
+        <span class="nav-txt">Home</span>
+      </button>
+      <button id="navAlerts" class="nav-btn" type="button" aria-label="Alerts">
+        <span class="nav-ico" aria-hidden="true" id="icoAlerts"></span>
+        <span class="nav-txt">Alerts</span>
+      </button>
+      <button id="navManager" class="nav-btn hidden" type="button" aria-label="Manager">
+        <span class="nav-ico" aria-hidden="true" id="icoManager"></span>
+        <span class="nav-txt">Manager</span>
+      </button>
+    </nav>
 
     <!-- Modal -->
     <div id="modalBackdrop" class="backdrop hidden" aria-hidden="true">
@@ -37,30 +58,8 @@
       </div>
     </div>
 
-    <!-- Bottom Nav -->
-    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-      <button id="navHome" class="bn-btn" type="button">
-        <span class="bn-ic">🏠</span>
-        <span class="bn-tx">Home</span>
-      </button>
+    <div id="toast" class="toast hidden"></div>
 
-      <button id="navAlerts" class="bn-btn" type="button">
-        <span class="bn-ic">🔔</span>
-        <span class="bn-tx">Alerts</span>
-      </button>
-
-      <button id="navManager" class="bn-btn" type="button">
-        <span class="bn-ic">🧑‍💼</span>
-        <span class="bn-tx">Manager</span>
-      </button>
-
-      <button id="navLogout" class="bn-btn bn-warn" type="button">
-        <span class="bn-ic">🚪</span>
-        <span class="bn-tx">Logout</span>
-      </button>
-    </nav>
-
-    <!-- cache bust -->
     <script src="/app.js?v=20260109a"></script>
   </body>
 </html>
