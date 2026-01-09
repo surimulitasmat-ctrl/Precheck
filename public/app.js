@@ -1,8 +1,8 @@
 /* =========================
    PreCheck — app.js (FULL)
-   Single-file, safe copy/paste
-   Works with your current style.css colors (green/white/yellow)
-   Adds: Bottom nav (Home/Alerts/Manager/Logout), swipe-back, manager mode + CRUD (if server endpoints exist)
+   Matches your current index.html + style.css
+   Keeps: yellow buttons, session in topbar, bottom nav (Home/Alerts/Manager)
+   Adds: manager login/logout, manager badge red / staff badge blue, swipe-back confirm exit
    ========================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -36,7 +36,6 @@ function addDaysISODate(iso, days) {
   return `${y}-${m}-${dd}`;
 }
 function toISOAtLocalEndOfDay(isoDate) {
-  // end of day local, store as ISO string
   const d = new Date(`${isoDate}T23:59:00`);
   return d.toISOString();
 }
@@ -62,19 +61,10 @@ const CATEGORIES = [
 
 const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
 
-// If you want fixed time dropdown items (date+time)
 const FIXED_TIME_SLOTS = ["11:00", "15:00", "19:00", "23:00"];
-const HOURLY_FIXED_ITEMS = new Set([
-  norm("Soup"),
-  norm("Soups"),
-  // add more fixed-time items here if needed
-]);
+const HOURLY_FIXED_ITEMS = new Set([norm("Soup"), norm("Soups")]);
 
-// Always manual date-only items (besides Unopened chiller)
-const MANUAL_ALWAYS = new Set([
-  // add items here if you want forced manual date-only
-  // norm("Mix Green"),
-]);
+const MANUAL_ALWAYS = new Set([]);
 
 /* ---------- Tile meta (SVG icons + tones) ---------- */
 const ICONS = {
@@ -120,9 +110,9 @@ const ICONS = {
 const TILE_META = {
   "Prepared items": { tone: "green", icon: ICONS.clipboard },
   "Unopened chiller": { tone: "blue", icon: ICONS.snow },
-  "Thawing": { tone: "cyan", icon: ICONS.snow },
-  "Vegetables": { tone: "lime", icon: ICONS.leaf },
-  "Backroom": { tone: "orange", icon: ICONS.box },
+  Thawing: { tone: "cyan", icon: ICONS.snow },
+  Vegetables: { tone: "lime", icon: ICONS.leaf },
+  Backroom: { tone: "orange", icon: ICONS.box },
   "Back counter": { tone: "yellow", icon: ICONS.counter },
   "Front counter": { tone: "red", icon: ICONS.clipboard },
   "Back counter chiller": { tone: "teal", icon: ICONS.snow },
@@ -131,26 +121,27 @@ const TILE_META = {
 
 /* ---------- DOM ---------- */
 const main = $("#main");
-const sessionPill = $("#sessionPill");
+const sessionLine = $("#sessionLine");
+const btnManagerTop = $("#btnManager");
+const btnLogoutTop = $("#btnLogout");
 
-// modal elements (from your index.html)
+const navHome = $("#navHome");
+const navAlerts = $("#navAlerts");
+const navManager = $("#navManager");
+const bottomNav = $("#bottomNav");
+
 const modalBackdrop = $("#modalBackdrop");
 const modalTitleEl = $("#modalTitle");
 const modalBodyEl = $("#modalBody");
 const modalCloseBtn = $("#modalClose");
 
-// old topbar buttons may exist (we’ll ignore them; bottom nav is primary)
-const btnHome = $("#btnHome");
-const btnAlerts = $("#btnAlerts");
-const btnLogout = $("#btnLogout");
+const toastEl = $("#toast");
 
 /* ---------- State ---------- */
 const state = {
   session: { store: "", shift: "", staff: "" },
   items: [],
   view: { page: "session", category: null, sauceSub: null },
-  toast: { show: false, text: "" },
-  manager: { token: "" },
   navStack: [],
 };
 
@@ -158,50 +149,32 @@ const state = {
 function loadSession() {
   try {
     const s = JSON.parse(localStorage.getItem("session") || "null");
-    if (s && typeof s === "object") state.session = { store: s.store || "", shift: s.shift || "", staff: s.staff || "" };
+    if (s && typeof s === "object") {
+      state.session = { store: s.store || "", shift: s.shift || "", staff: s.staff || "" };
+    }
   } catch {}
 }
 function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
 }
+
 function getManagerToken() {
   return localStorage.getItem("managerToken") || "";
 }
 function setManagerToken(t) {
   if (t) localStorage.setItem("managerToken", t);
   else localStorage.removeItem("managerToken");
-  state.manager.token = t || "";
 }
 function isManagerMode() {
   return !!getManagerToken();
 }
 
-/* ---------- Bottom Nav (inject if missing) ---------- */
-function ensureBottomNav() {
-  if ($("#bottomNav")) return;
-
-  const nav = document.createElement("nav");
-  nav.id = "bottomNav";
-  nav.className = "bottom-nav hidden";
-  nav.innerHTML = `
-    <button id="navHome" class="bn-item" type="button">
-      <div class="bn-ico">🏠</div>
-      <div class="bn-txt">Home</div>
-    </button>
-    <button id="navAlerts" class="bn-item" type="button">
-      <div class="bn-ico">🔔</div>
-      <div class="bn-txt">Alerts</div>
-    </button>
-    <button id="navManager" class="bn-item" type="button">
-      <div class="bn-ico">🛠️</div>
-      <div class="bn-txt">Manager</div>
-    </button>
-    <button id="navLogout" class="bn-item" type="button">
-      <div class="bn-ico">🚪</div>
-      <div class="bn-txt">Logout</div>
-    </button>
-  `;
-  document.body.appendChild(nav);
+/* ---------- Toast ---------- */
+function toast(msg) {
+  if (!toastEl) return;
+  toastEl.textContent = msg;
+  toastEl.classList.remove("hidden");
+  setTimeout(() => toastEl.classList.add("hidden"), 1800);
 }
 
 /* ---------- Modal ---------- */
@@ -223,30 +196,6 @@ function closeModal() {
   modalBackdrop.classList.add("hidden");
   modalBackdrop.setAttribute("aria-hidden", "true");
   modalBodyEl.innerHTML = "";
-}
-function bindModal() {
-  if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
-  if (modalBackdrop) {
-    modalBackdrop.addEventListener("click", (e) => {
-      if (e.target === modalBackdrop) closeModal();
-    });
-  }
-}
-
-/* ---------- Toast ---------- */
-function ensureToast() {
-  if ($("#toast")) return;
-  const t = document.createElement("div");
-  t.id = "toast";
-  t.className = "toast hidden";
-  document.body.appendChild(t);
-}
-function toast(msg) {
-  ensureToast();
-  const t = $("#toast");
-  t.textContent = msg;
-  t.classList.remove("hidden");
-  setTimeout(() => t.classList.add("hidden"), 1800);
 }
 
 /* ---------- API ---------- */
@@ -286,8 +235,7 @@ async function apiManager(method, url, body) {
 
   if (res.status === 401) {
     setManagerToken("");
-    updateTopBar();
-    updateBottomNav();
+    updateHeaderAndNav();
     toast("Manager session expired. Login again.");
     throw new Error("unauthorized");
   }
@@ -315,93 +263,65 @@ function getMode(item) {
   const cat = canonicalCategory(item.category);
   const nameN = norm(item.name);
 
-  // Chicken Bacon (C) ONLY is end of day (your rule)
+  // Chicken Bacon (C) ONLY EOD
   if (nameN === norm("Chicken Bacon (C)")) return "EOD";
 
   // Unopened chiller always manual date-only
   if (cat === "Unopened chiller") return "MANUAL_DATE";
 
-  // always manual list
   if (MANUAL_ALWAYS.has(nameN)) return "MANUAL_DATE";
-
-  // fixed time dropdown items (your soups etc)
   if (HOURLY_FIXED_ITEMS.has(nameN)) return "HOURLY_FIXED";
 
-  // >7 days => manual date-only (your rule)
   const sl = getShelfLifeDays(item);
   if (sl > 7) return "MANUAL_DATE";
-
-  // default AUTO (dropdown dates)
   return "AUTO";
 }
 
-/* ---------- UI: top bar session line ---------- */
-function updateSessionPill() {
-  if (!sessionPill) return;
-
-  const store = state.session.store || "";
-  const shift = state.session.shift || "";
-  const staff = state.session.staff || "";
-
-  const roleBadge = isManagerMode()
-    ? `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;margin-right:8px;">MANAGER</span>`
-    : `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:8px;">STAFF</span>`;
-
-  const line = [store, shift, staff].filter(Boolean).join(" • ");
-
-  sessionPill.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      ${roleBadge}
-      <span style="font-weight:1000;font-size:14px">${escapeHtml(line || "No session yet")}</span>
-    </div>
-  `;
-  sessionPill.classList.toggle("hidden", !line);
-}
-
-/* ---------- Bottom nav active + show/hide ---------- */
-function updateBottomNav() {
+/* ---------- Header + bottom nav ---------- */
+function updateHeaderAndNav() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
-  const nav = $("#bottomNav");
-  if (!nav) return;
 
-  nav.classList.toggle("hidden", !hasSession);
+  // show/hide top buttons
+  if (btnManagerTop) btnManagerTop.classList.toggle("hidden", !hasSession);
+  if (btnLogoutTop) btnLogoutTop.classList.toggle("hidden", !hasSession);
 
+  // show/hide bottom nav
+  if (bottomNav) bottomNav.classList.toggle("hidden", !hasSession);
+
+  // manager button label
+  if (btnManagerTop) btnManagerTop.textContent = isManagerMode() ? "Manager ✓" : "Manager";
+
+  // session line with badges
+  if (sessionLine) {
+    const roleBadge = isManagerMode()
+      ? `<span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;margin-right:8px;">MANAGER</span>`
+      : `<span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:8px;">STAFF</span>`;
+
+    const line = [state.session.store, state.session.shift, state.session.staff].filter(Boolean).join(" • ");
+    sessionLine.innerHTML = `${roleBadge}<strong>${escapeHtml(line || "")}</strong>`;
+    sessionLine.classList.toggle("hidden", !hasSession);
+  }
+
+  // bottom nav active
   const page = state.view.page;
-  const active = (id, on) => {
-    const el = $(id);
-    if (!el) return;
-    el.classList.toggle("active", !!on);
-  };
-
-  active("#navHome", page === "home" || page === "category" || page === "sauce_menu");
-  active("#navAlerts", page === "alerts");
-  active("#navManager", page === "manager");
-  // logout tab not "active"
-}
-
-/* ---------- Topbar old buttons (disable) ---------- */
-function updateTopBar() {
-  // Hide old topbar buttons, bottom nav is used
-  if (btnHome) btnHome.classList.add("hidden");
-  if (btnAlerts) btnAlerts.classList.add("hidden");
-  if (btnLogout) btnLogout.classList.add("hidden");
+  const setActive = (el, on) => el && el.classList.toggle("active", !!on);
+  setActive(navHome, page === "home" || page === "category" || page === "sauce_menu");
+  setActive(navAlerts, page === "alerts");
+  setActive(navManager, page === "manager");
 }
 
 /* ---------- Navigation (stack + back) ---------- */
 function setView(next, push = true) {
   const prev = { ...state.view };
   state.view = { ...next };
-
   if (push) state.navStack.push(prev);
 
-  // also integrate browser back
   try {
     history.pushState({ t: Date.now() }, "");
   } catch {}
 
   render();
 }
-
 function goBack() {
   const prev = state.navStack.pop();
   if (prev) {
@@ -409,12 +329,9 @@ function goBack() {
     render();
     return;
   }
-
-  // At root: confirm exit
   if (confirm("Exit PreCheck?")) {
-    // let browser handle; do nothing
+    // allow browser to handle
   } else {
-    // prevent leaving by pushing state again
     try {
       history.pushState({ t: Date.now() }, "");
     } catch {}
@@ -423,44 +340,30 @@ function goBack() {
 
 /* ---------- Swipe back ---------- */
 function bindSwipeBack() {
-  let sx = 0;
-  let sy = 0;
-  let st = 0;
+  let sx = 0, sy = 0, st = 0;
 
-  window.addEventListener(
-    "touchstart",
-    (e) => {
-      if (!e.touches || !e.touches[0]) return;
-      sx = e.touches[0].clientX;
-      sy = e.touches[0].clientY;
-      st = Date.now();
-    },
-    { passive: true }
-  );
+  window.addEventListener("touchstart", (e) => {
+    if (!e.touches || !e.touches[0]) return;
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+    st = Date.now();
+  }, { passive: true });
 
-  window.addEventListener(
-    "touchend",
-    (e) => {
-      const t = e.changedTouches && e.changedTouches[0];
-      if (!t) return;
-      const dx = t.clientX - sx;
-      const dy = t.clientY - sy;
-      const dt = Date.now() - st;
+  window.addEventListener("touchend", (e) => {
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - sx;
+    const dy = t.clientY - sy;
+    const dt = Date.now() - st;
 
-      // swipe right
-      if (dx > 70 && Math.abs(dy) < 45 && dt < 600) {
-        // don't swipe-back if modal open
-        const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-        if (modalOpen) return;
-        goBack();
-      }
-    },
-    { passive: true }
-  );
+    if (dx > 70 && Math.abs(dy) < 45 && dt < 600) {
+      const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
+      if (modalOpen) return;
+      goBack();
+    }
+  }, { passive: true });
 
-  // browser back
   window.addEventListener("popstate", () => {
-    // ignore if modal open
     const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
     if (modalOpen) {
       closeModal();
@@ -469,62 +372,10 @@ function bindSwipeBack() {
     goBack();
   });
 
-  // keep a state so first back doesn't leave instantly
   try {
     history.replaceState({ t: Date.now() }, "");
     history.pushState({ t: Date.now() }, "");
   } catch {}
-}
-
-/* ---------- Bottom nav bindings ---------- */
-function bindBottomNav() {
-  const navHome = $("#navHome");
-  const navAlerts = $("#navAlerts");
-  const navManager = $("#navManager");
-  const navLogout = $("#navLogout");
-
-  if (!navHome || navHome.dataset.bound === "1") return;
-
-  navHome.dataset.bound = "1";
-  navAlerts.dataset.bound = "1";
-  navManager.dataset.bound = "1";
-  navLogout.dataset.bound = "1";
-
-  navHome.addEventListener("click", () => {
-    state.navStack = [];
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-  });
-
-  navAlerts.addEventListener("click", () => {
-    setView({ page: "alerts", category: null, sauceSub: null }, true);
-  });
-
-  navManager.addEventListener("click", () => {
-    if (isManagerMode()) {
-      setView({ page: "manager" }, true);
-    } else {
-      openManagerLogin();
-    }
-  });
-
-  navLogout.addEventListener("click", () => {
-    if (isManagerMode()) {
-      if (!confirm("Exit manager mode?")) return;
-      setManagerToken("");
-      toast("Back to staff mode");
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
-      return;
-    }
-
-    if (!confirm("Logout staff session?")) return;
-    state.session = { store: "", shift: "", staff: "" };
-    saveSession();
-    state.navStack = [];
-    state.view = { page: "session", category: null, sauceSub: null };
-    render();
-  });
 }
 
 /* ---------- Data load ---------- */
@@ -536,12 +387,9 @@ async function loadItems() {
     sub_category: x.sub_category ?? null,
   }));
 }
-
-/* ---------- Home counts ---------- */
 function categoryCounts() {
   const counts = {};
   for (const c of CATEGORIES) counts[c] = 0;
-
   for (const it of state.items) {
     const c = canonicalCategory(it.category);
     if (counts[c] == null) counts[c] = 0;
@@ -552,9 +400,7 @@ function categoryCounts() {
 
 /* ---------- Render: Session ---------- */
 function renderSession() {
-  updateTopBar();
-  updateSessionPill();
-  updateBottomNav();
+  updateHeaderAndNav();
 
   main.innerHTML = `
     <div class="card">
@@ -634,9 +480,7 @@ function renderSession() {
 
 /* ---------- Render: Home ---------- */
 function renderHome() {
-  updateTopBar();
-  updateSessionPill();
-  updateBottomNav();
+  updateHeaderAndNav();
 
   const counts = categoryCounts();
 
@@ -676,9 +520,7 @@ function renderHome() {
 
 /* ---------- Render: Sauce menu ---------- */
 function renderSauceMenu() {
-  updateTopBar();
-  updateSessionPill();
-  updateBottomNav();
+  updateHeaderAndNav();
 
   main.innerHTML = `
     <div class="page-head">
@@ -687,10 +529,11 @@ function renderSauceMenu() {
     </div>
 
     <section class="grid">
-      ${SAUCE_SUBS.map((s) => {
+      ${SAUCE_SUBS.map((s, idx) => {
         const meta = TILE_META["Sauce"];
+        const delay = Math.min(0.6, idx * 0.05).toFixed(2);
         return `
-          <button class="tile tile--${meta.tone}" data-sauce="${escapeHtml(s)}" type="button">
+          <button class="tile tile--${meta.tone}" style="animation-delay:${delay}s" data-sauce="${escapeHtml(s)}" type="button">
             <div class="tile-top">
               <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
             </div>
@@ -712,7 +555,6 @@ function renderSauceMenu() {
   });
 }
 
-/* ---------- Items for list ---------- */
 function getItemsForCurrentList() {
   const { category, sauceSub } = state.view;
 
@@ -722,12 +564,10 @@ function getItemsForCurrentList() {
     list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
   }
 
-  // sort
   list.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
   return list;
 }
 
-/* ---------- Helper text ---------- */
 function getHelperText(it) {
   const mode = getMode(it);
   const sl = getShelfLifeDays(it);
@@ -739,11 +579,8 @@ function getHelperText(it) {
   return "Select expiry.";
 }
 
-/* ---------- Render: Category list ---------- */
 function renderCategoryList() {
-  updateTopBar();
-  updateSessionPill();
-  updateBottomNav();
+  updateHeaderAndNav();
 
   const { category, sauceSub } = state.view;
   const title = category === "Sauce" ? `Sauce • ${sauceSub}` : category;
@@ -789,13 +626,12 @@ function renderCategoryList() {
   });
 }
 
-/* ---------- Log modal (yellow save) ---------- */
+/* ---------- Log modal ---------- */
 function openLogModal(item) {
   const mode = getMode(item);
   const sl = getShelfLifeDays(item);
   const today = todayISODate();
 
-  // Build expiry input
   let expiryHtml = "";
   if (mode === "MANUAL_DATE") {
     expiryHtml = `
@@ -828,7 +664,6 @@ function openLogModal(item) {
       </div>
     `;
   } else {
-    // AUTO dropdown dates 0..sl (include today)
     const opts = [];
     const max = Math.max(0, sl || 0);
     for (let i = 0; i <= max; i++) {
@@ -879,7 +714,6 @@ function openLogModal(item) {
   btnSave.addEventListener("click", async () => {
     err.classList.add("hidden");
 
-    // quantity
     const qtyRaw = (qtyInp?.value || "").trim();
     const qty = qtyRaw === "" ? null : Number(qtyRaw);
     if (qtyRaw !== "" && (!Number.isFinite(qty) || qty < 0)) {
@@ -888,7 +722,6 @@ function openLogModal(item) {
       return;
     }
 
-    // expiry
     let expiry_date = "";
     let expiry_at = null;
 
@@ -927,7 +760,6 @@ function openLogModal(item) {
       staff: state.session.staff,
       shift: state.session.shift,
       quantity: qty,
-      // send date string for date-only, and expiry_at for datetime
       expiry: expiry_date || null,
       expiry_at: expiry_at || null,
       created_at: new Date().toISOString(),
@@ -946,9 +778,7 @@ function openLogModal(item) {
 
 /* ---------- Alerts ---------- */
 async function renderAlerts() {
-  updateTopBar();
-  updateSessionPill();
-  updateBottomNav();
+  updateHeaderAndNav();
 
   main.innerHTML = `
     <div class="card">
@@ -987,7 +817,7 @@ async function renderAlerts() {
   }
 }
 
-/* ---------- Manager login modal ---------- */
+/* ---------- Manager login + page ---------- */
 function openManagerLogin() {
   openModal(
     "Manager Access",
@@ -1033,11 +863,8 @@ function openManagerLogin() {
   });
 }
 
-/* ---------- Manager page ---------- */
 async function renderManager() {
-  updateTopBar();
-  updateSessionPill();
-  updateBottomNav();
+  updateHeaderAndNav();
 
   if (!isManagerMode()) {
     main.innerHTML = `
@@ -1058,25 +885,15 @@ async function renderManager() {
     <div class="card">
       <div class="h1">Manager</div>
       <div class="muted">
-        For now, manager can:
+        <div style="font-weight:950;margin-bottom:6px;">Manager can do (for now):</div>
         <ul style="margin:8px 0 0 18px;">
           <li>Edit item category / sauce sub-category / shelf life</li>
-          <li>Add new item</li>
-          <li>Delete item (with confirmation)</li>
+          <li>(Optional) Add / Delete item if server endpoints exist</li>
         </ul>
         <div style="margin-top:8px;" class="muted">
-          Note: Add/Delete requires server endpoints. If you see 404, your server does not have those routes yet.
+          If you see 404 when Add/Delete: your server missing POST/DELETE routes.
         </div>
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Search</div>
-      <input id="mgrSearch" class="input" placeholder="Type item name..." />
-      <button id="btnAddItem" type="button"
-        style="margin-top:10px;width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
-        Add Item
-      </button>
     </div>
 
     <div class="card">
@@ -1085,11 +902,7 @@ async function renderManager() {
     </div>
   `;
 
-  $("#btnAddItem").addEventListener("click", openManagerAddItem);
-
   const listEl = $("#mgrList");
-  const searchEl = $("#mgrSearch");
-
   let rows = [];
   try {
     rows = await apiManager("GET", "/api/manager/items");
@@ -1098,250 +911,97 @@ async function renderManager() {
     return;
   }
 
-  function renderRows() {
-    const q = norm(searchEl.value || "");
-    const filtered = q ? rows.filter((r) => norm(r.name).includes(q)) : rows;
+  listEl.innerHTML = rows
+    .slice(0, 200)
+    .map((r) => {
+      const cat = canonicalCategory(r.category);
+      const sub = r.sub_category || "";
+      const sl = Number(r.shelf_life_days ?? 0);
 
-    if (!filtered.length) {
-      listEl.innerHTML = `<div class="muted">No matches.</div>`;
-      return;
-    }
+      return `
+        <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;">
+          <div style="font-weight:1000;font-size:16px;margin-bottom:10px;">${escapeHtml(r.name)}</div>
 
-    listEl.innerHTML = filtered
-      .slice(0, 200) // avoid super long UI
-      .map((r) => {
-        const cat = canonicalCategory(r.category);
-        const sub = r.sub_category || "";
-        const sl = Number(r.shelf_life_days ?? 0);
-
-        return `
-          <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;">
-            <div style="font-weight:1000;font-size:16px;margin-bottom:10px;">${escapeHtml(r.name)}</div>
-
-            <div class="field">
-              <label class="label">Category</label>
-              <select class="input mgr-cat" data-id="${r.id}">
-                ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
-              </select>
-            </div>
-
-            <div class="field">
-              <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
-              <select class="input mgr-sub" data-id="${r.id}">
-                <option value="" ${sub ? "" : "selected"}>(none)</option>
-                ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(sub) ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
-              </select>
-              <div class="helper">If category is not Sauce, sub-category should be empty.</div>
-            </div>
-
-            <div class="field">
-              <label class="label">Shelf life (days)</label>
-              <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
-              <div class="helper">&gt;7 days becomes manual in app.</div>
-            </div>
-
-            <div style="display:flex;gap:10px;">
-              <button class="mgr-save" data-id="${r.id}" type="button"
-                style="flex:1;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
-                Save
-              </button>
-              <button class="mgr-del" data-id="${r.id}" type="button"
-                style="flex:1;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:#fff;border:1px solid rgba(0,0,0,0.12);color:#c62828;cursor:pointer;">
-                Delete
-              </button>
-            </div>
-
-            <div class="mgr-err error hidden" data-id="${r.id}"></div>
+          <div class="field">
+            <label class="label">Category</label>
+            <select class="input mgr-cat" data-id="${r.id}">
+              ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+            </select>
           </div>
-        `;
-      })
-      .join("");
 
-    // bind save/delete
-    $$(".mgr-save", listEl).forEach((b) => {
-      b.addEventListener("click", async () => {
-        const id = Number(b.getAttribute("data-id"));
-        const err = $(`.mgr-err[data-id="${id}"]`, listEl);
-        err.classList.add("hidden");
+          <div class="field">
+            <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
+            <select class="input mgr-sub" data-id="${r.id}">
+              <option value="" ${sub ? "" : "selected"}>(none)</option>
+              ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(sub) ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
+            </select>
+          </div>
 
-        const catSel = $(`.mgr-cat[data-id="${id}"]`, listEl);
-        const subSel = $(`.mgr-sub[data-id="${id}"]`, listEl);
-        const slInp = $(`.mgr-sl[data-id="${id}"]`, listEl);
+          <div class="field">
+            <label class="label">Shelf life (days)</label>
+            <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
+          </div>
 
-        const category = String(catSel.value || "").trim();
-        const sub_category = String(subSel.value || "").trim() || null;
-        const shelf_life_days = Number(String(slInp.value || "0").trim());
+          <button class="mgr-save" data-id="${r.id}" type="button"
+            style="width:100%;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
+            Save
+          </button>
 
-        // enforce: if category != Sauce, sub_category must be null
-        const finalSub = norm(category) === norm("Sauce") ? sub_category : null;
+          <div class="mgr-err error hidden" data-id="${r.id}"></div>
+        </div>
+      `;
+    })
+    .join("");
 
-        if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
-          err.textContent = "Shelf life must be a number ≥ 0.";
-          err.classList.remove("hidden");
-          return;
-        }
+  $$(".mgr-save", listEl).forEach((b) => {
+    b.addEventListener("click", async () => {
+      const id = Number(b.getAttribute("data-id"));
+      const err = $(`.mgr-err[data-id="${id}"]`, listEl);
+      err.classList.add("hidden");
 
-        try {
-          await apiManager("PATCH", `/api/manager/items/${id}`, {
-            category,
-            sub_category: finalSub,
-            shelf_life_days,
-          });
-          toast("Saved ✅");
+      const catSel = $(`.mgr-cat[data-id="${id}"]`, listEl);
+      const subSel = $(`.mgr-sub[data-id="${id}"]`, listEl);
+      const slInp = $(`.mgr-sl[data-id="${id}"]`, listEl);
 
-          // refresh items in app immediately
-          await loadItems();
-        } catch (e) {
-          err.textContent = e.message || "Save failed.";
-          err.classList.remove("hidden");
-        }
-      });
+      const category = String(catSel.value || "").trim();
+      const sub_category = String(subSel.value || "").trim() || null;
+      const shelf_life_days = Number(String(slInp.value || "0").trim());
+      const finalSub = norm(category) === norm("Sauce") ? sub_category : null;
+
+      if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
+        err.textContent = "Shelf life must be a number ≥ 0.";
+        err.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        await apiManager("PATCH", `/api/manager/items/${id}`, {
+          category,
+          sub_category: finalSub,
+          shelf_life_days,
+        });
+        toast("Saved ✅");
+        await loadItems();
+      } catch (e) {
+        err.textContent = e.message || "Save failed.";
+        err.classList.remove("hidden");
+      }
     });
-
-    $$(".mgr-del", listEl).forEach((b) => {
-      b.addEventListener("click", async () => {
-        const id = Number(b.getAttribute("data-id"));
-        const err = $(`.mgr-err[data-id="${id}"]`, listEl);
-        err.classList.add("hidden");
-
-        if (!confirm("Delete this item? This cannot be undone.")) return;
-
-        try {
-          // requires server endpoint: DELETE /api/manager/items/:id
-          await apiManager("DELETE", `/api/manager/items/${id}`);
-          toast("Deleted ✅");
-
-          // remove from list
-          rows = rows.filter((x) => Number(x.id) !== id);
-
-          await loadItems();
-          renderRows();
-        } catch (e) {
-          err.textContent =
-            (e.message || "") +
-            " — If you see 404, your server does not have DELETE endpoint yet.";
-          err.classList.remove("hidden");
-        }
-      });
-    });
-  }
-
-  searchEl.addEventListener("input", renderRows);
-  renderRows();
-}
-
-/* ---------- Manager: Add item modal ---------- */
-function openManagerAddItem() {
-  openModal(
-    "Add Item",
-    `
-    <div class="modal-item-title">New item</div>
-
-    <div class="field">
-      <label class="label">Name</label>
-      <input id="newName" class="input" placeholder="Item name" />
-    </div>
-
-    <div class="field">
-      <label class="label">Category</label>
-      <select id="newCat" class="input">
-        ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
-      </select>
-    </div>
-
-    <div class="field">
-      <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
-      <select id="newSub" class="input">
-        <option value="" selected>(none)</option>
-        ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
-      </select>
-      <div class="helper">If category is not Sauce, sub-category should be empty.</div>
-    </div>
-
-    <div class="field">
-      <label class="label">Shelf life (days)</label>
-      <input id="newSL" class="input" inputmode="numeric" value="1" />
-    </div>
-
-    <div id="addErr" class="error hidden"></div>
-
-    <button id="btnAddSave" type="button"
-      style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
-      Save
-    </button>
-  `
-  );
-
-  const nameEl = $("#newName", modalBodyEl);
-  const catEl = $("#newCat", modalBodyEl);
-  const subEl = $("#newSub", modalBodyEl);
-  const slEl = $("#newSL", modalBodyEl);
-  const err = $("#addErr", modalBodyEl);
-
-  $("#btnAddSave", modalBodyEl).addEventListener("click", async () => {
-    err.classList.add("hidden");
-
-    const name = String(nameEl.value || "").trim();
-    const category = String(catEl.value || "").trim();
-    const sub = String(subEl.value || "").trim() || null;
-    const shelf_life_days = Number(String(slEl.value || "0").trim());
-
-    if (!name) {
-      err.textContent = "Name required.";
-      err.classList.remove("hidden");
-      return;
-    }
-    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
-      err.textContent = "Shelf life must be a number ≥ 0.";
-      err.classList.remove("hidden");
-      return;
-    }
-
-    const finalSub = norm(category) === norm("Sauce") ? sub : null;
-
-    try {
-      // requires server endpoint: POST /api/manager/items
-      await apiManager("POST", "/api/manager/items", {
-        name,
-        category,
-        sub_category: finalSub,
-        shelf_life_days,
-      });
-
-      await loadItems();
-      closeModal();
-      toast("Added ✅");
-
-      // go back to manager page refresh
-      state.view = { page: "manager" };
-      render();
-    } catch (e) {
-      err.textContent =
-        (e.message || "Failed") +
-        " — If you see 404, your server does not have POST endpoint yet.";
-      err.classList.remove("hidden");
-    }
   });
 }
 
 /* ---------- Render router ---------- */
-async function render() {
+function render() {
   if (!main) return;
 
-  updateSessionPill();
-  updateTopBar();
-  updateBottomNav();
-
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
-
-  // if session not set → force session page
   if (!hasSession && state.view.page !== "session") {
     state.view = { page: "session", category: null, sauceSub: null };
   }
 
-  // guard: if manager page but not logged in → still show manager page (it will show login)
-  const page = state.view.page;
+  updateHeaderAndNav();
 
+  const page = state.view.page;
   if (page === "session") return renderSession();
   if (page === "home") return renderHome();
   if (page === "sauce_menu") return renderSauceMenu();
@@ -1349,23 +1009,72 @@ async function render() {
   if (page === "alerts") return renderAlerts();
   if (page === "manager") return renderManager();
 
-  // fallback
   state.view = { page: "home", category: null, sauceSub: null };
-  renderHome();
+  return renderHome();
+}
+
+/* ---------- Bind buttons ---------- */
+function bindUI() {
+  // modal
+  if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+  if (modalBackdrop) {
+    modalBackdrop.addEventListener("click", (e) => {
+      if (e.target === modalBackdrop) closeModal();
+    });
+  }
+
+  // topbar manager
+  if (btnManagerTop) {
+    btnManagerTop.addEventListener("click", () => {
+      if (isManagerMode()) setView({ page: "manager" }, true);
+      else openManagerLogin();
+    });
+  }
+
+  // topbar logout
+  if (btnLogoutTop) {
+    btnLogoutTop.addEventListener("click", () => {
+      if (isManagerMode()) {
+        if (!confirm("Exit manager mode?")) return;
+        setManagerToken("");
+        toast("Back to staff mode");
+        state.view = { page: "home", category: null, sauceSub: null };
+        render();
+        return;
+      }
+      if (!confirm("Logout staff session?")) return;
+      state.session = { store: "", shift: "", staff: "" };
+      saveSession();
+      state.navStack = [];
+      setManagerToken("");
+      state.view = { page: "session", category: null, sauceSub: null };
+      render();
+    });
+  }
+
+  // bottom nav
+  if (navHome) navHome.addEventListener("click", () => {
+    state.navStack = [];
+    state.view = { page: "home", category: null, sauceSub: null };
+    render();
+  });
+
+  if (navAlerts) navAlerts.addEventListener("click", () => setView({ page: "alerts", category: null, sauceSub: null }, true));
+
+  if (navManager) navManager.addEventListener("click", () => {
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  });
 }
 
 /* ---------- Boot ---------- */
 async function boot() {
-  ensureBottomNav();
-  ensureToast();
-  bindModal();
-  bindBottomNav();
+  bindUI();
   bindSwipeBack();
 
   loadSession();
-  setManagerToken(getManagerToken());
+  setManagerToken(getManagerToken()); // keep token
 
-  // load items if session exists
   if (state.session.store && state.session.shift && state.session.staff) {
     try {
       await loadItems();
