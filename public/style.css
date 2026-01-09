@@ -345,7 +345,10 @@ body{
   height: var(--navH);
   z-index: 40;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+.bottom-nav{
+  grid-template-columns: repeat(4, 1fr);
+}
+
   gap: 10px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   background: rgba(255,255,255,0.86);
