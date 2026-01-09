@@ -205,28 +205,44 @@ function updateTopbar() {
 
 // Bind top buttons (SAFE)
 function bindTopButtons() {
-  $("#btnHome").addEventListener("click", ...
-  $("#btnAlerts").addEventListener("click", ...
-  $("#btnLogout").addEventListener("click", ...
+  const homeBtn = document.getElementById("btnHome");
+  const alertsBtn = document.getElementById("btnAlerts");
+  const logoutBtn = document.getElementById("btnLogout");
 
+  if (!homeBtn || !alertsBtn || !logoutBtn) {
+    console.warn("[PreCheck] Topbar buttons not ready");
+    return;
+  }
 
+  if (homeBtn.dataset.bound === "1") return;
+  homeBtn.dataset.bound = "1";
+  alertsBtn.dataset.bound = "1";
+  logoutBtn.dataset.bound = "1";
 
-// ---------- Data load ----------
-async function loadItems() {
-  const items = await apiGet("/api/items");
-  state.items = Array.isArray(items) ? items : [];
-}
+  homeBtn.addEventListener("click", () => {
+    state.view = { page: "home", category: null, sauceSub: null };
+    render();
+  });
 
-async function loadAlertsSafe() {
-  try {
-    if (!state.session.store) {
-      state.alerts = [];
+  alertsBtn.addEventListener("click", () => {
+    state.view = { page: "alerts", category: null, sauceSub: null };
+    render();
+  });
+
+  logoutBtn.addEventListener("click", () => {
+    if (getManagerToken && getManagerToken()) {
+      if (!confirm("Exit manager mode?")) return;
+      setManagerToken("");
+      state.view = { page: "home", category: null, sauceSub: null };
+      render();
       return;
     }
-    state.alerts = await apiGet(`/api/expiry?store=${encodeURIComponent(state.session.store)}`);
-  } catch {
-    state.alerts = [];
-  }
+
+    if (!confirm("Logout staff session?")) return;
+    state.session = { store: "", shift: "", staff: "" };
+    state.view = { page: "session", category: null, sauceSub: null };
+    render();
+  });
 }
 
 // ---------- Session ----------
