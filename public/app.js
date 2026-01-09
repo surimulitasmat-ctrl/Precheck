@@ -15,8 +15,9 @@ function norm(s) {
   return String(s ?? "").trim().toLowerCase();
 }
 
-// ---------- DOM ----------
+// ---------- DOM (SAFE) ----------
 const main = $("#main");
+
 const sessionPill = $("#sessionPill");
 const btnHome = $("#btnHome");
 const btnAlerts = $("#btnAlerts");
@@ -29,14 +30,9 @@ const modalCloseBtn = $("#modalClose");
 
 // ---------- State ----------
 const state = {
-  session: {
-    store: "",
-    shift: "",
-    staff: "",
-  },
+  session: { store: "", shift: "", staff: "" },
   items: [],
   view: { page: "session", category: null, sauceSub: null },
-  // Alerts cache
   alerts: [],
 };
 
@@ -55,22 +51,36 @@ const CATEGORIES = [
 
 const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
 
-// ---------- Modal ----------
+// ---------- Modal (SAFE fallback if modal missing) ----------
+function hasModal() {
+  return !!(modalBackdrop && modalTitleEl && modalBodyEl);
+}
+
 function openModal(title, bodyHtml) {
+  if (!hasModal()) {
+    // fallback
+    alert(title || "Notice");
+    return;
+  }
   modalTitleEl.textContent = title || " ";
   modalBodyEl.innerHTML = bodyHtml || "";
   modalBackdrop.classList.remove("hidden");
   modalBackdrop.setAttribute("aria-hidden", "false");
 }
+
 function closeModal() {
+  if (!hasModal()) return;
   modalBackdrop.classList.add("hidden");
   modalBackdrop.setAttribute("aria-hidden", "true");
   modalBodyEl.innerHTML = "";
 }
-modalCloseBtn.addEventListener("click", closeModal);
-modalBackdrop.addEventListener("click", (e) => {
-  if (e.target === modalBackdrop) closeModal();
-});
+
+if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+if (modalBackdrop) {
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
+}
 
 // ---------- Manager token ----------
 function getManagerToken() {
@@ -137,10 +147,6 @@ async function apiManager(method, url, body) {
 }
 
 // ---------- UI helpers ----------
-function setTopbarVisible(on) {
-  // always visible in your layout; keep for compatibility
-}
-
 function badgeHtml(text, bg) {
   return `
     <span style="
@@ -162,6 +168,8 @@ function badgeHtml(text, bg) {
 }
 
 function updateSessionPill() {
+  if (!sessionPill) return;
+
   const store = state.session.store || "";
   const shift = state.session.shift || "";
   const staff = state.session.staff || "";
@@ -178,7 +186,7 @@ function updateSessionPill() {
     <div style="display:flex;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
       ${managerBadge}${staffBadge}
     </div>
-    <div>${escapeHtml(parts.join(" • ") || "No session yet")}</div>
+    <div style="font-weight:900;font-size:14px">${escapeHtml(parts.join(" • ") || "No session yet")}</div>
   `;
   sessionPill.classList.remove("hidden");
 }
@@ -186,48 +194,56 @@ function updateSessionPill() {
 function updateTopbar() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
 
-  btnHome.classList.toggle("hidden", !hasSession);
-  btnAlerts.classList.toggle("hidden", !hasSession);
+  if (btnHome) btnHome.classList.toggle("hidden", !hasSession);
+  if (btnAlerts) btnAlerts.classList.toggle("hidden", !hasSession);
 
-  btnLogout.textContent = isManagerMode() ? "Exit Manager" : "Logout";
-  btnLogout.classList.toggle("hidden", !hasSession && !isManagerMode());
+  if (btnLogout) {
+    btnLogout.textContent = isManagerMode() ? "Exit Manager" : "Logout";
+    btnLogout.classList.toggle("hidden", !hasSession && !isManagerMode());
+  }
 }
 
-// Bind top buttons once
+// Bind top buttons (SAFE)
 (function bindTopButtons() {
   if (window.__precheckBound) return;
   window.__precheckBound = true;
 
-  btnHome.addEventListener("click", () => {
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-  });
-
-  btnAlerts.addEventListener("click", async () => {
-    state.view = { page: "alerts", category: null, sauceSub: null };
-    await loadAlertsSafe();
-    render();
-  });
-
-  btnLogout.addEventListener("click", () => {
-    if (isManagerMode()) {
-      if (!confirm("Switch back to STAFF mode?")) return;
-      setManagerToken("");
-      updateTopbar();
-      updateSessionPill();
+  if (btnHome) {
+    btnHome.addEventListener("click", () => {
       state.view = { page: "home", category: null, sauceSub: null };
       render();
-      return;
-    }
+    });
+  }
 
-    if (!confirm("Logout and clear session?")) return;
-    localStorage.removeItem("session");
-    state.session = { store: "", shift: "", staff: "" };
-    state.view = { page: "session", category: null, sauceSub: null };
-    updateTopbar();
-    updateSessionPill();
-    render();
-  });
+  if (btnAlerts) {
+    btnAlerts.addEventListener("click", async () => {
+      state.view = { page: "alerts", category: null, sauceSub: null };
+      await loadAlertsSafe();
+      render();
+    });
+  }
+
+  if (btnLogout) {
+    btnLogout.addEventListener("click", () => {
+      if (isManagerMode()) {
+        if (!confirm("Switch back to STAFF mode?")) return;
+        setManagerToken("");
+        updateTopbar();
+        updateSessionPill();
+        state.view = { page: "home", category: null, sauceSub: null };
+        render();
+        return;
+      }
+
+      if (!confirm("Logout and clear session?")) return;
+      localStorage.removeItem("session");
+      state.session = { store: "", shift: "", staff: "" };
+      state.view = { page: "session", category: null, sauceSub: null };
+      updateTopbar();
+      updateSessionPill();
+      render();
+    });
+  }
 })();
 
 // ---------- Data load ----------
@@ -243,7 +259,7 @@ async function loadAlertsSafe() {
       return;
     }
     state.alerts = await apiGet(`/api/expiry?store=${encodeURIComponent(state.session.store)}`);
-  } catch (e) {
+  } catch {
     state.alerts = [];
   }
 }
@@ -269,7 +285,6 @@ function canonicalCategory(cat) {
   const c = String(cat ?? "").trim();
   const n = norm(c);
 
-  // normalize common variants you had in imported CSV
   if (n === "back counter chiller") return "Back counter chiller";
   if (n === "front counter") return "Front counter";
   if (n === "back counter") return "Back counter";
@@ -280,7 +295,6 @@ function canonicalCategory(cat) {
   if (n === "thawing") return "Thawing";
   if (n === "backroom") return "Backroom";
 
-  // default: return nicely-cased from our list if possible
   const hit = CATEGORIES.find((x) => norm(x) === n);
   return hit || c || "Unknown";
 }
@@ -298,7 +312,7 @@ function getItemsForCategory(category, sauceSub) {
     list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
   }
 
-  // store rule: Beef Taco (H) SKH only
+  // SKH-only rule for Beef Taco (H)
   if (norm(category) === "front counter") {
     list = list.filter((it) => {
       const nm = norm(it.name);
@@ -330,11 +344,16 @@ function openManagerLogin() {
     `
   );
 
-  $("#mgrLoginBtn").addEventListener("click", async () => {
-    const pin = ($("#mgrPin").value || "").trim();
+  const loginBtn = $("#mgrLoginBtn");
+  if (!loginBtn) return;
+
+  loginBtn.addEventListener("click", async () => {
+    const pin = ($("#mgrPin")?.value || "").trim();
     const err = $("#mgrErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     try {
       const out = await apiPost("/api/manager/login", { pin });
@@ -345,15 +364,18 @@ function openManagerLogin() {
       updateSessionPill();
       render();
     } catch (e) {
-      err.textContent = e?.message || "Login failed";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Login failed";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Login failed");
+      }
     }
   });
 }
 
 // ---------- Rendering ----------
 function render() {
-  setTopbarVisible(true);
   updateTopbar();
   updateSessionPill();
 
@@ -366,12 +388,13 @@ function render() {
   if (page === "alerts") return renderAlerts();
   if (page === "manager") return renderManager();
 
-  // fallback
   state.view = { page: "home", category: null, sauceSub: null };
   return renderHome();
 }
 
 function renderSession() {
+  if (!main) return;
+
   main.innerHTML = `
     <div class="card">
       <div class="h1">Start Session</div>
@@ -441,17 +464,17 @@ function renderSession() {
 }
 
 function renderHome() {
+  if (!main) return;
+
   const counts = {};
   for (const cat of CATEGORIES) {
     if (cat === "Sauce") {
-      // count total sauce items
       counts[cat] = state.items.filter((x) => norm(canonicalCategory(x.category)) === "sauce").length;
     } else {
       counts[cat] = state.items.filter((x) => norm(canonicalCategory(x.category)) === norm(cat)).length;
     }
   }
 
-  // You already have CSS for tile-- tones. Keep meta here.
   const TILE_META = {
     "Prepared items": { tone: "green", icon: "🥪" },
     "Unopened chiller": { tone: "blue", icon: "🧊" },
@@ -512,6 +535,8 @@ function renderHome() {
 }
 
 function renderSauceMenu() {
+  if (!main) return;
+
   main.innerHTML = `
     <div class="page-head">
       <button id="backBtn" class="btn btn-ghost" type="button">← Back</button>
@@ -544,6 +569,8 @@ function renderSauceMenu() {
 }
 
 function renderCategory() {
+  if (!main) return;
+
   const cat = state.view.category;
   const sauceSub = state.view.sauceSub;
   const title = cat === "Sauce" ? `Sauce • ${sauceSub}` : cat;
@@ -593,6 +620,8 @@ function renderCategory() {
 }
 
 function renderAlerts() {
+  if (!main) return;
+
   const rows = Array.isArray(state.alerts) ? state.alerts : [];
 
   main.innerHTML = `
@@ -628,11 +657,10 @@ function renderAlerts() {
   });
 }
 
-// ---------- Log modal (simple version; keeps your existing /api/log flow) ----------
+// ---------- Log modal (simple date-only) ----------
 function openLogModal(item) {
-  const itemName = item.name;
   openModal(
-    itemName,
+    item.name,
     `
     <div class="card" style="margin:0;border:none;box-shadow:none">
       <div class="field">
@@ -653,22 +681,29 @@ function openLogModal(item) {
     `
   );
 
-  $("#saveLogBtn").addEventListener("click", async () => {
-    const qtyRaw = ($("#qtyInp").value || "").trim();
-    const exp = ($("#expInp").value || "").trim();
+  const saveBtn = $("#saveLogBtn");
+  if (!saveBtn) return;
+
+  saveBtn.addEventListener("click", async () => {
+    const qtyRaw = ($("#qtyInp")?.value || "").trim();
+    const exp = ($("#expInp")?.value || "").trim();
 
     const err = $("#logErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     if (!exp) {
-      err.textContent = "Expiry required.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = "Expiry required.";
+        err.classList.remove("hidden");
+      } else {
+        alert("Expiry required.");
+      }
       return;
     }
 
-    // Store as ISO date (no time). Your server accepts expiry or expiry_at.
-    // We'll use expiry as text.
     const payload = {
       item_id: item.id,
       item_name: item.name,
@@ -685,20 +720,24 @@ function openLogModal(item) {
     try {
       await apiPost("/api/log", payload);
       closeModal();
-      // refresh alerts in background
       loadAlertsSafe();
       alert("Saved ✅");
     } catch (e) {
-      err.textContent = e?.message || "Save failed.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Save failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Save failed.");
+      }
     }
   });
 }
 
 // ---------- Manager page ----------
 async function renderManager() {
+  if (!main) return;
+
   if (!isManagerMode()) {
-    // If not manager, open login
     openManagerLogin();
     state.view = { page: "home", category: null, sauceSub: null };
     return;
@@ -746,6 +785,7 @@ async function renderManager() {
 
 async function renderManagerBody(tab) {
   const host = $("#mgrBody");
+  if (!host) return;
   host.innerHTML = "Loading…";
 
   if (tab === "items") {
@@ -757,7 +797,7 @@ async function renderManagerBody(tab) {
       </div>
 
       <div id="mgrList" class="list"></div>
-      <div class="helper">Tip: To create a NEW category, just type a new category name when adding an item.</div>
+      <div class="helper">To create a new category: add an item and type a new category name.</div>
     `;
 
     const all = Array.isArray(data) ? data : [];
@@ -807,15 +847,13 @@ async function renderManagerBody(tab) {
     return;
   }
 
-  // categories
   if (tab === "cats") {
     const data = await apiManager("GET", "/api/manager/categories");
     const rows = Array.isArray(data) ? data : [];
 
     host.innerHTML = `
       <div class="muted" style="margin-bottom:10px">
-        Categories are stored as text in the items table.
-        To ADD a category: add an item with a new category name.
+        Categories are text stored on items. Add category by adding an item with a new category name.
       </div>
 
       <div class="list">
@@ -871,7 +909,6 @@ function openManagerAddItem() {
       <div class="field">
         <div class="label">Category</div>
         <input id="mCat" class="input" placeholder="Type category (can create new)" />
-        <div class="helper">To create a new category, type a new name here.</div>
       </div>
       <div class="field">
         <div class="label">Sub-category (optional)</div>
@@ -888,19 +925,28 @@ function openManagerAddItem() {
     `
   );
 
-  $("#mSave").addEventListener("click", async () => {
-    const name = ($("#mName").value || "").trim();
-    const category = ($("#mCat").value || "").trim();
-    const sub_category = ($("#mSub").value || "").trim() || null;
-    const shelf_life_days = Number(($("#mSL").value || "0").trim() || 0);
+  const saveBtn = $("#mSave");
+  if (!saveBtn) return;
+
+  saveBtn.addEventListener("click", async () => {
+    const name = ($("#mName")?.value || "").trim();
+    const category = ($("#mCat")?.value || "").trim();
+    const sub_category = ($("#mSub")?.value || "").trim() || null;
+    const shelf_life_days = Number((($("#mSL")?.value || "0").trim() || 0));
 
     const err = $("#mErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     if (!name || !category) {
-      err.textContent = "Name and Category are required.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = "Name and Category are required.";
+        err.classList.remove("hidden");
+      } else {
+        alert("Name and Category are required.");
+      }
       return;
     }
 
@@ -908,13 +954,16 @@ function openManagerAddItem() {
       await apiManager("POST", "/api/manager/items", { name, category, sub_category, shelf_life_days });
       closeModal();
       await loadItems();
-      // refresh manager view
       state.view = { page: "manager", category: null, sauceSub: null };
       render();
       alert("Item created ✅");
     } catch (e) {
-      err.textContent = e?.message || "Create failed.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Create failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Create failed.");
+      }
     }
   });
 }
@@ -947,19 +996,28 @@ function openManagerEditItem(item) {
     `
   );
 
-  $("#mSave").addEventListener("click", async () => {
-    const name = ($("#mName").value || "").trim();
-    const category = ($("#mCat").value || "").trim();
-    const sub_category = ($("#mSub").value || "").trim() || null;
-    const shelf_life_days = Number(($("#mSL").value || "0").trim() || 0);
+  const saveBtn = $("#mSave");
+  if (!saveBtn) return;
+
+  saveBtn.addEventListener("click", async () => {
+    const name = ($("#mName")?.value || "").trim();
+    const category = ($("#mCat")?.value || "").trim();
+    const sub_category = ($("#mSub")?.value || "").trim() || null;
+    const shelf_life_days = Number((($("#mSL")?.value || "0").trim() || 0));
 
     const err = $("#mErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     if (!name || !category) {
-      err.textContent = "Name and Category are required.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = "Name and Category are required.";
+        err.classList.remove("hidden");
+      } else {
+        alert("Name and Category are required.");
+      }
       return;
     }
 
@@ -971,8 +1029,12 @@ function openManagerEditItem(item) {
       render();
       alert("Saved ✅");
     } catch (e) {
-      err.textContent = e?.message || "Save failed.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Save failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Save failed.");
+      }
     }
   });
 }
@@ -993,11 +1055,17 @@ function openManagerDeleteItem(item) {
     `
   );
 
-  $("#delNo").addEventListener("click", closeModal);
-  $("#delYes").addEventListener("click", async () => {
+  const noBtn = $("#delNo");
+  const yesBtn = $("#delYes");
+  if (noBtn) noBtn.addEventListener("click", closeModal);
+  if (!yesBtn) return;
+
+  yesBtn.addEventListener("click", async () => {
     const err = $("#delErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     try {
       await apiManager("DELETE", `/api/manager/items/${item.id}`);
@@ -1007,8 +1075,12 @@ function openManagerDeleteItem(item) {
       render();
       alert("Deleted ✅");
     } catch (e) {
-      err.textContent = e?.message || "Delete failed.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Delete failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Delete failed.");
+      }
     }
   });
 }
@@ -1032,15 +1104,24 @@ function openManagerRenameCategory(from) {
     `
   );
 
-  $("#doRename").addEventListener("click", async () => {
-    const to = ($("#toCat").value || "").trim();
+  const renameBtn = $("#doRename");
+  if (!renameBtn) return;
+
+  renameBtn.addEventListener("click", async () => {
+    const to = ($("#toCat")?.value || "").trim();
     const err = $("#renErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     if (!to) {
-      err.textContent = "New category name required.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = "New category name required.";
+        err.classList.remove("hidden");
+      } else {
+        alert("New category name required.");
+      }
       return;
     }
 
@@ -1054,8 +1135,12 @@ function openManagerRenameCategory(from) {
       render();
       alert(`Renamed ✅ (${out.updated} items updated)`);
     } catch (e) {
-      err.textContent = e?.message || "Rename failed.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Rename failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Rename failed.");
+      }
     }
   });
 }
@@ -1085,17 +1170,26 @@ function openManagerDeleteCategory(name) {
     `
   );
 
-  $("#cancelDelCat").addEventListener("click", closeModal);
+  const cancelBtn = $("#cancelDelCat");
+  const delBtn = $("#doDelCat");
+  if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
+  if (!delBtn) return;
 
-  $("#doDelCat").addEventListener("click", async () => {
-    const typed = ($("#catConfirm").value || "").trim();
+  delBtn.addEventListener("click", async () => {
+    const typed = ($("#catConfirm")?.value || "").trim();
     const err = $("#catErr");
-    err.classList.add("hidden");
-    err.textContent = "";
+    if (err) {
+      err.classList.add("hidden");
+      err.textContent = "";
+    }
 
     if (typed !== name) {
-      err.textContent = "Category name does not match.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = "Category name does not match.";
+        err.classList.remove("hidden");
+      } else {
+        alert("Category name does not match.");
+      }
       return;
     }
 
@@ -1109,8 +1203,12 @@ function openManagerDeleteCategory(name) {
       render();
       alert(`Deleted category ✅ (${out.deleted} items removed)`);
     } catch (e) {
-      err.textContent = e?.message || "Delete failed.";
-      err.classList.remove("hidden");
+      if (err) {
+        err.textContent = e?.message || "Delete failed.";
+        err.classList.remove("hidden");
+      } else {
+        alert(e?.message || "Delete failed.");
+      }
     }
   });
 }
@@ -1123,7 +1221,6 @@ async function boot() {
     await loadItems();
   } catch {}
 
-  // Decide first page
   if (state.session.store && state.session.shift && state.session.staff) {
     state.view = { page: "home", category: null, sauceSub: null };
   } else {
