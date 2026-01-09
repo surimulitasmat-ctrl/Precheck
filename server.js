@@ -57,14 +57,12 @@ function base64url(buf) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
 }
-
 function signToken(payloadObj) {
   const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
   const payload = base64url(JSON.stringify(payloadObj));
   const sig = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
   return `${payload}.${sig}`;
 }
-
 function verifyToken(token) {
   try {
     const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
@@ -76,14 +74,12 @@ function verifyToken(token) {
 
     const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
     const obj = JSON.parse(json);
-
     if (obj.exp && Date.now() > obj.exp) return null;
     return obj;
   } catch {
     return null;
   }
 }
-
 function requireManager(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -114,7 +110,7 @@ app.get("/api/items", async (req, res) => {
 });
 
 // -------------------- Logs --------------------
-// POST /api/log  (insert only columns that exist)
+// POST /api/log (insert only columns that exist)
 app.post("/api/log", async (req, res) => {
   try {
     const cols = await getStockLogsCols();
@@ -154,7 +150,6 @@ app.post("/api/log", async (req, res) => {
     const sql = `INSERT INTO public.stock_logs (${insertCols.join(",")})
                  VALUES (${insertVals.join(",")})
                  RETURNING *`;
-
     const r = await query(sql, params);
     res.json({ ok: true, row: r.rows[0] });
   } catch (e) {
@@ -196,8 +191,6 @@ app.get("/api/expiry", async (req, res) => {
 });
 
 // -------------------- Manager APIs --------------------
-
-// Optional ping to confirm route is deployed
 app.get("/api/manager/ping", (req, res) => res.json({ ok: true }));
 
 // POST /api/manager/login  { pin: "8686" }
@@ -232,34 +225,21 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
   }
 });
 
-// ✅ POST manager item (THIS FIXES YOUR 404 WHEN ADD ITEM)
+// POST manager item (ADD NEW ITEM)
 app.post("/api/manager/items", requireManager, async (req, res) => {
   try {
     const { name, category, sub_category, shelf_life_days } = req.body || {};
+    if (!name || !category) return res.status(400).json({ error: "name_and_category_required" });
 
-    const cleanName = String(name || "").trim();
-    const cleanCategory = String(category || "").trim();
-    const cleanSub = sub_category === "" || sub_category === undefined ? null : String(sub_category).trim();
-
-    if (!cleanName || !cleanCategory) {
-      return res.status(400).json({ error: "name_and_category_required" });
-    }
-
-    const shelf = shelf_life_days === "" || shelf_life_days === null || shelf_life_days === undefined
-      ? 0
-      : Number(shelf_life_days);
-
-    if (Number.isNaN(shelf) || shelf < 0) {
-      return res.status(400).json({ error: "invalid_shelf_life_days" });
-    }
+    const sl = Number.isFinite(Number(shelf_life_days)) ? Number(shelf_life_days) : 0;
 
     const r = await query(
       `
       INSERT INTO public.items (name, category, sub_category, shelf_life_days)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, name, category, sub_category, shelf_life_days
+      RETURNING *
       `,
-      [cleanName, cleanCategory, cleanSub, shelf]
+      [String(name).trim(), String(category).trim(), sub_category ? String(sub_category).trim() : null, sl]
     );
 
     res.json({ ok: true, item: r.rows[0] });
@@ -285,7 +265,13 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
       WHERE id = $1
       RETURNING *
       `,
-      [id, name ?? null, category ?? null, sub_category ?? null, shelf_life_days ?? null]
+      [
+        id,
+        name ?? null,
+        category ?? null,
+        sub_category ?? null,
+        shelf_life_days === undefined ? null : shelf_life_days,
+      ]
     );
 
     if (!r.rows.length) return res.status(404).json({ error: "not_found" });
@@ -296,16 +282,67 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
   }
 });
 
-// (Optional) DELETE manager item
+// DELETE manager item (DELETE ITEM)
 app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const r = await query(`DELETE FROM public.items WHERE id=$1 RETURNING id`, [id]);
     if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true });
+    res.json({ ok: true, deleted_id: id });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "manager_delete_failed" });
+  }
+});
+
+// GET categories (distinct)
+app.get("/api/manager/categories", requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `
+      SELECT category, COUNT(*)::int AS count
+      FROM public.items
+      GROUP BY category
+      ORDER BY category ASC
+      `,
+      []
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_categories_failed" });
+  }
+});
+
+// POST rename category { from, to }
+app.post("/api/manager/categories/rename", requireManager, async (req, res) => {
+  try {
+    const from = String(req.body?.from || "").trim();
+    const to = String(req.body?.to || "").trim();
+    if (!from || !to) return res.status(400).json({ error: "from_and_to_required" });
+
+    const r = await query(
+      `UPDATE public.items SET category=$2 WHERE category=$1`,
+      [from, to]
+    );
+    res.json({ ok: true, updated: r.rowCount });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_category_rename_failed" });
+  }
+});
+
+// DELETE category ?name=CategoryName  (deletes ALL items in that category)
+app.delete("/api/manager/categories", requireManager, async (req, res) => {
+  try {
+    const name = String(req.query?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "missing_name" });
+
+    const r = await query(`DELETE FROM public.items WHERE category=$1`, [name]);
+    res.json({ ok: true, deleted: r.rowCount });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_category_delete_failed" });
   }
 });
 
