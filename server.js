@@ -68,7 +68,6 @@ function verifyToken(token) {
     const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
     const [payload, sig] = (token || "").split(".");
     if (!payload || !sig) return null;
-
     const expected = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
     if (expected !== sig) return null;
 
@@ -110,7 +109,7 @@ app.get("/api/items", async (req, res) => {
 });
 
 // -------------------- Logs --------------------
-// POST /api/log (insert only columns that exist)
+// POST /api/log  (insert only columns that exist)
 app.post("/api/log", async (req, res) => {
   try {
     const cols = await getStockLogsCols();
@@ -224,7 +223,8 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
     res.status(500).json({ error: "manager_items_failed" });
   }
 });
-// POST manager item (add new)
+
+// POST manager item (add)
 app.post("/api/manager/items", requireManager, async (req, res) => {
   try {
     const { name, category, sub_category, shelf_life_days } = req.body || {};
@@ -246,43 +246,6 @@ app.post("/api/manager/items", requireManager, async (req, res) => {
   }
 });
 
-// DELETE manager item
-app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const r = await query(`DELETE FROM public.items WHERE id = $1 RETURNING id`, [id]);
-    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "manager_delete_failed" });
-  }
-});
-
-// POST manager item (ADD NEW ITEM)
-app.post("/api/manager/items", requireManager, async (req, res) => {
-  try {
-    const { name, category, sub_category, shelf_life_days } = req.body || {};
-    if (!name || !category) return res.status(400).json({ error: "name_and_category_required" });
-
-    const sl = Number.isFinite(Number(shelf_life_days)) ? Number(shelf_life_days) : 0;
-
-    const r = await query(
-      `
-      INSERT INTO public.items (name, category, sub_category, shelf_life_days)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-      `,
-      [String(name).trim(), String(category).trim(), sub_category ? String(sub_category).trim() : null, sl]
-    );
-
-    res.json({ ok: true, item: r.rows[0] });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "manager_create_failed", detail: String(e.message || e) });
-  }
-});
-
 // PATCH manager item
 app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
   try {
@@ -299,13 +262,7 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
       WHERE id = $1
       RETURNING *
       `,
-      [
-        id,
-        name ?? null,
-        category ?? null,
-        sub_category ?? null,
-        shelf_life_days === undefined ? null : shelf_life_days,
-      ]
+      [id, name ?? null, category ?? null, sub_category ?? null, shelf_life_days ?? null]
     );
 
     if (!r.rows.length) return res.status(404).json({ error: "not_found" });
@@ -316,67 +273,55 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
   }
 });
 
-// DELETE manager item (DELETE ITEM)
+// DELETE manager item
 app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const r = await query(`DELETE FROM public.items WHERE id=$1 RETURNING id`, [id]);
     if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, deleted_id: id });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "manager_delete_failed" });
   }
 });
 
-// GET categories (distinct)
-app.get("/api/manager/categories", requireManager, async (req, res) => {
-  try {
-    const r = await query(
-      `
-      SELECT category, COUNT(*)::int AS count
-      FROM public.items
-      GROUP BY category
-      ORDER BY category ASC
-      `,
-      []
-    );
-    res.json(r.rows);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "manager_categories_failed" });
-  }
-});
-
-// POST rename category { from, to }
+// Rename category (bulk update)
 app.post("/api/manager/categories/rename", requireManager, async (req, res) => {
   try {
     const from = String(req.body?.from || "").trim();
     const to = String(req.body?.to || "").trim();
-    if (!from || !to) return res.status(400).json({ error: "from_and_to_required" });
+    if (!from || !to) return res.status(400).json({ error: "from_to_required" });
 
     const r = await query(
       `UPDATE public.items SET category=$2 WHERE category=$1`,
       [from, to]
     );
+
     res.json({ ok: true, updated: r.rowCount });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "manager_category_rename_failed" });
+    res.status(500).json({ error: "category_rename_failed" });
   }
 });
 
-// DELETE category ?name=CategoryName  (deletes ALL items in that category)
-app.delete("/api/manager/categories", requireManager, async (req, res) => {
+// Move category items into another category (safe delete)
+app.post("/api/manager/categories/move", requireManager, async (req, res) => {
   try {
-    const name = String(req.query?.name || "").trim();
-    if (!name) return res.status(400).json({ error: "missing_name" });
+    const from = String(req.body?.from || "").trim();
+    const to = String(req.body?.to || "").trim();
+    if (!from || !to) return res.status(400).json({ error: "from_to_required" });
+    if (from === to) return res.status(400).json({ error: "same_category" });
 
-    const r = await query(`DELETE FROM public.items WHERE category=$1`, [name]);
-    res.json({ ok: true, deleted: r.rowCount });
+    const r = await query(
+      `UPDATE public.items SET category=$2 WHERE category=$1`,
+      [from, to]
+    );
+
+    res.json({ ok: true, moved: r.rowCount });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "manager_category_delete_failed" });
+    res.status(500).json({ error: "category_move_failed" });
   }
 });
 
