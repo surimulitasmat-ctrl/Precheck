@@ -1,10 +1,9 @@
 /* =========================
    PreCheck — app.js (FULL)
-   Single-file, safe copy/paste
-   UI: keep your current style.css (green/yellow)
-   Bottom nav: Home/Alerts/Manager/Logout
-   Manager: soft delete only (items + categories)
-   Home: categories loaded from DB (/api/categories) with fallback defaults
+   - Store separated PDD/SKH
+   - /api/items?store=... and /api/categories?store=...
+   - Manager token is store-bound (server handles)
+   - Soft delete UI for items + categories
    ========================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -60,6 +59,7 @@ const DEFAULT_CATEGORIES = [
   { name: "Back counter chiller", sort_order: 80 },
   { name: "Sauce", sort_order: 90 },
 ];
+
 const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
 
 /* fixed time dropdown items */
@@ -93,17 +93,17 @@ const modalTitleEl = $("#modalTitle");
 const modalBodyEl = $("#modalBody");
 const modalCloseBtn = $("#modalClose");
 
-/* Bottom nav */
+/* Bottom nav (some may be missing in your HTML; guard all) */
+const bottomNav = $("#bottomNav");
 const navHome = $("#navHome");
 const navAlerts = $("#navAlerts");
 const navManager = $("#navManager");
-const navLogout = $("#navLogout");
-const bottomNav = $("#bottomNav");
+const navLogout = $("#navLogout"); // may be null in your HTML
 
 /* ---------- State ---------- */
 const state = {
   session: { store: "", shift: "", staff: "" },
-  categories: [], // from DB
+  categories: [],
   items: [],
   view: { page: "session", category: null, sauceSub: null },
   navStack: [],
@@ -220,22 +220,23 @@ async function apiManager(method, url, body) {
   return data;
 }
 
-/* ---------- Data load ---------- */
+/* ---------- Data load (STORE separated) ---------- */
 async function loadCategories() {
   try {
-    const rows = await apiGet("/api/categories");
-    // rows: [{id,name,sort_order,active}]
+    const store = state.session.store;
+    const rows = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
     state.categories = (rows || [])
       .filter((c) => c && c.name)
       .map((c) => ({ id: c.id, name: c.name, sort_order: Number(c.sort_order ?? 0) }))
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || norm(a.name).localeCompare(norm(b.name)));
   } catch {
-    // fallback
     state.categories = DEFAULT_CATEGORIES.slice().sort((a, b) => a.sort_order - b.sort_order);
   }
 }
+
 async function loadItems() {
-  const rows = await apiGet("/api/items");
+  const store = state.session.store;
+  const rows = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
   state.items = (rows || []).map((x) => ({
     ...x,
     category: String(x.category || "").trim(),
@@ -271,17 +272,15 @@ function getHelperText(it) {
   return "Select expiry.";
 }
 
-/* ---------- UI: session line (BADGES) ---------- */
+/* ---------- UI: session line (ONE badge only) ---------- */
 function updateSessionLine() {
   if (!sessionLine) return;
 
   const store = state.session.store || "";
   const shift = state.session.shift || "";
   const staff = state.session.staff || "";
-
   const line = [store, shift, staff].filter(Boolean).join(" • ");
 
-  // IMPORTANT: show ONLY ONE role badge
   const roleBadge = isManagerMode()
     ? `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;margin-right:8px;">MANAGER</span>`
     : `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:8px;">STAFF</span>`;
@@ -295,23 +294,16 @@ function updateNav() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
   if (bottomNav) bottomNav.classList.toggle("hidden", !hasSession);
 
-  const setActive = (btn, on) => {
-    if (!btn) return;
-    btn.classList.toggle("active", !!on);
-  };
+  const setActive = (btn, on) => btn && btn.classList.toggle("active", !!on);
 
   const page = state.view.page;
   setActive(navHome, page === "home" || page === "category" || page === "sauce_menu");
   setActive(navAlerts, page === "alerts");
   setActive(navManager, page === "manager");
-  // navLogout never "active"
+  setActive(navLogout, false);
 
-  // Topbar buttons show/hide
   if (btnManagerTop) btnManagerTop.classList.toggle("hidden", !hasSession);
   if (btnLogoutTop) btnLogoutTop.classList.toggle("hidden", !hasSession);
-
-  // Manager button always available, it opens login if not manager
-  if (btnManagerTop) btnManagerTop.textContent = isManagerMode() ? "Manager" : "Manager";
 }
 
 /* ---------- Navigation helpers ---------- */
@@ -331,7 +323,6 @@ function goBack() {
   if (prev) {
     state.view = prev;
     render();
-    return;
   }
 }
 function bindSwipeBack() {
@@ -371,29 +362,7 @@ function bindSwipeBack() {
   } catch {}
 }
 
-/* ---------- Bind top + bottom buttons ---------- */
-function bindNavButtons() {
-  // Bottom nav
-  if (navHome) navHome.addEventListener("click", () => {
-    state.navStack = [];
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-  });
-  if (navAlerts) navAlerts.addEventListener("click", () => setView({ page: "alerts" }, true));
-  if (navManager) navManager.addEventListener("click", () => {
-    if (isManagerMode()) setView({ page: "manager" }, true);
-    else openManagerLogin();
-  });
-  if (navLogout) navLogout.addEventListener("click", logoutAction);
-
-  // Topbar
-  if (btnManagerTop) btnManagerTop.addEventListener("click", () => {
-    if (isManagerMode()) setView({ page: "manager" }, true);
-    else openManagerLogin();
-  });
-  if (btnLogoutTop) btnLogoutTop.addEventListener("click", logoutAction);
-}
-
+/* ---------- Bind nav buttons ---------- */
 function logoutAction() {
   if (isManagerMode()) {
     if (!confirm("Exit manager mode and go back to staff mode?")) return;
@@ -413,6 +382,26 @@ function logoutAction() {
   setManagerToken("");
   state.view = { page: "session", category: null, sauceSub: null };
   render();
+}
+
+function bindNavButtons() {
+  if (navHome) navHome.addEventListener("click", () => {
+    state.navStack = [];
+    state.view = { page: "home", category: null, sauceSub: null };
+    render();
+  });
+  if (navAlerts) navAlerts.addEventListener("click", () => setView({ page: "alerts" }, true));
+  if (navManager) navManager.addEventListener("click", () => {
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  });
+  if (navLogout) navLogout.addEventListener("click", logoutAction);
+
+  if (btnManagerTop) btnManagerTop.addEventListener("click", () => {
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  });
+  if (btnLogoutTop) btnLogoutTop.addEventListener("click", logoutAction);
 }
 
 /* ---------- Render: Session ---------- */
@@ -500,7 +489,6 @@ function renderSession() {
 function categoryCounts() {
   const counts = {};
   for (const c of state.categories) counts[c.name] = 0;
-
   for (const it of state.items) {
     const c = String(it.category || "").trim();
     if (counts[c] == null) counts[c] = 0;
@@ -620,19 +608,15 @@ function renderCategoryList() {
     <section class="list">
       ${
         list.length
-          ? list
-              .map(
-                (it) => `
-                <button class="list-row" data-item-id="${it.id}" type="button">
-                  <div class="list-row-main">
-                    <div class="list-row-title">${escapeHtml(it.name)}</div>
-                    <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
-                  </div>
-                  <div class="chev">›</div>
-                </button>
-              `
-              )
-              .join("")
+          ? list.map((it) => `
+              <button class="list-row" data-item-id="${it.id}" type="button">
+                <div class="list-row-main">
+                  <div class="list-row-title">${escapeHtml(it.name)}</div>
+                  <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
+                </div>
+                <div class="chev">›</div>
+              </button>
+            `).join("")
           : `<div class="empty">No items found.</div>`
       }
     </section>
@@ -650,7 +634,7 @@ function renderCategoryList() {
   });
 }
 
-/* ---------- Log modal (yellow Save) ---------- */
+/* ---------- Log modal ---------- */
 function openLogModal(item) {
   const mode = getMode(item);
   const sl = getShelfLifeDays(item);
@@ -662,7 +646,6 @@ function openLogModal(item) {
       <div class="field">
         <label class="label">Expiry Date</label>
         <input id="expDate" class="input" type="date" />
-        <div class="helper">Select expiry date.</div>
       </div>
     `;
   } else if (mode === "HOURLY_FIXED") {
@@ -673,18 +656,16 @@ function openLogModal(item) {
           <option value="">Select time</option>
           ${FIXED_TIME_SLOTS.map((t) => `<option value="${t}">${t}</option>`).join("")}
         </select>
-        <div class="helper">Fixed time dropdown (today).</div>
       </div>
     `;
   } else if (mode === "EOD") {
     expiryHtml = `
       <div class="field">
         <label class="label">Expiry</label>
-        <div class="input" style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="input" style="display:flex;justify-content:space-between;align-items:center;">
           <span>End of day (today)</span>
           <span style="font-weight:1000;color:var(--green-dark);">${escapeHtml(today)}</span>
         </div>
-        <div class="helper">Auto-set to 23:59 today.</div>
       </div>
     `;
   } else {
@@ -701,7 +682,6 @@ function openLogModal(item) {
           <option value="">Select date</option>
           ${opts.join("")}
         </select>
-        <div class="helper">Auto dropdown based on shelf life.</div>
       </div>
     `;
   }
@@ -709,22 +689,21 @@ function openLogModal(item) {
   openModal(
     "Log Item",
     `
-    <div class="modal-item-title">${escapeHtml(item.name)}</div>
+      <div class="modal-item-title">${escapeHtml(item.name)}</div>
 
-    <div class="field">
-      <label class="label">Quantity (optional)</label>
-      <input id="qtyInp" class="input" inputmode="numeric" placeholder="Leave blank if not needed" />
-      <div class="helper">Blank allowed.</div>
-    </div>
+      <div class="field">
+        <label class="label">Quantity (optional)</label>
+        <input id="qtyInp" class="input" inputmode="numeric" placeholder="Leave blank if not needed" />
+      </div>
 
-    ${expiryHtml}
+      ${expiryHtml}
 
-    <div id="logErr" class="error hidden"></div>
+      <div id="logErr" class="error hidden"></div>
 
-    <button id="btnSaveLog" class="btn btn-primary" type="button" style="margin-top:6px;width:100%;padding:14px 16px;">
-      Save
-    </button>
-  `
+      <button id="btnSaveLog" class="btn btn-primary" type="button" style="margin-top:6px;width:100%;padding:14px 16px;">
+        Save
+      </button>
+    `
   );
 
   const qtyInp = $("#qtyInp", modalBodyEl);
@@ -822,19 +801,15 @@ async function renderAlerts() {
 
     wrap.innerHTML = `
       <div class="card-title">Latest expiry for ${escapeHtml(state.session.store)}</div>
-      ${rows
-        .map(
-          (r) => `
-          <div class="alert-row">
-            <div>
-              <div class="alert-name">${escapeHtml(r.name)}</div>
-              <div class="alert-extra">${escapeHtml(r.category)}${r.sub_category ? ` • ${escapeHtml(r.sub_category)}` : ""}</div>
-            </div>
-            <div style="font-weight:1000;color:var(--green-dark)">${escapeHtml(r.expiry_value || "-")}</div>
+      ${rows.map((r) => `
+        <div class="alert-row">
+          <div>
+            <div class="alert-name">${escapeHtml(r.name)}</div>
+            <div class="alert-extra">${escapeHtml(r.category)}${r.sub_category ? ` • ${escapeHtml(r.sub_category)}` : ""}</div>
           </div>
-        `
-        )
-        .join("")}
+          <div style="font-weight:1000;color:var(--green-dark)">${escapeHtml(r.expiry_value || "-")}</div>
+        </div>
+      `).join("")}
     `;
   } catch (e) {
     wrap.innerHTML = `<div class="error">Failed: ${escapeHtml(e.message || e)}</div>`;
@@ -846,18 +821,18 @@ function openManagerLogin() {
   openModal(
     "Manager Access",
     `
-    <div class="field">
-      <label class="label">Enter PIN</label>
-      <input id="pinInp" class="input" inputmode="numeric" placeholder="PIN" />
-      <div class="helper">Manager only.</div>
-    </div>
+      <div class="field">
+        <label class="label">Enter PIN</label>
+        <input id="pinInp" class="input" inputmode="numeric" placeholder="PIN" />
+        <div class="helper">Manager only.</div>
+      </div>
 
-    <div id="pinErr" class="error hidden"></div>
+      <div id="pinErr" class="error hidden"></div>
 
-    <button id="btnPinLogin" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
-      Login
-    </button>
-  `
+      <button id="btnPinLogin" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
+        Login
+      </button>
+    `
   );
 
   const pinInp = $("#pinInp", modalBodyEl);
@@ -875,8 +850,6 @@ function openManagerLogin() {
 
     try {
       const out = await apiPost("/api/manager/login", { pin, store: state.session.store });
-
-
       setManagerToken(out.token || "");
       closeModal();
       toast("Manager mode ✅");
@@ -890,28 +863,28 @@ function openManagerLogin() {
   });
 }
 
-/* ---------- Manager: Categories UI ---------- */
+/* ---------- Manager modals ---------- */
 function openAddCategoryModal(onDone) {
   openModal(
     "Add Category",
     `
-    <div class="field">
-      <label class="label">Category name</label>
-      <input id="catName" class="input" placeholder="e.g. Drinks" />
-    </div>
+      <div class="field">
+        <label class="label">Category name</label>
+        <input id="catName" class="input" placeholder="e.g. Drinks" />
+      </div>
 
-    <div class="field">
-      <label class="label">Sort order</label>
-      <input id="catOrder" class="input" inputmode="numeric" value="100" />
-      <div class="helper">Lower number shows higher on Home.</div>
-    </div>
+      <div class="field">
+        <label class="label">Sort order</label>
+        <input id="catOrder" class="input" inputmode="numeric" value="100" />
+        <div class="helper">Lower number shows higher on Home.</div>
+      </div>
 
-    <div id="catErr" class="error hidden"></div>
+      <div id="catErr" class="error hidden"></div>
 
-    <button id="catSave" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
-      Save
-    </button>
-  `
+      <button id="catSave" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
+        Save
+      </button>
+    `
   );
 
   const nameEl = $("#catName", modalBodyEl);
@@ -947,45 +920,43 @@ function openAddCategoryModal(onDone) {
   });
 }
 
-/* ---------- Manager: Items add modal ---------- */
 function openManagerAddItem(onDone) {
   openModal(
     "Add Item",
     `
-    <div class="modal-item-title">New item</div>
+      <div class="modal-item-title">New item</div>
 
-    <div class="field">
-      <label class="label">Name</label>
-      <input id="newName" class="input" placeholder="Item name" />
-    </div>
+      <div class="field">
+        <label class="label">Name</label>
+        <input id="newName" class="input" placeholder="Item name" />
+      </div>
 
-    <div class="field">
-      <label class="label">Category</label>
-      <select id="newCat" class="input">
-        ${state.categories.map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("")}
-      </select>
-    </div>
+      <div class="field">
+        <label class="label">Category</label>
+        <select id="newCat" class="input">
+          ${state.categories.map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("")}
+        </select>
+      </div>
 
-    <div class="field">
-      <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
-      <select id="newSub" class="input">
-        <option value="" selected>(none)</option>
-        ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
-      </select>
-      <div class="helper">If category is not Sauce, sub-category should be empty.</div>
-    </div>
+      <div class="field">
+        <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
+        <select id="newSub" class="input">
+          <option value="" selected>(none)</option>
+          ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
+        </select>
+      </div>
 
-    <div class="field">
-      <label class="label">Shelf life (days)</label>
-      <input id="newSL" class="input" inputmode="numeric" value="1" />
-    </div>
+      <div class="field">
+        <label class="label">Shelf life (days)</label>
+        <input id="newSL" class="input" inputmode="numeric" value="1" />
+      </div>
 
-    <div id="addErr" class="error hidden"></div>
+      <div id="addErr" class="error hidden"></div>
 
-    <button id="btnAddSave" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
-      Save
-    </button>
-  `
+      <button id="btnAddSave" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
+        Save
+      </button>
+    `
   );
 
   const nameEl = $("#newName", modalBodyEl);
@@ -1055,10 +1026,8 @@ async function renderManager() {
 
   main.innerHTML = `
     <div class="card">
-      <div class="h1">Manager</div>
-      <div class="muted">
-        Soft delete only (safe). Deleted items/categories are hidden from staff.
-      </div>
+      <div class="h1">Manager (${escapeHtml(state.session.store)})</div>
+      <div class="muted">Soft delete only. This store only.</div>
     </div>
 
     <div class="card">
@@ -1082,6 +1051,7 @@ async function renderManager() {
   // Categories
   const catListEl = $("#catList");
   $("#btnAddCat").addEventListener("click", () => openAddCategoryModal(() => renderManager()));
+
   let cats = [];
   try {
     cats = await apiManager("GET", "/api/manager/categories");
@@ -1094,7 +1064,6 @@ async function renderManager() {
     catListEl.innerHTML = `<div class="muted">No categories found.</div>`;
   } else {
     catListEl.innerHTML = cats
-      .filter((c) => !c.deleted_at)
       .map((c) => {
         return `
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px dashed rgba(0,0,0,0.10);">
@@ -1113,7 +1082,7 @@ async function renderManager() {
     $$(".cat-del", catListEl).forEach((b) => {
       b.addEventListener("click", async () => {
         const id = Number(b.getAttribute("data-id"));
-        if (!confirm("Soft delete this category? (It will disappear from Home)")) return;
+        if (!confirm("Soft delete this category?")) return;
 
         try {
           await apiManager("DELETE", `/api/manager/categories/${id}`);
@@ -1129,7 +1098,6 @@ async function renderManager() {
 
   // Items
   $("#btnAddItem").addEventListener("click", () => openManagerAddItem(() => renderManager()));
-
   const listEl = $("#mgrList");
   const searchEl = $("#mgrSearch");
 
@@ -1177,13 +1145,11 @@ async function renderManager() {
                 <option value="" ${sub ? "" : "selected"}>(none)</option>
                 ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(sub) ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
               </select>
-              <div class="helper">If category is not Sauce, sub-category should be empty.</div>
             </div>
 
             <div class="field">
               <label class="label">Shelf life (days)</label>
               <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
-              <div class="helper">&gt;7 days becomes manual in app.</div>
             </div>
 
             <div style="display:flex;gap:10px;">
@@ -1214,7 +1180,6 @@ async function renderManager() {
         const category = String(catSel.value || "").trim();
         const sub_category = String(subSel.value || "").trim() || null;
         const shelf_life_days = Number(String(slInp.value || "0").trim());
-
         const finalSub = norm(category) === norm("Sauce") ? sub_category : null;
 
         if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
@@ -1244,12 +1209,11 @@ async function renderManager() {
         const err = $(`.mgr-err[data-id="${id}"]`, listEl);
         err.classList.add("hidden");
 
-        if (!confirm("Soft delete this item? (Staff will not see it)")) return;
+        if (!confirm("Soft delete this item?")) return;
 
         try {
           await apiManager("DELETE", `/api/manager/items/${id}`);
           toast("Deleted ✅");
-
           rows = rows.filter((x) => Number(x.id) !== id);
           await loadItems();
           renderRows();
@@ -1273,7 +1237,6 @@ async function render() {
   updateNav();
 
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
-
   if (!hasSession && state.view.page !== "session") {
     state.view = { page: "session", category: null, sauceSub: null };
   }
