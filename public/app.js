@@ -526,7 +526,19 @@ function renderHome() {
 
   const counts = categoryCounts();
 
-  // keep your tile look (using your CSS .tile tones)
+  // emoji icons (simple + always works)
+  const iconMap = {
+    "Prepared items": "🧾",
+    "Unopened chiller": "🧊",
+    "Thawing": "❄️",
+    "Vegetables": "🥬",
+    "Backroom": "📦",
+    "Back counter": "🧂",
+    "Front counter": "🍲",
+    "Back counter chiller": "🧀",
+    Sauce: "🧴",
+  };
+
   const toneMap = {
     "Prepared items": "green",
     "Unopened chiller": "blue",
@@ -545,19 +557,23 @@ function renderHome() {
       <div class="home-sub">Tap a category to log items.</div>
 
       <section class="grid">
-        ${CATEGORIES.map((cat) => {
-          const tone = toneMap[cat] || "green";
-          const count = counts[cat] ?? 0;
-          return `
-            <button class="tile tile--${tone}" data-cat="${escapeHtml(cat)}" type="button">
-              <div class="tile-top">
-                <div class="tile-icon" aria-hidden="true"> </div>
-              </div>
-              <div class="tile-title">${escapeHtml(cat)}</div>
-              <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
-            </button>
-          `;
-        }).join("")}
+        ${CATEGORIES
+          .map((cat) => {
+            const tone = toneMap[cat] || "green";
+            const count = counts[cat] ?? 0;
+            const ico = iconMap[cat] || "✅";
+
+            return `
+              <button class="tile tile--${tone}" data-cat="${escapeHtml(cat)}" type="button">
+                <div class="tile-top">
+                  <div class="tile-icon" aria-hidden="true">${ico}</div>
+                </div>
+                <div class="tile-title">${escapeHtml(cat)}</div>
+                <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
+              </button>
+            `;
+          })
+          .join("")}
       </section>
     </section>
   `;
@@ -571,6 +587,7 @@ function renderHome() {
   });
 }
 
+
 function renderSauceMenu() {
   updateSessionLine();
   updateBars();
@@ -582,17 +599,24 @@ function renderSauceMenu() {
     </div>
 
     <section class="grid">
-      ${SAUCE_SUBS.map((s) => `
+      ${SAUCE_SUBS
+        .map(
+          (s) => `
         <button class="tile tile--purple" data-sauce="${escapeHtml(s)}" type="button">
-          <div class="tile-top"><div class="tile-icon" aria-hidden="true"> </div></div>
+          <div class="tile-top">
+            <div class="tile-icon" aria-hidden="true">🧴</div>
+          </div>
           <div class="tile-title">${escapeHtml(s)}</div>
           <div class="tile-sub">Tap to view items</div>
         </button>
-      `).join("")}
+      `
+        )
+        .join("")}
     </section>
   `;
 
   $("#backBtn").addEventListener("click", () => goBack());
+
   $$("[data-sauce]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const sub = btn.getAttribute("data-sauce");
@@ -600,6 +624,7 @@ function renderSauceMenu() {
     });
   });
 }
+
 
 function getItemsForCurrentList() {
   const { category, sauceSub } = state.view;
