@@ -1,11 +1,8 @@
 /* =========================
-   PreCheck — app.js (FULL, stable)
-   - Subway UI (green/white/yellow)
-   - Top bar shows Store/Shift/Staff + STAFF/MANAGER badges
-   - Bottom nav: Home / Alerts / Manager / Logout
-   - Swipe right = Back (with confirm exit on root)
-   - Log modal: yellow Save
-   - Manager login PIN, manager CRUD (needs server endpoints for POST/DELETE)
+   PreCheck — app.js (FULL)
+   Single-file, safe copy/paste
+   UI: topbar + bottom nav (Home/Alerts/Manager/Logout)
+   Manager: PIN login + edit items + add/delete (needs server endpoints)
    ========================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -61,38 +58,23 @@ const CATEGORIES = [
   "Back counter chiller",
   "Sauce",
 ];
-
 const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
-
 const FIXED_TIME_SLOTS = ["11:00", "15:00", "19:00", "23:00"];
 const HOURLY_FIXED_ITEMS = new Set([norm("Soup"), norm("Soups")]);
-
-const MANUAL_ALWAYS = new Set([]); // add items later if you want forced manual date-only
-
-/* ---------- Tile meta (keep your polished tiles) ---------- */
-const TILE_META = {
-  "Prepared items": { tone: "green", icon: "🧾" },
-  "Unopened chiller": { tone: "blue", icon: "🧊" },
-  Thawing: { tone: "cyan", icon: "❄️" },
-  Vegetables: { tone: "lime", icon: "🥬" },
-  Backroom: { tone: "orange", icon: "📦" },
-  "Back counter": { tone: "yellow", icon: "🧂" },
-  "Front counter": { tone: "red", icon: "🍲" },
-  "Back counter chiller": { tone: "teal", icon: "🧀" },
-  Sauce: { tone: "purple", icon: "🧴" },
-};
+const MANUAL_ALWAYS = new Set([]);
 
 /* ---------- DOM ---------- */
 const main = $("#main");
 const sessionLine = $("#sessionLine");
+
 const btnManagerTop = $("#btnManager");
 const btnLogoutTop = $("#btnLogout");
 
-const nav = $("#bottomNav");
+const bottomNav = $("#bottomNav");
 const navHome = $("#navHome");
 const navAlerts = $("#navAlerts");
-const navManager = $("#navManager");
-const navLogout = $("#navLogout");
+const navManagerTab = $("#navManagerTab");
+const navLogoutTab = $("#navLogoutTab");
 
 const modalBackdrop = $("#modalBackdrop");
 const modalTitleEl = $("#modalTitle");
@@ -121,7 +103,6 @@ function loadSession() {
 function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
 }
-
 function getManagerToken() {
   return localStorage.getItem("managerToken") || "";
 }
@@ -142,8 +123,11 @@ function toast(msg) {
 }
 
 /* ---------- Modal ---------- */
+function hasModal() {
+  return !!(modalBackdrop && modalTitleEl && modalBodyEl);
+}
 function openModal(title, bodyHtml) {
-  if (!modalBackdrop || !modalTitleEl || !modalBodyEl) {
+  if (!hasModal()) {
     alert(title || "Notice");
     return;
   }
@@ -153,18 +137,16 @@ function openModal(title, bodyHtml) {
   modalBackdrop.setAttribute("aria-hidden", "false");
 }
 function closeModal() {
-  if (!modalBackdrop || !modalBodyEl) return;
+  if (!hasModal()) return;
   modalBackdrop.classList.add("hidden");
   modalBackdrop.setAttribute("aria-hidden", "true");
   modalBodyEl.innerHTML = "";
 }
-function bindModal() {
-  if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
-  if (modalBackdrop) {
-    modalBackdrop.addEventListener("click", (e) => {
-      if (e.target === modalBackdrop) closeModal();
-    });
-  }
+if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+if (modalBackdrop) {
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
 }
 
 /* ---------- API ---------- */
@@ -205,7 +187,7 @@ async function apiManager(method, url, body) {
   if (res.status === 401) {
     setManagerToken("");
     updateBars();
-    toast("Manager session expired. Login again.");
+    toast("Manager expired. Login again.");
     throw new Error("unauthorized");
   }
 
@@ -224,20 +206,15 @@ function getShelfLifeDays(item) {
   const v = Number(item.shelf_life_days ?? item.shelfLifeDays ?? 0);
   return Number.isFinite(v) ? v : 0;
 }
-
-/* ---------- Expiry mode rules (your latest rules) ---------- */
 function getMode(item) {
   const cat = canonicalCategory(item.category);
   const nameN = norm(item.name);
 
-  // Chicken Bacon (C) ONLY end of day
+  // Example rule
   if (nameN === norm("Chicken Bacon (C)")) return "EOD";
 
-  // Unopened chiller always manual date-only
   if (cat === "Unopened chiller") return "MANUAL_DATE";
-
   if (MANUAL_ALWAYS.has(nameN)) return "MANUAL_DATE";
-
   if (HOURLY_FIXED_ITEMS.has(nameN)) return "HOURLY_FIXED";
 
   const sl = getShelfLifeDays(item);
@@ -245,47 +222,54 @@ function getMode(item) {
 
   return "AUTO";
 }
-
 function getHelperText(it) {
   const mode = getMode(it);
   const sl = getShelfLifeDays(it);
-
   if (mode === "EOD") return "Expiry: End of day (auto).";
   if (mode === "HOURLY_FIXED") return "Expiry: Select fixed time (today).";
   if (mode === "MANUAL_DATE") return "Expiry: Staff sets date (manual).";
-  if (mode === "AUTO") return `Expiry: Select date (0–${sl} day${sl === 1 ? "" : "s"}).`;
-  return "Select expiry.";
+  return `Expiry: Select date (0–${sl} day${sl === 1 ? "" : "s"}).`;
 }
 
-/* ---------- Bars (top + bottom) ---------- */
-function badgeHtml(text, bg) {
-  return `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:${bg};">${text}</span>`;
+/* ---------- UI: Topbar + BottomNav ---------- */
+function updateSessionLine() {
+  if (!sessionLine) return;
+
+  const { store, shift, staff } = state.session;
+  const hasSession = !!(store && shift && staff);
+
+  if (!hasSession) {
+    sessionLine.classList.add("hidden");
+    sessionLine.innerHTML = "";
+    return;
+  }
+
+  const staffBadge = `<span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:10px;">STAFF</span>`;
+  const managerBadge = isManagerMode()
+    ? `<span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;margin-right:10px;">MANAGER</span>`
+    : "";
+
+  sessionLine.innerHTML = `${managerBadge}${staffBadge}<strong>${escapeHtml(store)} • ${escapeHtml(shift)} • ${escapeHtml(staff)}</strong>`;
+  sessionLine.classList.remove("hidden");
 }
 
 function updateBars() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
 
-  // Top session line
-  if (sessionLine) {
-    const role = isManagerMode() ? badgeHtml("MANAGER", "#E53935") : badgeHtml("STAFF", "#1E88E5");
-    const line = [state.session.store, state.session.shift, state.session.staff].filter(Boolean).join(" • ");
-    sessionLine.innerHTML = `${role} <span style="margin-left:8px;"><strong>${escapeHtml(line || "")}</strong></span>`;
-    sessionLine.classList.toggle("hidden", !hasSession);
-  }
-
-  // Top buttons
+  // top right buttons
   if (btnManagerTop) btnManagerTop.classList.toggle("hidden", !hasSession);
-  if (btnLogoutTop) btnLogoutTop.classList.toggle("hidden", !hasSession);
+  if (btnLogoutTop) btnLogoutTop.classList.toggle("hidden", !hasSession && !isManagerMode());
 
-  // Bottom nav
-  if (nav) nav.classList.toggle("hidden", !hasSession);
+  // bottom nav
+  if (bottomNav) bottomNav.classList.toggle("hidden", !hasSession);
 
-  // Active tab style
+  // active tab
+  const page = state.view.page;
   const setActive = (el, on) => el && el.classList.toggle("active", !!on);
 
-  setActive(navHome, ["home", "category", "sauce_menu"].includes(state.view.page));
-  setActive(navAlerts, state.view.page === "alerts");
-  setActive(navManager, state.view.page === "manager");
+  setActive(navHome, page === "home" || page === "category" || page === "sauce_menu");
+  setActive(navAlerts, page === "alerts");
+  setActive(navManagerTab, page === "manager");
 }
 
 /* ---------- Navigation ---------- */
@@ -293,66 +277,148 @@ function setView(next, push = true) {
   const prev = { ...state.view };
   state.view = { ...next };
   if (push) state.navStack.push(prev);
+
   try {
     history.pushState({ t: Date.now() }, "");
   } catch {}
+
   render();
 }
+
 function goBack() {
+  const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
+  if (modalOpen) {
+    closeModal();
+    return;
+  }
+
   const prev = state.navStack.pop();
   if (prev) {
     state.view = prev;
     render();
     return;
   }
-  if (confirm("Exit PreCheck?")) {
-    // allow browser default
-  } else {
+
+  // confirm exit at root
+  if (!confirm("Exit PreCheck?")) {
     try {
       history.pushState({ t: Date.now() }, "");
     } catch {}
   }
 }
 
-/* ---------- Swipe back ---------- */
+/* ---------- Swipe Back + Browser Back ---------- */
 function bindSwipeBack() {
-  let sx = 0, sy = 0, st = 0;
+  let sx = 0,
+    sy = 0,
+    st = 0;
 
-  window.addEventListener("touchstart", (e) => {
-    if (!e.touches?.[0]) return;
-    sx = e.touches[0].clientX;
-    sy = e.touches[0].clientY;
-    st = Date.now();
-  }, { passive: true });
+  window.addEventListener(
+    "touchstart",
+    (e) => {
+      if (!e.touches || !e.touches[0]) return;
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      st = Date.now();
+    },
+    { passive: true }
+  );
 
-  window.addEventListener("touchend", (e) => {
-    const t = e.changedTouches?.[0];
-    if (!t) return;
-    const dx = t.clientX - sx;
-    const dy = t.clientY - sy;
-    const dt = Date.now() - st;
+  window.addEventListener(
+    "touchend",
+    (e) => {
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+      const dt = Date.now() - st;
 
-    // swipe right => back
-    if (dx > 70 && Math.abs(dy) < 45 && dt < 650) {
-      const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-      if (modalOpen) return;
-      goBack();
-    }
-  }, { passive: true });
+      if (dx > 70 && Math.abs(dy) < 45 && dt < 650) {
+        const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
+        if (modalOpen) return;
+        goBack();
+      }
+    },
+    { passive: true }
+  );
 
-  window.addEventListener("popstate", () => {
-    const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-    if (modalOpen) {
-      closeModal();
-      return;
-    }
-    goBack();
-  });
+  window.addEventListener("popstate", () => goBack());
 
   try {
     history.replaceState({ t: Date.now() }, "");
     history.pushState({ t: Date.now() }, "");
   } catch {}
+}
+
+/* ---------- Bind Buttons ---------- */
+function bindTopButtons() {
+  if (btnManagerTop) {
+    btnManagerTop.addEventListener("click", () => {
+      if (isManagerMode()) setView({ page: "manager" }, true);
+      else openManagerLogin();
+    });
+  }
+
+  if (btnLogoutTop) {
+    btnLogoutTop.addEventListener("click", () => {
+      if (isManagerMode()) {
+        if (!confirm("Exit manager mode?")) return;
+        setManagerToken("");
+        toast("Back to staff mode");
+        state.view = { page: "home", category: null, sauceSub: null };
+        render();
+        return;
+      }
+
+      if (!confirm("Logout staff session?")) return;
+      state.session = { store: "", shift: "", staff: "" };
+      saveSession();
+      state.navStack = [];
+      state.view = { page: "session", category: null, sauceSub: null };
+      render();
+    });
+  }
+}
+
+function bindBottomNav() {
+  if (!navHome || !navAlerts || !navManagerTab || !navLogoutTab) {
+    console.warn("[PreCheck] bottom nav missing (check index.html)");
+    return;
+  }
+
+  if (navHome.dataset.bound === "1") return;
+  navHome.dataset.bound = "1";
+
+  navHome.addEventListener("click", () => {
+    state.navStack = [];
+    state.view = { page: "home", category: null, sauceSub: null };
+    render();
+  });
+
+  navAlerts.addEventListener("click", () => setView({ page: "alerts" }, true));
+
+  navManagerTab.addEventListener("click", () => {
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  });
+
+  navLogoutTab.addEventListener("click", () => {
+    if (isManagerMode()) {
+      if (!confirm("Exit manager mode?")) return;
+      setManagerToken("");
+      toast("Back to staff mode");
+      state.view = { page: "home", category: null, sauceSub: null };
+      render();
+      return;
+    }
+
+    if (!confirm("Logout staff session?")) return;
+    state.session = { store: "", shift: "", staff: "" };
+    saveSession();
+    state.navStack = [];
+    state.view = { page: "session", category: null, sauceSub: null };
+    render();
+  });
 }
 
 /* ---------- Data ---------- */
@@ -369,14 +435,14 @@ function categoryCounts() {
   for (const c of CATEGORIES) counts[c] = 0;
   for (const it of state.items) {
     const c = canonicalCategory(it.category);
-    if (counts[c] == null) counts[c] = 0;
-    counts[c]++;
+    counts[c] = (counts[c] || 0) + 1;
   }
   return counts;
 }
 
-/* ---------- Render: Session ---------- */
+/* ---------- Pages ---------- */
 function renderSession() {
+  updateSessionLine();
   updateBars();
 
   main.innerHTML = `
@@ -407,7 +473,7 @@ function renderSession() {
         <input id="staffInp" class="input" placeholder="Your name" />
       </div>
 
-      <button id="btnStart" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;font-weight:1000;">
+      <button id="btnStart" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
         Start
       </button>
 
@@ -454,27 +520,38 @@ function renderSession() {
   });
 }
 
-/* ---------- Render: Home ---------- */
 function renderHome() {
+  updateSessionLine();
   updateBars();
 
   const counts = categoryCounts();
+
+  // keep your tile look (using your CSS .tile tones)
+  const toneMap = {
+    "Prepared items": "green",
+    "Unopened chiller": "blue",
+    "Thawing": "cyan",
+    "Vegetables": "lime",
+    "Backroom": "orange",
+    "Back counter": "yellow",
+    "Front counter": "red",
+    "Back counter chiller": "teal",
+    Sauce: "purple",
+  };
 
   main.innerHTML = `
     <section class="home-surface">
       <div class="home-title">Categories</div>
       <div class="home-sub">Tap a category to log items.</div>
 
-      <section class="grid tiles-grid">
-        ${CATEGORIES.map((cat, idx) => {
-          const meta = TILE_META[cat] || { tone: "green", icon: "✅" };
+      <section class="grid">
+        ${CATEGORIES.map((cat) => {
+          const tone = toneMap[cat] || "green";
           const count = counts[cat] ?? 0;
-          const delay = Math.min(0.6, idx * 0.05).toFixed(2);
-
           return `
-            <button class="tile tile--${meta.tone}" style="animation-delay:${delay}s" data-cat="${escapeHtml(cat)}" type="button">
+            <button class="tile tile--${tone}" data-cat="${escapeHtml(cat)}" type="button">
               <div class="tile-top">
-                <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
+                <div class="tile-icon" aria-hidden="true"> </div>
               </div>
               <div class="tile-title">${escapeHtml(cat)}</div>
               <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
@@ -494,8 +571,8 @@ function renderHome() {
   });
 }
 
-/* ---------- Render: Sauce menu ---------- */
 function renderSauceMenu() {
+  updateSessionLine();
   updateBars();
 
   main.innerHTML = `
@@ -505,23 +582,17 @@ function renderSauceMenu() {
     </div>
 
     <section class="grid">
-      ${SAUCE_SUBS.map((s) => {
-        const meta = TILE_META["Sauce"];
-        return `
-          <button class="tile tile--${meta.tone}" data-sauce="${escapeHtml(s)}" type="button">
-            <div class="tile-top">
-              <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
-            </div>
-            <div class="tile-title">${escapeHtml(s)}</div>
-            <div class="tile-sub">Tap to view items</div>
-          </button>
-        `;
-      }).join("")}
+      ${SAUCE_SUBS.map((s) => `
+        <button class="tile tile--purple" data-sauce="${escapeHtml(s)}" type="button">
+          <div class="tile-top"><div class="tile-icon" aria-hidden="true"> </div></div>
+          <div class="tile-title">${escapeHtml(s)}</div>
+          <div class="tile-sub">Tap to view items</div>
+        </button>
+      `).join("")}
     </section>
   `;
 
   $("#backBtn").addEventListener("click", () => goBack());
-
   $$("[data-sauce]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const sub = btn.getAttribute("data-sauce");
@@ -530,11 +601,10 @@ function renderSauceMenu() {
   });
 }
 
-/* ---------- Category list ---------- */
 function getItemsForCurrentList() {
   const { category, sauceSub } = state.view;
-  let list = state.items.filter((it) => norm(canonicalCategory(it.category)) === norm(category));
 
+  let list = state.items.filter((it) => norm(canonicalCategory(it.category)) === norm(category));
   if (category === "Sauce") {
     list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
   }
@@ -544,10 +614,12 @@ function getItemsForCurrentList() {
 }
 
 function renderCategoryList() {
+  updateSessionLine();
   updateBars();
 
   const { category, sauceSub } = state.view;
   const title = category === "Sauce" ? `Sauce • ${sauceSub}` : category;
+
   const list = getItemsForCurrentList();
 
   main.innerHTML = `
@@ -560,14 +632,14 @@ function renderCategoryList() {
       ${
         list.length
           ? list.map((it) => `
-            <button class="list-row" data-item-id="${it.id}" type="button">
-              <div class="list-row-main">
-                <div class="list-row-title">${escapeHtml(it.name)}</div>
-                <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
-              </div>
-              <div class="chev">›</div>
-            </button>
-          `).join("")
+              <button class="list-row" data-item-id="${it.id}" type="button">
+                <div>
+                  <div class="list-row-title">${escapeHtml(it.name)}</div>
+                  <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
+                </div>
+                <div class="chev">›</div>
+              </button>
+            `).join("")
           : `<div class="empty">No items found.</div>`
       }
     </section>
@@ -585,7 +657,6 @@ function renderCategoryList() {
   });
 }
 
-/* ---------- Log modal ---------- */
 function openLogModal(item) {
   const mode = getMode(item);
   const sl = getShelfLifeDays(item);
@@ -598,8 +669,7 @@ function openLogModal(item) {
         <label class="label">Expiry Date</label>
         <input id="expDate" class="input" type="date" />
         <div class="helper">Select expiry date.</div>
-      </div>
-    `;
+      </div>`;
   } else if (mode === "HOURLY_FIXED") {
     expiryHtml = `
       <div class="field">
@@ -609,19 +679,17 @@ function openLogModal(item) {
           ${FIXED_TIME_SLOTS.map((t) => `<option value="${t}">${t}</option>`).join("")}
         </select>
         <div class="helper">Fixed time dropdown (today).</div>
-      </div>
-    `;
+      </div>`;
   } else if (mode === "EOD") {
     expiryHtml = `
       <div class="field">
         <label class="label">Expiry</label>
-        <div class="input" style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="pill" style="display:flex;align-items:center;justify-content:space-between;">
           <span>End of day (today)</span>
           <span style="font-weight:1000;color:var(--green-dark);">${escapeHtml(today)}</span>
         </div>
         <div class="helper">Auto-set to 23:59 today.</div>
-      </div>
-    `;
+      </div>`;
   } else {
     const opts = [];
     const max = Math.max(0, sl || 0);
@@ -637,8 +705,7 @@ function openLogModal(item) {
           ${opts.join("")}
         </select>
         <div class="helper">Auto dropdown based on shelf life.</div>
-      </div>
-    `;
+      </div>`;
   }
 
   openModal(
@@ -647,16 +714,16 @@ function openLogModal(item) {
     <div class="modal-item-title">${escapeHtml(item.name)}</div>
 
     <div class="field">
-      <label class="label">Quantity</label>
-      <input id="qtyInp" class="input" inputmode="numeric" placeholder="e.g. 1" />
-      <div class="helper">Enter a number.</div>
+      <label class="label">Quantity (optional)</label>
+      <input id="qtyInp" class="input" inputmode="numeric" placeholder="Leave blank if not needed" />
+      <div class="helper">Blank allowed.</div>
     </div>
 
     ${expiryHtml}
 
     <div id="logErr" class="error hidden"></div>
 
-    <button id="btnSaveLog" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;font-weight:1000;">
+    <button id="btnSaveLog" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
       Save
     </button>
   `
@@ -673,9 +740,9 @@ function openLogModal(item) {
     err.classList.add("hidden");
 
     const qtyRaw = (qtyInp?.value || "").trim();
-    const qty = Number(qtyRaw);
-    if (!qtyRaw || !Number.isFinite(qty) || qty < 0) {
-      err.textContent = "Quantity is required and must be a number ≥ 0.";
+    const qty = qtyRaw === "" ? null : Number(qtyRaw);
+    if (qtyRaw !== "" && (!Number.isFinite(qty) || qty < 0)) {
+      err.textContent = "Quantity must be a number (or blank).";
       err.classList.remove("hidden");
       return;
     }
@@ -734,14 +801,14 @@ function openLogModal(item) {
   });
 }
 
-/* ---------- Alerts ---------- */
 async function renderAlerts() {
+  updateSessionLine();
   updateBars();
 
   main.innerHTML = `
     <div class="card">
       <div class="h1">Alerts</div>
-      <div class="muted">Latest logged expiry per item for this store.</div>
+      <div class="muted">Latest expiry logged per item for this store.</div>
       <div id="alertsWrap" class="muted" style="margin-top:12px;">Loading...</div>
     </div>
   `;
@@ -771,7 +838,7 @@ async function renderAlerts() {
   }
 }
 
-/* ---------- Manager login ---------- */
+/* ---------- Manager ---------- */
 function openManagerLogin() {
   openModal(
     "Manager Access",
@@ -784,7 +851,7 @@ function openManagerLogin() {
 
     <div id="pinErr" class="error hidden"></div>
 
-    <button id="btnPinLogin" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;font-weight:1000;">
+    <button id="btnPinLogin" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
       Login
     </button>
   `
@@ -816,8 +883,8 @@ function openManagerLogin() {
   });
 }
 
-/* ---------- Manager page ---------- */
 async function renderManager() {
+  updateSessionLine();
   updateBars();
 
   if (!isManagerMode()) {
@@ -825,7 +892,7 @@ async function renderManager() {
       <div class="card">
         <div class="h1">Manager</div>
         <div class="muted">Login required.</div>
-        <button id="btnGoLogin" class="btn btn-primary" type="button" style="margin-top:12px;width:100%;padding:14px 16px;font-weight:1000;">
+        <button id="btnGoLogin" class="btn btn-primary" type="button" style="margin-top:12px;width:100%;padding:14px 16px;">
           Enter PIN
         </button>
       </div>
@@ -837,12 +904,12 @@ async function renderManager() {
   main.innerHTML = `
     <div class="card">
       <div class="h1">Manager</div>
-      <div class="muted" style="margin-top:8px;">
-        Manager can do (for now):
+      <div class="muted">
+        Manager can (current):
         <ul style="margin:8px 0 0 18px;">
           <li>Edit item category / sauce sub-category / shelf life</li>
-          <li>Add new item</li>
-          <li>Delete item (with confirmation)</li>
+          <li>Add new item (needs server POST endpoint)</li>
+          <li>Delete item (needs server DELETE endpoint)</li>
         </ul>
       </div>
     </div>
@@ -850,7 +917,7 @@ async function renderManager() {
     <div class="card">
       <div class="card-title">Search</div>
       <input id="mgrSearch" class="input" placeholder="Type item name..." />
-      <button id="btnAddItem" class="btn btn-primary" type="button" style="margin-top:10px;width:100%;padding:14px 16px;font-weight:1000;">
+      <button id="btnAddItem" class="btn btn-primary" type="button" style="margin-top:10px;width:100%;padding:14px 16px;">
         Add Item
       </button>
     </div>
@@ -861,10 +928,9 @@ async function renderManager() {
     </div>
   `;
 
-  $("#btnAddItem").addEventListener("click", openManagerAddItem);
-
   const listEl = $("#mgrList");
   const searchEl = $("#mgrSearch");
+  $("#btnAddItem").addEventListener("click", openManagerAddItem);
 
   let rows = [];
   try {
@@ -883,49 +949,53 @@ async function renderManager() {
       return;
     }
 
-    listEl.innerHTML = filtered.slice(0, 250).map((r) => {
-      const cat = canonicalCategory(r.category);
-      const sub = r.sub_category || "";
-      const sl = Number(r.shelf_life_days ?? 0);
+    listEl.innerHTML = filtered
+      .slice(0, 200)
+      .map((r) => {
+        const cat = canonicalCategory(r.category);
+        const sub = r.sub_category || "";
+        const sl = Number(r.shelf_life_days ?? 0);
 
-      return `
-        <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;">
-          <div style="font-weight:1000;font-size:16px;margin-bottom:10px;">${escapeHtml(r.name)}</div>
+        return `
+          <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;">
+            <div style="font-weight:1000;font-size:16px;margin-bottom:10px;">${escapeHtml(r.name)}</div>
 
-          <div class="field">
-            <label class="label">Category</label>
-            <select class="input mgr-cat" data-id="${r.id}">
-              ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
-            </select>
+            <div class="field">
+              <label class="label">Category</label>
+              <select class="input mgr-cat" data-id="${r.id}">
+                ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
+              <select class="input mgr-sub" data-id="${r.id}">
+                <option value="" ${sub ? "" : "selected"}>(none)</option>
+                ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(sub) ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
+              </select>
+              <div class="helper">If category is not Sauce, sub-category should be empty.</div>
+            </div>
+
+            <div class="field">
+              <label class="label">Shelf life (days)</label>
+              <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
+              <div class="helper">&gt;7 days becomes manual in app.</div>
+            </div>
+
+            <div style="display:flex;gap:10px;">
+              <button class="mgr-save btn btn-primary" data-id="${r.id}" type="button" style="flex:1;padding:12px 14px;">
+                Save
+              </button>
+              <button class="mgr-del btn" data-id="${r.id}" type="button" style="flex:1;padding:12px 14px;color:#c62828;">
+                Delete
+              </button>
+            </div>
+
+            <div class="mgr-err error hidden" data-id="${r.id}"></div>
           </div>
-
-          <div class="field">
-            <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
-            <select class="input mgr-sub" data-id="${r.id}">
-              <option value="" ${sub ? "" : "selected"}>(none)</option>
-              ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(sub) ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
-            </select>
-          </div>
-
-          <div class="field">
-            <label class="label">Shelf life (days)</label>
-            <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
-          </div>
-
-          <div style="display:flex;gap:10px;">
-            <button class="mgr-save btn btn-primary" data-id="${r.id}" type="button" style="flex:1;font-weight:1000;">
-              Save
-            </button>
-            <button class="mgr-del btn" data-id="${r.id}" type="button"
-              style="flex:1;font-weight:1000;border:1px solid rgba(0,0,0,0.12);color:#c62828;background:#fff;">
-              Delete
-            </button>
-          </div>
-
-          <div class="mgr-err error hidden" data-id="${r.id}"></div>
-        </div>
-      `;
-    }).join("");
+        `;
+      })
+      .join("");
 
     $$(".mgr-save", listEl).forEach((b) => {
       b.addEventListener("click", async () => {
@@ -940,7 +1010,6 @@ async function renderManager() {
         const category = String(catSel.value || "").trim();
         const sub_category = String(subSel.value || "").trim() || null;
         const shelf_life_days = Number(String(slInp.value || "0").trim());
-
         const finalSub = norm(category) === norm("Sauce") ? sub_category : null;
 
         if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
@@ -956,7 +1025,7 @@ async function renderManager() {
             shelf_life_days,
           });
           toast("Saved ✅");
-          await loadItems();
+          await loadItems(); // refresh staff lists
         } catch (e) {
           err.textContent = e.message || "Save failed.";
           err.classList.remove("hidden");
@@ -973,13 +1042,14 @@ async function renderManager() {
         if (!confirm("Delete this item? This cannot be undone.")) return;
 
         try {
+          // requires: DELETE /api/manager/items/:id
           await apiManager("DELETE", `/api/manager/items/${id}`);
           toast("Deleted ✅");
           rows = rows.filter((x) => Number(x.id) !== id);
           await loadItems();
           renderRows();
         } catch (e) {
-          err.textContent = e.message || "Delete failed.";
+          err.textContent = (e.message || "Delete failed") + " (If 404: server endpoint not added yet)";
           err.classList.remove("hidden");
         }
       });
@@ -1014,6 +1084,7 @@ function openManagerAddItem() {
         <option value="" selected>(none)</option>
         ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
       </select>
+      <div class="helper">If category is not Sauce, sub-category should be empty.</div>
     </div>
 
     <div class="field">
@@ -1023,7 +1094,7 @@ function openManagerAddItem() {
 
     <div id="addErr" class="error hidden"></div>
 
-    <button id="btnAddSave" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;font-weight:1000;">
+    <button id="btnAddSave" class="btn btn-primary" type="button" style="width:100%;padding:14px 16px;">
       Save
     </button>
   `
@@ -1042,6 +1113,7 @@ function openManagerAddItem() {
     const category = String(catEl.value || "").trim();
     const sub = String(subEl.value || "").trim() || null;
     const shelf_life_days = Number(String(slEl.value || "0").trim());
+    const finalSub = norm(category) === norm("Sauce") ? sub : null;
 
     if (!name) {
       err.textContent = "Name required.";
@@ -1054,9 +1126,8 @@ function openManagerAddItem() {
       return;
     }
 
-    const finalSub = norm(category) === norm("Sauce") ? sub : null;
-
     try {
+      // requires: POST /api/manager/items
       await apiManager("POST", "/api/manager/items", {
         name,
         category,
@@ -1070,81 +1141,24 @@ function openManagerAddItem() {
       state.view = { page: "manager" };
       render();
     } catch (e) {
-      err.textContent = e.message || "Add failed.";
+      err.textContent = (e.message || "Failed") + " (If 404: server endpoint not added yet)";
       err.classList.remove("hidden");
     }
   });
 }
 
-/* ---------- Bind buttons ---------- */
-function bindBars() {
-  if (btnManagerTop && btnManagerTop.dataset.bound !== "1") {
-    btnManagerTop.dataset.bound = "1";
-    btnManagerTop.addEventListener("click", () => {
-      if (isManagerMode()) setView({ page: "manager" }, true);
-      else openManagerLogin();
-    });
-  }
-
-  if (btnLogoutTop && btnLogoutTop.dataset.bound !== "1") {
-    btnLogoutTop.dataset.bound = "1";
-    btnLogoutTop.addEventListener("click", () => doLogout());
-  }
-
-  if (navHome && navHome.dataset.bound !== "1") {
-    navHome.dataset.bound = "1";
-    navHome.addEventListener("click", () => {
-      state.navStack = [];
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
-    });
-  }
-
-  if (navAlerts && navAlerts.dataset.bound !== "1") {
-    navAlerts.dataset.bound = "1";
-    navAlerts.addEventListener("click", () => setView({ page: "alerts", category: null, sauceSub: null }, true));
-  }
-
-  if (navManager && navManager.dataset.bound !== "1") {
-    navManager.dataset.bound = "1";
-    navManager.addEventListener("click", () => {
-      if (isManagerMode()) setView({ page: "manager" }, true);
-      else openManagerLogin();
-    });
-  }
-
-  if (navLogout && navLogout.dataset.bound !== "1") {
-    navLogout.dataset.bound = "1";
-    navLogout.addEventListener("click", () => doLogout());
-  }
-}
-
-function doLogout() {
-  if (isManagerMode()) {
-    if (!confirm("Exit manager mode?")) return;
-    setManagerToken("");
-    toast("Back to staff mode");
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-    return;
-  }
-
-  if (!confirm("Logout staff session?")) return;
-  state.session = { store: "", shift: "", staff: "" };
-  saveSession();
-  state.navStack = [];
-  state.view = { page: "session", category: null, sauceSub: null };
-  render();
-}
-
-/* ---------- Router ---------- */
+/* ---------- Render Router ---------- */
 async function render() {
   if (!main) return;
 
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
-  if (!hasSession && state.view.page !== "session") state.view = { page: "session", category: null, sauceSub: null };
 
+  updateSessionLine();
   updateBars();
+
+  if (!hasSession && state.view.page !== "session") {
+    state.view = { page: "session", category: null, sauceSub: null };
+  }
 
   const page = state.view.page;
   if (page === "session") return renderSession();
@@ -1155,16 +1169,16 @@ async function render() {
   if (page === "manager") return renderManager();
 
   state.view = { page: "home", category: null, sauceSub: null };
-  renderHome();
+  return renderHome();
 }
 
 /* ---------- Boot ---------- */
 async function boot() {
-  bindModal();
-  bindSwipeBack();
-
   loadSession();
-  bindBars();
+
+  bindTopButtons();
+  bindBottomNav();
+  bindSwipeBack();
 
   if (state.session.store && state.session.shift && state.session.staff) {
     try {
@@ -1183,6 +1197,8 @@ async function boot() {
 boot().catch((e) => {
   console.error(e);
   if (main) {
-    main.innerHTML = `<div class="card"><div class="h1">Error</div><div class="error">${escapeHtml(e?.message || e)}</div></div>`;
+    main.innerHTML = `<div class="card"><div class="h1">Error</div><div class="error">${escapeHtml(
+      e?.message || e
+    )}</div></div>`;
   }
 });
