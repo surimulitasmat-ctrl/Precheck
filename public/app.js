@@ -874,7 +874,8 @@ function openManagerLogin() {
     }
 
     try {
-      const out = await apiPost("/api/manager/login", { pin });
+      const out = await apiPost("/api/manager/login", { pin, store: state.session.store });
+
       setManagerToken(out.token || "");
       closeModal();
       toast("Manager mode ✅");
