@@ -15,9 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // -------------------- DB --------------------
-if (!process.env.DATABASE_URL) {
-  console.error("Missing DATABASE_URL");
-}
+if (!process.env.DATABASE_URL) console.error("Missing DATABASE_URL");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -33,20 +31,30 @@ async function query(text, params) {
   }
 }
 
-// Cache stock_logs columns so inserts won't fail when schema changes
+// Cache table columns to support schema changes safely
 let STOCK_LOGS_COLS = null;
-async function getStockLogsCols() {
-  if (STOCK_LOGS_COLS) return STOCK_LOGS_COLS;
+async function getCols(tableName) {
   const r = await query(
     `
     SELECT column_name
     FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='stock_logs'
+    WHERE table_schema='public' AND table_name=$1
     `,
-    []
+    [tableName]
   );
-  STOCK_LOGS_COLS = new Set(r.rows.map((x) => x.column_name));
+  return new Set(r.rows.map((x) => x.column_name));
+}
+async function getStockLogsCols() {
+  if (STOCK_LOGS_COLS) return STOCK_LOGS_COLS;
+  STOCK_LOGS_COLS = await getCols("stock_logs");
   return STOCK_LOGS_COLS;
+}
+
+let ITEMS_COLS = null;
+async function getItemsCols() {
+  if (ITEMS_COLS) return ITEMS_COLS;
+  ITEMS_COLS = await getCols("items");
+  return ITEMS_COLS;
 }
 
 // -------------------- Manager Token (stateless HMAC) --------------------
@@ -68,6 +76,7 @@ function verifyToken(token) {
     const secret = process.env.MANAGER_TOKEN_SECRET || "dev_secret_change_me";
     const [payload, sig] = (token || "").split(".");
     if (!payload || !sig) return null;
+
     const expected = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
     if (expected !== sig) return null;
 
@@ -91,14 +100,44 @@ function requireManager(req, res, next) {
 // -------------------- Health --------------------
 app.get("/health", (req, res) => res.send("ok"));
 
-// -------------------- Items --------------------
-// GET /api/items
-app.get("/api/items", async (req, res) => {
+// -------------------- PUBLIC APIs --------------------
+
+// GET /api/categories
+// Used by app home menu (if you later switch app.js to fetch categories)
+app.get("/api/categories", async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, name, category, sub_category, shelf_life_days
-       FROM public.items
-       ORDER BY category ASC, sub_category ASC NULLS FIRST, name ASC`,
+      `
+      SELECT id, name, sort_order, active
+      FROM public.categories
+      WHERE (deleted_at IS NULL) AND active = true
+      ORDER BY sort_order ASC, name ASC
+      `,
+      []
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "categories_failed" });
+  }
+});
+
+// GET /api/items  (respect soft delete if columns exist)
+app.get("/api/items", async (req, res) => {
+  try {
+    const cols = await getItemsCols();
+    const where = [];
+    if (cols.has("deleted_at")) where.push("deleted_at IS NULL");
+    if (cols.has("active")) where.push("active = true");
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const r = await query(
+      `
+      SELECT id, name, category, sub_category, shelf_life_days
+      FROM public.items
+      ${whereSql}
+      ORDER BY category ASC, sub_category ASC NULLS FIRST, name ASC
+      `,
       []
     );
     res.json(r.rows);
@@ -108,7 +147,6 @@ app.get("/api/items", async (req, res) => {
   }
 });
 
-// -------------------- Logs --------------------
 // POST /api/log  (insert only columns that exist)
 app.post("/api/log", async (req, res) => {
   try {
@@ -142,9 +180,7 @@ app.post("/api/log", async (req, res) => {
       insertVals.push(`$${params.length}`);
     });
 
-    if (!insertCols.length) {
-      return res.status(400).json({ error: "no_valid_columns_to_insert" });
-    }
+    if (!insertCols.length) return res.status(400).json({ error: "no_valid_columns_to_insert" });
 
     const sql = `INSERT INTO public.stock_logs (${insertCols.join(",")})
                  VALUES (${insertVals.join(",")})
@@ -157,7 +193,6 @@ app.post("/api/log", async (req, res) => {
   }
 });
 
-// -------------------- Expiry --------------------
 // GET /api/expiry?store=PDD
 app.get("/api/expiry", async (req, res) => {
   try {
@@ -189,24 +224,130 @@ app.get("/api/expiry", async (req, res) => {
   }
 });
 
-// -------------------- Manager APIs --------------------
-app.get("/api/manager/ping", (req, res) => res.json({ ok: true }));
+// -------------------- MANAGER APIs --------------------
 
 // POST /api/manager/login  { pin: "8686" }
 app.post("/api/manager/login", (req, res) => {
   const pin = String((req.body && req.body.pin) || "");
   const expected = String(process.env.MANAGER_PIN || "");
   if (!expected) return res.status(500).json({ error: "MANAGER_PIN_not_set" });
-
   if (pin !== expected) return res.status(401).json({ error: "invalid_pin" });
 
-  const token = signToken({
-    role: "manager",
-    exp: Date.now() + 1000 * 60 * 60 * 12, // 12 hours
-  });
-
+  const token = signToken({ role: "manager", exp: Date.now() + 1000 * 60 * 60 * 12 });
   res.json({ ok: true, token });
 });
+
+// ----- Manager: Categories -----
+
+// GET /api/manager/categories
+app.get("/api/manager/categories", requireManager, async (req, res) => {
+  try {
+    const r = await query(
+      `
+      SELECT id, name, sort_order, active, deleted_at
+      FROM public.categories
+      ORDER BY sort_order ASC, name ASC
+      `,
+      []
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_categories_failed" });
+  }
+});
+
+// POST /api/manager/categories
+app.post("/api/manager/categories", requireManager, async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    const sort_order = Number(req.body?.sort_order ?? 0);
+
+    if (!name) return res.status(400).json({ error: "name_required" });
+    if (!Number.isFinite(sort_order)) return res.status(400).json({ error: "bad_sort_order" });
+
+    const r = await query(
+      `
+      INSERT INTO public.categories (name, sort_order, active)
+      VALUES ($1, $2, true)
+      ON CONFLICT (name)
+      DO UPDATE SET deleted_at = NULL, active = true
+      RETURNING *
+      `,
+      [name, sort_order]
+    );
+
+    res.json({ ok: true, category: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_categories_create_failed" });
+  }
+});
+
+// PATCH /api/manager/categories/:id
+app.patch("/api/manager/categories/:id", requireManager, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
+
+    const name = req.body?.name != null ? String(req.body.name).trim() : null;
+    const sort_order = req.body?.sort_order != null ? Number(req.body.sort_order) : null;
+    const active = req.body?.active != null ? !!req.body.active : null;
+
+    const r = await query(
+      `
+      UPDATE public.categories
+      SET name = COALESCE($2, name),
+          sort_order = COALESCE($3, sort_order),
+          active = COALESCE($4, active)
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, name, Number.isFinite(sort_order) ? sort_order : null, active]
+    );
+
+    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true, category: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_categories_update_failed" });
+  }
+});
+
+// DELETE /api/manager/categories/:id
+// default = SOFT delete (sets deleted_at, active=false)
+// hard = true -> actually DELETE row
+app.delete("/api/manager/categories/:id", requireManager, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
+
+    const hard = String(req.query.hard || "") === "1";
+
+    if (hard) {
+      await query(`DELETE FROM public.categories WHERE id = $1`, [id]);
+      return res.json({ ok: true, hard_deleted: true });
+    }
+
+    const r = await query(
+      `
+      UPDATE public.categories
+      SET deleted_at = NOW(), active = false
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id]
+    );
+
+    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true, category: r.rows[0], soft_deleted: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_categories_delete_failed" });
+  }
+});
+
+// ----- Manager: Items -----
 
 // GET manager items
 app.get("/api/manager/items", requireManager, async (req, res) => {
@@ -221,28 +362,6 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "manager_items_failed" });
-  }
-});
-
-// POST manager item (add)
-app.post("/api/manager/items", requireManager, async (req, res) => {
-  try {
-    const { name, category, sub_category, shelf_life_days } = req.body || {};
-    if (!name || !category) return res.status(400).json({ error: "name_and_category_required" });
-
-    const r = await query(
-      `
-      INSERT INTO public.items (name, category, sub_category, shelf_life_days)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-      `,
-      [name, category, sub_category ?? null, Number(shelf_life_days ?? 0)]
-    );
-
-    res.json({ ok: true, item: r.rows[0] });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "manager_add_failed" });
   }
 });
 
@@ -273,55 +392,62 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
   }
 });
 
+// POST manager item (Manager-only Add Item)
+app.post("/api/manager/items", requireManager, async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    const category = String(req.body?.category || "").trim();
+    const sub_category = req.body?.sub_category != null ? String(req.body.sub_category).trim() : null;
+    const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
+
+    if (!name) return res.status(400).json({ error: "name_required" });
+    if (!category) return res.status(400).json({ error: "category_required" });
+    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
+      return res.status(400).json({ error: "bad_shelf_life_days" });
+    }
+
+    const r = await query(
+      `
+      INSERT INTO public.items (name, category, sub_category, shelf_life_days)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [name, category, sub_category || null, shelf_life_days]
+    );
+
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_items_create_failed" });
+  }
+});
+
 // DELETE manager item
+// default = SOFT delete if columns exist (active/deleted_at), else HARD delete
+// hard=1 forces hard delete
 app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const r = await query(`DELETE FROM public.items WHERE id=$1 RETURNING id`, [id]);
-    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true });
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
+
+    const hard = String(req.query.hard || "") === "1";
+    const cols = await getItemsCols();
+    const canSoft = cols.has("deleted_at") && cols.has("active");
+
+    if (!hard && canSoft) {
+      const r = await query(
+        `UPDATE public.items SET deleted_at = NOW(), active = false WHERE id = $1 RETURNING *`,
+        [id]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+      return res.json({ ok: true, item: r.rows[0], soft_deleted: true });
+    }
+
+    await query(`DELETE FROM public.items WHERE id = $1`, [id]);
+    res.json({ ok: true, hard_deleted: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "manager_delete_failed" });
-  }
-});
-
-// Rename category (bulk update)
-app.post("/api/manager/categories/rename", requireManager, async (req, res) => {
-  try {
-    const from = String(req.body?.from || "").trim();
-    const to = String(req.body?.to || "").trim();
-    if (!from || !to) return res.status(400).json({ error: "from_to_required" });
-
-    const r = await query(
-      `UPDATE public.items SET category=$2 WHERE category=$1`,
-      [from, to]
-    );
-
-    res.json({ ok: true, updated: r.rowCount });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "category_rename_failed" });
-  }
-});
-
-// Move category items into another category (safe delete)
-app.post("/api/manager/categories/move", requireManager, async (req, res) => {
-  try {
-    const from = String(req.body?.from || "").trim();
-    const to = String(req.body?.to || "").trim();
-    if (!from || !to) return res.status(400).json({ error: "from_to_required" });
-    if (from === to) return res.status(400).json({ error: "same_category" });
-
-    const r = await query(
-      `UPDATE public.items SET category=$2 WHERE category=$1`,
-      [from, to]
-    );
-
-    res.json({ ok: true, moved: r.rowCount });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "category_move_failed" });
+    res.status(500).json({ error: "manager_items_delete_failed" });
   }
 });
 
