@@ -31,29 +31,6 @@
 
     <main id="main" class="container"></main>
 
-    <!-- Bottom Nav (ONLY ONE) -->
-    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-      <button id="navHome" class="bottom-tab" type="button">
-        <div class="bn-ico">🏠</div>
-        <div class="bn-txt">Home</div>
-      </button>
-
-      <button id="navAlerts" class="bottom-tab" type="button">
-        <div class="bn-ico">🔔</div>
-        <div class="bn-txt">Alerts</div>
-      </button>
-
-      <button id="navManager" class="bottom-tab" type="button">
-        <div class="bn-ico">🛠️</div>
-        <div class="bn-txt">Manager</div>
-      </button>
-
-      <button id="navLogout" class="bottom-tab" type="button">
-        <div class="bn-ico">🚪</div>
-        <div class="bn-txt">Logout</div>
-      </button>
-    </nav>
-
     <!-- Modal -->
     <div id="modalBackdrop" class="backdrop hidden" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true">
@@ -65,7 +42,31 @@
       </div>
     </div>
 
+    <!-- Toast -->
     <div id="toast" class="toast hidden"></div>
+
+    <!-- Bottom Nav (ONLY ONE) -->
+    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
+      <button id="navHome" class="bn-item" type="button">
+        <div class="bn-ico">🏠</div>
+        <div class="bn-txt">Home</div>
+      </button>
+
+      <button id="navAlerts" class="bn-item" type="button">
+        <div class="bn-ico">🔔</div>
+        <div class="bn-txt">Alerts</div>
+      </button>
+
+      <button id="navManagerTab" class="bn-item" type="button">
+        <div class="bn-ico">🛠️</div>
+        <div class="bn-txt">Manager</div>
+      </button>
+
+      <button id="navLogoutTab" class="bn-item" type="button">
+        <div class="bn-ico">🚪</div>
+        <div class="bn-txt">Logout</div>
+      </button>
+    </nav>
 
     <script src="/app.js?v=20260109a"></script>
   </body>
