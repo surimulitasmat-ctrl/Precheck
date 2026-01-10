@@ -10,7 +10,6 @@
     <link rel="manifest" href="/manifest.json?v=20260109a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <!-- cache bust -->
     <link rel="stylesheet" href="/style.css?v=20260109a" />
   </head>
 
@@ -19,17 +18,41 @@
       <div class="topbar-row">
         <div class="brand-wrap">
           <div class="brand">PreCheck</div>
+          <!-- badges + session info injected here -->
           <div id="sessionLine" class="session-line hidden"></div>
         </div>
 
         <div class="topbar-right">
-          <button id="btnManager" class="chip hidden" type="button" title="Manager">Manager</button>
+          <button id="btnManager" class="chip hidden" type="button">Manager</button>
           <button id="btnLogout" class="chip chip--ghost hidden" type="button">Logout</button>
         </div>
       </div>
     </header>
 
     <main id="main" class="container"></main>
+
+    <!-- Bottom Nav (ONE only) -->
+    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
+      <button id="navHome" class="bottom-tab" type="button">
+        <div class="bn-ico">🏠</div>
+        <div class="bn-txt">Home</div>
+      </button>
+
+      <button id="navAlerts" class="bottom-tab" type="button">
+        <div class="bn-ico">🔔</div>
+        <div class="bn-txt">Alerts</div>
+      </button>
+
+      <button id="navManager" class="bottom-tab" type="button">
+        <div class="bn-ico">🛠️</div>
+        <div class="bn-txt">Manager</div>
+      </button>
+
+      <button id="navLogout" class="bottom-tab" type="button">
+        <div class="bn-ico">🚪</div>
+        <div class="bn-txt">Logout</div>
+      </button>
+    </nav>
 
     <!-- Modal -->
     <div id="modalBackdrop" class="backdrop hidden" aria-hidden="true">
@@ -42,31 +65,7 @@
       </div>
     </div>
 
-    <!-- Toast -->
     <div id="toast" class="toast hidden"></div>
-
-    <!-- Bottom Nav (ONLY ONE) -->
-    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-      <button id="navHome" class="bn-item" type="button">
-        <div class="bn-ico">🏠</div>
-        <div class="bn-txt">Home</div>
-      </button>
-
-      <button id="navAlerts" class="bn-item" type="button">
-        <div class="bn-ico">🔔</div>
-        <div class="bn-txt">Alerts</div>
-      </button>
-
-      <button id="navManagerTab" class="bn-item" type="button">
-        <div class="bn-ico">🛠️</div>
-        <div class="bn-txt">Manager</div>
-      </button>
-
-      <button id="navLogoutTab" class="bn-item" type="button">
-        <div class="bn-ico">🚪</div>
-        <div class="bn-txt">Logout</div>
-      </button>
-    </nav>
 
     <script src="/app.js?v=20260109a"></script>
   </body>
