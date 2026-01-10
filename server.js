@@ -226,16 +226,29 @@ app.get("/api/expiry", async (req, res) => {
 
 // -------------------- MANAGER APIs --------------------
 
-// POST /api/manager/login  { pin: "8686" }
+// POST /api/manager/login  { pin: "8686", store: "PDD" | "SKH" }
 app.post("/api/manager/login", (req, res) => {
   const pin = String((req.body && req.body.pin) || "");
+  const store = String((req.body && req.body.store) || "").toUpperCase();
+
   const expected = String(process.env.MANAGER_PIN || "");
   if (!expected) return res.status(500).json({ error: "MANAGER_PIN_not_set" });
+
   if (pin !== expected) return res.status(401).json({ error: "invalid_pin" });
 
-  const token = signToken({ role: "manager", exp: Date.now() + 1000 * 60 * 60 * 12 });
+  if (store !== "PDD" && store !== "SKH") {
+    return res.status(400).json({ error: "invalid_store" });
+  }
+
+  const token = signToken({
+    role: "manager",
+    store, // ✅ bind manager to ONE store
+    exp: Date.now() + 1000 * 60 * 60 * 12, // 12 hours
+  });
+
   res.json({ ok: true, token });
 });
+
 
 // ----- Manager: Categories -----
 
