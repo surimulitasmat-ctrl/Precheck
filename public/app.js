@@ -244,14 +244,16 @@ function updateSessionLine() {
     return;
   }
 
-  const staffBadge = `<span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:10px;">STAFF</span>`;
-  const managerBadge = isManagerMode()
+  const badge = isManagerMode()
     ? `<span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;margin-right:10px;">MANAGER</span>`
-    : "";
+    : `<span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:10px;">STAFF</span>`;
 
-  sessionLine.innerHTML = `${managerBadge}${staffBadge}<strong>${escapeHtml(store)} • ${escapeHtml(shift)} • ${escapeHtml(staff)}</strong>`;
+  sessionLine.innerHTML = `${badge}<strong>${escapeHtml(store)} • ${escapeHtml(
+    shift
+  )} • ${escapeHtml(staff)}</strong>`;
   sessionLine.classList.remove("hidden");
 }
+
 
 function updateBars() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
