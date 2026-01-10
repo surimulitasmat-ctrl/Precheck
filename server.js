@@ -249,6 +249,68 @@ app.post("/api/manager/login", (req, res) => {
   res.json({ ok: true, token });
 });
 
+// POST manager item (create) — store comes from token
+app.post("/api/manager/items", requireManager, async (req, res) => {
+  try {
+    const store = req.manager.store;
+    const { name, category, sub_category, shelf_life_days } = req.body || {};
+
+    const cleanName = String(name || "").trim();
+    const cleanCategory = String(category || "").trim();
+    const cleanSub = sub_category === null || sub_category === undefined ? null : String(sub_category).trim();
+    const sl = Number(shelf_life_days);
+
+    if (!cleanName) return res.status(400).json({ error: "name_required" });
+    if (!cleanCategory) return res.status(400).json({ error: "category_required" });
+    if (!Number.isFinite(sl) || sl < 0) return res.status(400).json({ error: "invalid_shelf_life" });
+
+    // Rule: if category != Sauce => sub_category must be null
+    const finalSub = cleanCategory.toLowerCase() === "sauce" ? cleanSub : null;
+
+    const r = await query(
+      `
+      INSERT INTO public.items (name, category, sub_category, shelf_life_days, store, is_active, deleted_at)
+      VALUES ($1, $2, $3, $4, $5, true, NULL)
+      RETURNING *
+      `,
+      [cleanName, cleanCategory, finalSub, sl, store]
+    );
+
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_create_failed" });
+  }
+});
+
+// DELETE manager item (SOFT DELETE) — store comes from token
+app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
+  try {
+    const store = req.manager.store;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
+
+    const r = await query(
+      `
+      UPDATE public.items
+      SET is_active = false,
+          deleted_at = now()
+      WHERE id = $1
+        AND store = $2
+        AND is_active = true
+      RETURNING *
+      `,
+      [id, store]
+    );
+
+    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
+
+    res.json({ ok: true, item: r.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "manager_delete_failed" });
+  }
+});
 
 // ----- Manager: Categories -----
 
