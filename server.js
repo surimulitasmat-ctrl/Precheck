@@ -362,21 +362,28 @@ app.delete("/api/manager/categories/:id", requireManager, async (req, res) => {
 
 // ----- Manager: Items -----
 
-// GET manager items
+// GET manager items (ONLY this manager's store, ONLY active)
 app.get("/api/manager/items", requireManager, async (req, res) => {
   try {
+    const store = req.manager.store;
+
     const r = await query(
-      `SELECT id, name, category, sub_category, shelf_life_days
+      `SELECT id, name, category, sub_category, shelf_life_days, store, is_active, deleted_at
        FROM public.items
+       WHERE store = $1
+         AND is_active = true
+         AND deleted_at IS NULL
        ORDER BY category ASC, sub_category ASC NULLS FIRST, name ASC`,
-      []
+      [store]
     );
+
     res.json(r.rows);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "manager_items_failed" });
   }
 });
+
 
 // PATCH manager item
 app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
