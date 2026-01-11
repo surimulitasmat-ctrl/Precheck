@@ -325,9 +325,8 @@ function getMode(item) {
 
 /* ---------- Side Drawer Nav (hamburger) ---------- */
 function ensureDrawer() {
+  // already created
   if ($("#drawerBackdrop")) return;
-const closeBtn = $("#drawerClose");
-if (closeBtn) closeBtn.addEventListener("click", () => backdrop.classList.add("hidden"));
 
   const backdrop = document.createElement("div");
   backdrop.id = "drawerBackdrop";
@@ -356,10 +355,14 @@ if (closeBtn) closeBtn.addEventListener("click", () => backdrop.classList.add("h
   const close = () => backdrop.classList.add("hidden");
   const open = () => backdrop.classList.remove("hidden");
 
+  // click outside drawer closes
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) close();
   });
-  $("#drawerClose").addEventListener("click", close);
+
+  // X button closes
+  const closeBtn = $("#drawerClose");
+  if (closeBtn) closeBtn.addEventListener("click", close);
 
   // bindings
   $("#dHome").addEventListener("click", () => {
@@ -368,21 +371,24 @@ if (closeBtn) closeBtn.addEventListener("click", () => backdrop.classList.add("h
     state.view = { page: "home", category: null, sauceSub: null };
     render();
   });
+
   $("#dAlerts").addEventListener("click", () => {
     close();
     setView({ page: "alerts", category: null, sauceSub: null }, true);
   });
+
   $("#dManager").addEventListener("click", () => {
     close();
     if (isManagerMode()) setView({ page: "manager" }, true);
     else openManagerLogin();
   });
+
   $("#dLogout").addEventListener("click", () => {
     close();
     doLogout();
   });
 
-  // expose helpers
+  // expose helpers if you still want them
   state._drawerOpen = open;
   state._drawerClose = close;
 }
