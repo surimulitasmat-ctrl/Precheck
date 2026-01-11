@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>PreCheck</title>
 
-    <!-- PWA -->
     <meta name="theme-color" content="#009A44" />
-    <link rel="manifest" href="/manifest.json?v=20260109a" />
+    <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <link rel="stylesheet" href="/style.css?v=20260109a" />
+    <link rel="stylesheet" href="/style.css" />
   </head>
 
   <body>
@@ -18,20 +17,20 @@
       <div class="topbar-row">
         <div class="brand-wrap">
           <div class="brand">PreCheck</div>
-          <!-- badges + session info injected here -->
+          <!-- badge + session info injected here -->
           <div id="sessionLine" class="session-line hidden"></div>
         </div>
 
         <div class="topbar-right">
-          <button id="btnManager" class="chip hidden" type="button">Manager</button>
-          <button id="btnLogout" class="chip chip--ghost hidden" type="button">Logout</button>
+          <button id="btnManager" class="chip" type="button">Manager</button>
+          <button id="btnLogout" class="chip chip--ghost" type="button">Logout</button>
         </div>
       </div>
     </header>
 
     <main id="main" class="container"></main>
 
-    <!-- Bottom Nav (ONE only) -->
+    <!-- Bottom Nav (ONLY ONE) -->
     <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
       <button id="navHome" class="bottom-tab" type="button">
         <div class="bn-ico">🏠</div>
@@ -67,6 +66,6 @@
 
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/app.js?v=20260109a"></script>
+    <script src="/app.js"></script>
   </body>
 </html>
