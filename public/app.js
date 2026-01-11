@@ -372,8 +372,16 @@ function ensureDrawer() {
   });
 
   // X button closes
-  const closeBtn = $("#drawerClose", backdrop);
-  if (closeBtn) closeBtn.addEventListener("click", close);
+const closeBtn = $("#drawerClose", backdrop);
+if (closeBtn) {
+  // remove old handler (if any) and bind again
+  closeBtn.onclick = null;
+  closeBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // important: prevent backdrop click conflicts
+    close();
+  });
+}
 
   // Menu buttons
   const dHome = $("#dHome", backdrop);
