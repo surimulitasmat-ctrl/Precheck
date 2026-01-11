@@ -2,7 +2,6 @@
 // PreCheck — server.js (FULL)
 // Store-separated: PDD vs SKH
 // Manager CRUD: items + categories (soft delete)
-// Summary: Today / Tomorrow / Safe
 // =========================
 
 import express from "express";
@@ -43,374 +42,372 @@ function normStore(s) {
   return t === "PDD" || t === "SKH" ? t : "";
 }
 
-function authManager(req, res, next) {
-  const auth = String(req.headers.authorization || "");
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token) return res.status(401).json({ error: "Missing token" });
+function err(res, code, message) {
+  res.status(code).json({ error: message });
+}
 
+function requireManager(req, res, next) {
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.manager = payload; // { role:'manager', store:'PDD'|'SKH' }
-    return next();
+    const h = String(req.headers.authorization || "");
+    const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+    if (!token) return err(res, 401, "Unauthorized");
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.manager = decoded;
+    next();
   } catch {
-    return res.status(401).json({ error: "Invalid token" });
+    return err(res, 401, "Unauthorized");
   }
 }
 
-// -------- Static files --------
+// -------- Static files (public/) --------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "public")));
 
-// -------- Health --------
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+// -------- Category mapping (DB vs UI) --------
+// DB keeps "Back counter", UI shows "Fountain Drinks"
+function uiCategoryFromDb(cat) {
+  const c = String(cat || "").trim();
+  if (c.toLowerCase() === "back counter") return "Fountain Drinks";
+  return c;
+}
+function dbCategoryFromUi(cat) {
+  const c = String(cat || "").trim();
+  if (c.toLowerCase() === "fountain drinks") return "Back counter";
+  return c;
+}
 
 // =========================
-// STAFF APIs (store-aware)
+// Public APIs (Staff)
 // =========================
 
-// Get categories per store
+// List categories for store (active)
 app.get("/api/categories", async (req, res) => {
   const store = normStore(req.query.store);
-  if (!store) return res.status(400).json({ error: "store required (PDD/SKH)" });
+  if (!store) return err(res, 400, "Invalid store");
 
-  const rows = await q(
+  const r = await q(
     `
     select id, store, name, sort_order
     from public.categories
-    where store = $1
-      and is_active = true
-      and deleted_at is null
+    where store=$1 and deleted_at is null and is_active=true
     order by sort_order asc, name asc
-    `,
+  `,
     [store]
   );
 
-  res.json(rows.rows);
+  res.json(
+    r.rows.map((x) => ({
+      ...x,
+      name: uiCategoryFromDb(x.name),
+    }))
+  );
 });
 
-// Get items per store (and only active/not deleted)
+// List items for store (active)
 app.get("/api/items", async (req, res) => {
   const store = normStore(req.query.store);
-  if (!store) return res.status(400).json({ error: "store required (PDD/SKH)" });
+  if (!store) return err(res, 400, "Invalid store");
 
-  const rows = await q(
+  const r = await q(
     `
     select id, store, name, category, sub_category, shelf_life_days
     from public.items
-    where store = $1
-      and is_active = true
-      and (deleted_at is null)
-    order by category asc, coalesce(sub_category,'') asc, name asc
-    `,
+    where store=$1 and deleted_at is null and is_active=true
+    order by category asc, name asc
+  `,
     [store]
   );
 
-  res.json(rows.rows);
+  res.json(
+    r.rows.map((x) => ({
+      ...x,
+      category: uiCategoryFromDb(x.category),
+      sub_category: x.sub_category,
+    }))
+  );
 });
 
-// Log item
-app.post("/api/log", async (req, res) => {
-  const b = req.body || {};
-  const store = normStore(b.store);
-  if (!store) return res.status(400).json({ error: "store required" });
-  if (!b.item_id) return res.status(400).json({ error: "item_id required" });
+// Save logs in batch
+app.post("/api/log/batch", async (req, res) => {
+  const body = req.body || {};
+  const store = normStore(body.store);
+  if (!store) return err(res, 400, "Invalid store");
 
-  // Ensure logs table exists? (assumes you already have)
-  // We'll insert into public.logs
-  await q(
-    `
-    insert into public.logs
-      (store, item_id, item_name, category, sub_category, staff, shift, quantity, expiry, expiry_at, created_at)
-    values
+  const staff = String(body.staff || "").trim();
+  const shift = String(body.shift || "").trim();
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+
+  if (!staff || !shift) return err(res, 400, "Missing staff/shift");
+  if (!rows.length) return err(res, 400, "No rows");
+
+  // Insert one-by-one (safe + clear)
+  for (const r of rows) {
+    const item_id = r.item_id ?? null;
+    const item_name = String(r.item_name || "").trim();
+    const category = dbCategoryFromUi(String(r.category || "").trim());
+    const sub_category = r.sub_category ? String(r.sub_category) : null;
+    const quantity = r.quantity == null ? null : Number(r.quantity);
+    const expiry = r.expiry ? String(r.expiry) : null;
+    const expiry_at = r.expiry_at ? String(r.expiry_at) : null;
+
+    if (!item_name || !category) continue;
+
+    await q(
+      `
+      insert into public.logs
+      (store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at, created_at)
+      values
       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
     `,
-    [
-      store,
-      b.item_id,
-      b.item_name || null,
-      b.category || null,
-      b.sub_category || null,
-      b.staff || null,
-      b.shift || null,
-      b.quantity ?? null,
-      b.expiry ?? null,
-      b.expiry_at ?? null,
-    ]
-  );
+      [store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at]
+    );
+  }
 
   res.json({ ok: true });
 });
 
-// Alerts base data (latest expiry per item for a store)
+// Latest expiry per item for summary (today/tomorrow/safe)
 app.get("/api/expiry", async (req, res) => {
   const store = normStore(req.query.store);
-  if (!store) return res.status(400).json({ error: "store required" });
+  if (!store) return err(res, 400, "Invalid store");
 
-  const rows = await q(
+  // "latest record per item_name + category + sub_category" -> shows newest expiry
+  const r = await q(
     `
-    with latest as (
+    with ranked as (
       select
-        l.*,
-        row_number() over (partition by l.item_id order by l.created_at desc) as rn
-      from public.logs l
-      where l.store = $1
+        item_name,
+        category,
+        sub_category,
+        coalesce(expiry::text, (expiry_at at time zone 'utc')::date::text) as expiry_value,
+        created_at,
+        row_number() over (
+          partition by item_name, category, coalesce(sub_category,'')
+          order by created_at desc
+        ) as rn
+      from public.logs
+      where store=$1
     )
-    select
-      item_id,
-      item_name as name,
-      category,
-      sub_category,
-      coalesce(expiry, to_char(expiry_at::date, 'YYYY-MM-DD')) as expiry_value,
-      coalesce(expiry::date, expiry_at::date) as expiry_date
-    from latest
-    where rn = 1
-      and coalesce(expiry::date, expiry_at::date) is not null
-    order by expiry_date asc, name asc
-    `,
+    select item_name as name,
+           category,
+           sub_category,
+           expiry_value
+    from ranked
+    where rn=1 and expiry_value is not null
+    order by name asc
+  `,
     [store]
   );
 
-  res.json(rows.rows);
-});
-
-// Summary counts: today / tomorrow / safe
-app.get("/api/summary", async (req, res) => {
-  const store = normStore(req.query.store);
-  if (!store) return res.status(400).json({ error: "store required" });
-
-  const rows = await q(
-    `
-    with latest as (
-      select
-        l.*,
-        row_number() over (partition by l.item_id order by l.created_at desc) as rn
-      from public.logs l
-      where l.store = $1
-    ),
-    last_exp as (
-      select
-        item_id,
-        coalesce(expiry::date, expiry_at::date) as d
-      from latest
-      where rn = 1
-        and coalesce(expiry::date, expiry_at::date) is not null
-    )
-    select
-      sum(case when d = current_date then 1 else 0 end) as today,
-      sum(case when d = current_date + 1 then 1 else 0 end) as tomorrow,
-      sum(case when d <> current_date and d <> current_date + 1 then 1 else 0 end) as safe
-    from last_exp
-    `,
-    [store]
+  res.json(
+    r.rows.map((x) => ({
+      ...x,
+      category: uiCategoryFromDb(x.category),
+    }))
   );
-
-  res.json(rows.rows[0] || { today: 0, tomorrow: 0, safe: 0 });
 });
 
 // =========================
-// MANAGER AUTH (store-specific)
+// Manager APIs
 // =========================
 
 app.post("/api/manager/login", async (req, res) => {
-  const { pin, store } = req.body || {};
-  const st = normStore(store);
-  if (!st) return res.status(400).json({ error: "store required (PDD/SKH)" });
+  const pin = String(req.body?.pin || "").trim();
+  const store = normStore(req.body?.store);
 
-  if (String(pin || "") !== String(MANAGER_PIN)) {
-    return res.status(401).json({ error: "Invalid PIN" });
-  }
+  if (!store) return err(res, 400, "Invalid store");
+  if (!pin) return err(res, 400, "PIN required");
+  if (pin !== String(MANAGER_PIN)) return err(res, 401, "Wrong PIN");
 
-  const token = jwt.sign({ role: "manager", store: st }, JWT_SECRET, { expiresIn: "7d" });
+  const token = jwt.sign({ role: "manager", store }, JWT_SECRET, { expiresIn: "7d" });
   res.json({ token });
 });
 
-// =========================
-// MANAGER: CATEGORIES (store separated)
-// =========================
+// ----- Items -----
+app.get("/api/manager/items", requireManager, async (req, res) => {
+  const store = normStore(req.query.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
 
-app.get("/api/manager/categories", authManager, async (req, res) => {
-  const store = req.manager.store;
-
-  const rows = await q(
+  const r = await q(
     `
-    select id, store, name, sort_order, is_active, deleted_at
-    from public.categories
-    where store = $1
-    order by sort_order asc, name asc
-    `,
-    [store]
-  );
-
-  res.json(rows.rows);
-});
-
-app.post("/api/manager/categories", authManager, async (req, res) => {
-  const store = req.manager.store;
-  const name = String(req.body?.name || "").trim();
-  const sort_order = Number(req.body?.sort_order ?? 100);
-
-  if (!name) return res.status(400).json({ error: "name required" });
-  if (!Number.isFinite(sort_order)) return res.status(400).json({ error: "sort_order invalid" });
-
-  await q(
-    `
-    insert into public.categories (store, name, sort_order, is_active, deleted_at)
-    values ($1,$2,$3,true,null)
-    on conflict (store, name) do update
-    set sort_order = excluded.sort_order,
-        is_active = true,
-        deleted_at = null,
-        updated_at = now()
-    `,
-    [store, name, sort_order]
-  );
-
-  res.json({ ok: true });
-});
-
-app.patch("/api/manager/categories/:id", authManager, async (req, res) => {
-  const store = req.manager.store;
-  const id = Number(req.params.id);
-  const name = String(req.body?.name || "").trim();
-  const sort_order = Number(req.body?.sort_order ?? 100);
-  const is_active = req.body?.is_active === undefined ? true : !!req.body.is_active;
-
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
-  if (!name) return res.status(400).json({ error: "name required" });
-  if (!Number.isFinite(sort_order)) return res.status(400).json({ error: "sort_order invalid" });
-
-  await q(
-    `
-    update public.categories
-    set name = $3,
-        sort_order = $4,
-        is_active = $5,
-        updated_at = now()
-    where id = $1 and store = $2
-    `,
-    [id, store, name, sort_order, is_active]
-  );
-
-  res.json({ ok: true });
-});
-
-// soft delete category
-app.delete("/api/manager/categories/:id", authManager, async (req, res) => {
-  const store = req.manager.store;
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
-
-  await q(
-    `
-    update public.categories
-    set deleted_at = now(),
-        is_active = false,
-        updated_at = now()
-    where id = $1 and store = $2
-    `,
-    [id, store]
-  );
-
-  res.json({ ok: true });
-});
-
-// =========================
-// MANAGER: ITEMS (store separated)
-// =========================
-
-app.get("/api/manager/items", authManager, async (req, res) => {
-  const store = req.manager.store;
-
-  const rows = await q(
-    `
-    select id, store, name, category, sub_category, shelf_life_days, is_active, deleted_at
+    select id, store, name, category, sub_category, shelf_life_days, is_active
     from public.items
-    where store = $1
-    order by category asc, coalesce(sub_category,'') asc, name asc
-    `,
+    where store=$1 and deleted_at is null
+    order by category asc, name asc
+  `,
     [store]
   );
 
-  res.json(rows.rows);
+  res.json(
+    r.rows.map((x) => ({
+      ...x,
+      category: uiCategoryFromDb(x.category),
+    }))
+  );
 });
 
-app.post("/api/manager/items", authManager, async (req, res) => {
-  const store = req.manager.store;
+app.post("/api/manager/items", requireManager, async (req, res) => {
+  const store = normStore(req.body?.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
   const name = String(req.body?.name || "").trim();
-  const category = String(req.body?.category || "").trim();
-  const sub_category = String(req.body?.sub_category || "").trim() || null;
+  const category = dbCategoryFromUi(String(req.body?.category || "").trim());
+  const sub_category = req.body?.sub_category ? String(req.body.sub_category) : null;
   const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
 
-  if (!name) return res.status(400).json({ error: "name required" });
-  if (!category) return res.status(400).json({ error: "category required" });
-  if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
-    return res.status(400).json({ error: "shelf_life_days invalid" });
-  }
+  if (!name || !category) return err(res, 400, "Missing name/category");
+  if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return err(res, 400, "Invalid shelf life");
 
-  await q(
+  const r = await q(
     `
-    insert into public.items (store, name, category, sub_category, shelf_life_days, is_active, deleted_at)
-    values ($1,$2,$3,$4,$5,true,null)
-    on conflict (store, category, coalesce(sub_category,''), name)
-    do update set
-      shelf_life_days = excluded.shelf_life_days,
-      is_active = true,
-      deleted_at = null
-    `,
+    insert into public.items (store, name, category, sub_category, shelf_life_days, is_active)
+    values ($1,$2,$3,$4,$5,true)
+    returning id
+  `,
     [store, name, category, sub_category, shelf_life_days]
   );
 
-  res.json({ ok: true });
+  res.json({ ok: true, id: r.rows[0]?.id });
 });
 
-app.patch("/api/manager/items/:id", authManager, async (req, res) => {
-  const store = req.manager.store;
+app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
+  const store = normStore(req.body?.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
   const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return err(res, 400, "Invalid id");
 
-  const category = String(req.body?.category || "").trim();
-  const sub_category = String(req.body?.sub_category || "").trim() || null;
+  const category = dbCategoryFromUi(String(req.body?.category || "").trim());
+  const sub_category = req.body?.sub_category ? String(req.body.sub_category) : null;
   const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
-  const is_active = req.body?.is_active === undefined ? true : !!req.body.is_active;
 
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
-  if (!category) return res.status(400).json({ error: "category required" });
-  if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
-    return res.status(400).json({ error: "shelf_life_days invalid" });
-  }
+  if (!category) return err(res, 400, "Missing category");
+  if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return err(res, 400, "Invalid shelf life");
 
   await q(
     `
     update public.items
-    set category = $3,
-        sub_category = $4,
-        shelf_life_days = $5,
-        is_active = $6
-    where id = $1 and store = $2
-    `,
-    [id, store, category, sub_category, shelf_life_days, is_active]
+    set category=$1, sub_category=$2, shelf_life_days=$3, updated_at=now()
+    where id=$4 and store=$5 and deleted_at is null
+  `,
+    [category, sub_category, shelf_life_days, id, store]
   );
 
   res.json({ ok: true });
 });
 
-// soft delete item
-app.delete("/api/manager/items/:id", authManager, async (req, res) => {
-  const store = req.manager.store;
+app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
+  const store = normStore(req.query.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
   const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
+  if (!Number.isFinite(id)) return err(res, 400, "Invalid id");
 
   await q(
     `
     update public.items
-    set deleted_at = now(),
-        is_active = false
-    where id = $1 and store = $2
-    `,
+    set deleted_at=now(), is_active=false
+    where id=$1 and store=$2 and deleted_at is null
+  `,
     [id, store]
   );
 
   res.json({ ok: true });
+});
+
+// ----- Categories -----
+app.get("/api/manager/categories", requireManager, async (req, res) => {
+  const store = normStore(req.query.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
+  const r = await q(
+    `
+    select id, store, name, sort_order, is_active
+    from public.categories
+    where store=$1 and deleted_at is null
+    order by sort_order asc, name asc
+  `,
+    [store]
+  );
+
+  res.json(
+    r.rows.map((x) => ({
+      ...x,
+      name: uiCategoryFromDb(x.name),
+    }))
+  );
+});
+
+app.post("/api/manager/categories", requireManager, async (req, res) => {
+  const store = normStore(req.body?.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
+  const nameUI = String(req.body?.name || "").trim();
+  const name = dbCategoryFromUi(nameUI);
+  const sort_order = Number(req.body?.sort_order ?? 100);
+
+  if (!name) return err(res, 400, "Name required");
+
+  await q(
+    `
+    insert into public.categories(store, name, sort_order, is_active)
+    values($1,$2,$3,true)
+  `,
+    [store, name, Number.isFinite(sort_order) ? sort_order : 100]
+  );
+
+  res.json({ ok: true });
+});
+
+app.patch("/api/manager/categories/:id", requireManager, async (req, res) => {
+  const store = normStore(req.body?.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return err(res, 400, "Invalid id");
+
+  const nameUI = String(req.body?.name || "").trim();
+  const name = dbCategoryFromUi(nameUI);
+  const sort_order = Number(req.body?.sort_order ?? 100);
+  const is_active = req.body?.is_active === false ? false : true;
+
+  if (!name) return err(res, 400, "Name required");
+
+  await q(
+    `
+    update public.categories
+    set name=$1, sort_order=$2, is_active=$3, updated_at=now()
+    where id=$4 and store=$5 and deleted_at is null
+  `,
+    [name, Number.isFinite(sort_order) ? sort_order : 100, is_active, id, store]
+  );
+
+  res.json({ ok: true });
+});
+
+app.delete("/api/manager/categories/:id", requireManager, async (req, res) => {
+  const store = normStore(req.query.store || req.manager?.store);
+  if (!store) return err(res, 400, "Invalid store");
+
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return err(res, 400, "Invalid id");
+
+  await q(
+    `
+    update public.categories
+    set deleted_at=now(), is_active=false
+    where id=$1 and store=$2 and deleted_at is null
+  `,
+    [id, store]
+  );
+
+  res.json({ ok: true });
+});
+
+// -------- Serve index.html for root --------
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // -------- Start --------
