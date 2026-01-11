@@ -325,7 +325,6 @@ function getMode(item) {
 
 /* ---------- Side Drawer Nav (hamburger) ---------- */
 function ensureDrawer() {
-  // Create once
   let backdrop = document.getElementById("drawerBackdrop");
 
   if (!backdrop) {
@@ -345,10 +344,6 @@ function ensureDrawer() {
           <button class="drawer-item" id="dManager" type="button">🛠️ Manager</button>
           <button class="drawer-item" id="dLogout" type="button">🚪 Logout</button>
         </div>
-
-        <div class="drawer-foot muted" style="padding:12px 16px;">
-          <div style="font-size:12px;opacity:.8">PreCheck</div>
-        </div>
       </aside>
     `;
     document.body.appendChild(backdrop);
@@ -357,25 +352,22 @@ function ensureDrawer() {
   const close = () => backdrop.classList.add("hidden");
   const open = () => backdrop.classList.remove("hidden");
 
-  // IMPORTANT: remove any old handlers then bind again (prevents “not working”)
-  backdrop.onclick = null;
+  // Remove old listeners safely by cloning drawer content ONCE
+  // (this prevents “it works once then breaks”)
+  const fresh = backdrop.cloneNode(true);
+  if (fresh !== backdrop) {
+    backdrop.replaceWith(fresh);
+    backdrop = fresh;
+  }
 
-  // click outside drawer closes
+  // Outside click closes
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) close();
   });
 
-  // stop clicks inside drawer from bubbling to backdrop
-  const drawer = backdrop.querySelector(".drawer");
-  if (drawer) {
-    drawer.onclick = null;
-    drawer.addEventListener("click", (e) => e.stopPropagation());
-  }
-
-  // X button closes (scoped)
+  // X button closes (SCOPED)
   const closeBtn = backdrop.querySelector("#drawerClose");
   if (closeBtn) {
-    closeBtn.onclick = null;
     closeBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -383,48 +375,40 @@ function ensureDrawer() {
     });
   }
 
-  // Menu buttons (scoped)
-  const dHome = backdrop.querySelector("#dHome");
-  const dAlerts = backdrop.querySelector("#dAlerts");
-  const dManager = backdrop.querySelector("#dManager");
-  const dLogout = backdrop.querySelector("#dLogout");
-
-  if (dHome) {
-    dHome.onclick = null;
-    dHome.addEventListener("click", () => {
-      close();
-      state.navStack = [];
-      state.view = { page: "home", category: null, sauceSub: null };
-      render();
+  // Menu buttons (SCOPED)
+  const bind = (sel, fn) => {
+    const el = backdrop.querySelector(sel);
+    if (!el) return;
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fn();
     });
-  }
+  };
 
-  if (dAlerts) {
-    dAlerts.onclick = null;
-    dAlerts.addEventListener("click", () => {
-      close();
-      setView({ page: "alerts", category: null, sauceSub: null }, true);
-    });
-  }
+  bind("#dHome", () => {
+    close();
+    state.navStack = [];
+    state.view = { page: "home", category: null, sauceSub: null };
+    render();
+  });
 
-  if (dManager) {
-    dManager.onclick = null;
-    dManager.addEventListener("click", () => {
-      close();
-      if (isManagerMode()) setView({ page: "manager" }, true);
-      else openManagerLogin();
-    });
-  }
+  bind("#dAlerts", () => {
+    close();
+    setView({ page: "alerts", category: null, sauceSub: null }, true);
+  });
 
-  if (dLogout) {
-    dLogout.onclick = null;
-    dLogout.addEventListener("click", () => {
-      close();
-      doLogout();
-    });
-  }
+  bind("#dManager", () => {
+    close();
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  });
 
-  // expose for hamburger
+  bind("#dLogout", () => {
+    close();
+    doLogout();
+  });
+
   state._drawerOpen = open;
   state._drawerClose = close;
 }
@@ -432,21 +416,32 @@ function ensureDrawer() {
 function ensureHamburger() {
   if (!topbar) return;
 
-  // Remove duplicates if they exist (VERY IMPORTANT)
-  document.querySelectorAll("#menuBtn").forEach((el, i) => {
-    if (i > 0) el.remove();
-  });
+  // 1) Remove ANY existing menu buttons that are NOT our container
+  // (this is what fixes your “2 hamburger”)
+  document.querySelectorAll('[data-precheck-menu="old"], #btnMenu, #menuButton, .menu-btn, .hamburger-btn').forEach((el) => el.remove());
 
+  // 2) Create a fixed container ONCE (so it won’t duplicate when UI rerenders)
+  let wrap = document.getElementById("precheckMenuWrap");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "precheckMenuWrap";
+    wrap.style.position = "absolute";
+    wrap.style.left = "12px";
+    wrap.style.top = "10px";
+    wrap.style.zIndex = "20000";
+    wrap.style.pointerEvents = "auto";
+    topbar.style.position = "relative"; // ensure absolute works
+    topbar.appendChild(wrap);
+  }
+
+  // 3) Create button ONCE inside the wrap
   let btn = document.getElementById("menuBtn");
-
   if (!btn) {
-    const brandWrap = document.querySelector(".brand-wrap") || topbar;
     btn = document.createElement("button");
     btn.id = "menuBtn";
     btn.type = "button";
     btn.className = "icon-btn";
     btn.setAttribute("aria-label", "Menu");
-    btn.style.marginRight = "10px";
     btn.innerHTML = `
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M4 6h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
@@ -454,18 +449,21 @@ function ensureHamburger() {
         <path d="M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
       </svg>
     `;
-    brandWrap.prepend(btn);
+    wrap.appendChild(btn);
   }
 
-  // Always rebind click (no clone trick)
-  btn.onclick = null;
-  btn.addEventListener("click", (e) => {
+  // 4) Rebind click cleanly (replace node to remove any previous listeners)
+  const freshBtn = btn.cloneNode(true);
+  btn.replaceWith(freshBtn);
+
+  freshBtn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    ensureDrawer(); // make sure drawer exists + handlers are bound
+    ensureDrawer();
     if (state._drawerOpen) state._drawerOpen();
   });
 }
+
 
 
 
