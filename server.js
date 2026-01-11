@@ -1,8 +1,7 @@
 // =========================
 // PreCheck — server.js (FULL)
-// Store-separated items + categories
-// Soft delete for items/categories
-// Manager login via PIN -> JWT
+// Store-separated: PDD vs SKH
+// Manager CRUD: items + categories (soft delete)
 // =========================
 
 import express from "express";
@@ -11,472 +10,449 @@ import { fileURLToPath } from "url";
 import pg from "pg";
 import jwt from "jsonwebtoken";
 
+const { Pool } = pg;
+
 const app = express();
 app.use(express.json());
 
-// ---------- Config ----------
-const PORT = process.env.PORT || 10000;
+// -------- Config --------
+const PORT = process.env.PORT || 3000;
 
-// Supabase / Postgres connection string (Render should have this env)
+// Render/Supabase Postgres
+// On Render, set DATABASE_URL in Environment variables.
 const DATABASE_URL = process.env.DATABASE_URL;
 
-// Manager PIN (set in Render env)
+// Manager auth
+const JWT_SECRET = process.env.JWT_SECRET || "change-me-now";
 const MANAGER_PIN = process.env.MANAGER_PIN || "1234";
 
-// JWT secret (set in Render env)
-const JWT_SECRET = process.env.JWT_SECRET || "change-me";
-
-// ---------- Postgres ----------
+// -------- DB --------
 if (!DATABASE_URL) {
-  console.error("❌ Missing DATABASE_URL env");
+  console.error("❌ Missing DATABASE_URL env var");
 }
-const pool = new pg.Pool({
+
+const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: DATABASE_URL?.includes("localhost") ? false : { rejectUnauthorized: false },
 });
 
-async function query(sql, params = []) {
+async function q(text, params) {
   const client = await pool.connect();
   try {
-    return await client.query(sql, params);
+    const res = await client.query(text, params);
+    return res;
   } finally {
     client.release();
   }
 }
 
-// ---------- Helpers ----------
-function mustStore(x) {
-  const s = String(x || "").trim();
-  if (!s) throw new Error("missing_store");
-  return s;
+function normStore(s) {
+  const t = String(s || "").trim().toUpperCase();
+  return t === "PDD" || t === "SKH" ? t : "";
 }
 
-function requireManager(req, res, next) {
-  try {
-    const auth = String(req.headers.authorization || "");
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token) return res.status(401).json({ error: "unauthorized" });
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (!decoded || decoded.role !== "manager") {
-      return res.status(401).json({ error: "unauthorized" });
-    }
-
-    req.manager = decoded;
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-}
-
-// ---------- Health ----------
-app.get("/api/health", (req, res) => res.json({ ok: true }));
-
-// =========================
-// PUBLIC APIs (STAFF)
-// =========================
-
-// GET categories for store (active only)
-app.get("/api/categories", async (req, res) => {
-  try {
-    const store = mustStore(req.query.store);
-
-    const r = await query(
-      `
-      SELECT id, store, name, sort_order
-      FROM public.categories
-      WHERE store = $1
-        AND is_active = TRUE
-        AND deleted_at IS NULL
-      ORDER BY sort_order ASC NULLS LAST, name ASC
-      `,
-      [store]
-    );
-
-    res.json(r.rows);
-  } catch (e) {
-    res.status(400).json({ error: String(e.message || e) });
-  }
-});
-
-// GET items for store (active only)
-app.get("/api/items", async (req, res) => {
-  try {
-    const store = mustStore(req.query.store);
-
-    const r = await query(
-      `
-      SELECT id, store, name, category, sub_category, shelf_life_days
-      FROM public.items
-      WHERE store = $1
-        AND is_active = TRUE
-        AND deleted_at IS NULL
-      ORDER BY category ASC, name ASC
-      `,
-      [store]
-    );
-
-    res.json(r.rows);
-  } catch (e) {
-    res.status(400).json({ error: String(e.message || e) });
-  }
-});
-
-// POST log
-app.post("/api/log", async (req, res) => {
-  try {
-    const b = req.body || {};
-
-    const store = mustStore(b.store);
-    const staff = String(b.staff || "").trim();
-    const shift = String(b.shift || "").trim();
-    const item_id = Number(b.item_id);
-
-    if (!staff) return res.status(400).json({ error: "missing_staff" });
-    if (!shift) return res.status(400).json({ error: "missing_shift" });
-    if (!Number.isFinite(item_id)) return res.status(400).json({ error: "bad_item_id" });
-
-    const quantity =
-      b.quantity === null || b.quantity === undefined || b.quantity === ""
-        ? null
-        : Number(b.quantity);
-
-    if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0)) {
-      return res.status(400).json({ error: "bad_quantity" });
-    }
-
-    const expiry = b.expiry ? String(b.expiry).trim() : null; // date string
-    const expiry_at = b.expiry_at ? String(b.expiry_at).trim() : null; // ISO datetime
-
-    const category = String(b.category || "").trim() || null;
-    const sub_category = b.sub_category ? String(b.sub_category).trim() : null;
-
-    const r = await query(
-      `
-      INSERT INTO public.logs
-        (store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at, created_at)
-      VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-      RETURNING id
-      `,
-      [
-        store,
-        staff,
-        shift,
-        item_id,
-        String(b.item_name || "").trim() || null,
-        category,
-        sub_category,
-        quantity,
-        expiry,
-        expiry_at,
-      ]
-    );
-
-    res.json({ ok: true, id: r.rows[0]?.id });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "log_failed" });
-  }
-});
-
-// GET expiry list for store (latest per item)
-app.get("/api/expiry", async (req, res) => {
-  try {
-    const store = mustStore(req.query.store);
-
-    // Latest log per item_id
-    const r = await query(
-      `
-      SELECT DISTINCT ON (l.item_id)
-        l.item_id,
-        COALESCE(l.item_name, i.name) AS name,
-        COALESCE(l.category, i.category) AS category,
-        COALESCE(l.sub_category, i.sub_category) AS sub_category,
-        CASE
-          WHEN l.expiry_at IS NOT NULL THEN to_char(l.expiry_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI')
-          WHEN l.expiry IS NOT NULL THEN l.expiry
-          ELSE NULL
-        END AS expiry_value,
-        l.created_at
-      FROM public.logs l
-      LEFT JOIN public.items i ON i.id = l.item_id
-      WHERE l.store = $1
-      ORDER BY l.item_id, l.created_at DESC
-      `,
-      [store]
-    );
-
-    res.json(r.rows);
-  } catch (e) {
-    res.status(400).json({ error: String(e.message || e) });
-  }
-});
-
-// =========================
-// MANAGER AUTH
-// =========================
-
-app.post("/api/manager/login", async (req, res) => {
-  const pin = String(req.body?.pin || "").trim();
-  if (!pin) return res.status(400).json({ error: "missing_pin" });
-  if (pin !== MANAGER_PIN) return res.status(401).json({ error: "invalid_pin" });
-
-  const token = jwt.sign({ role: "manager" }, JWT_SECRET, { expiresIn: "30d" });
-  res.json({ ok: true, token });
-});
-
-// =========================
-// MANAGER ITEMS (Store-separated)
-// =========================
-
-// GET /api/manager/items?store=PDD
-app.get("/api/manager/items", requireManager, async (req, res) => {
-  try {
-    const store = mustStore(req.query.store);
-
-    const r = await query(
-      `
-      SELECT id, store, name, category, sub_category, shelf_life_days, is_active, deleted_at
-      FROM public.items
-      WHERE store = $1
-      ORDER BY (deleted_at IS NOT NULL) ASC, is_active DESC, category ASC, name ASC
-      `,
-      [store]
-    );
-
-    res.json(r.rows);
-  } catch (e) {
-    res.status(400).json({ error: String(e.message || e) });
-  }
-});
-
-// POST /api/manager/items  {store, name, category, sub_category, shelf_life_days}
-app.post("/api/manager/items", requireManager, async (req, res) => {
-  try {
-    const b = req.body || {};
-    const store = mustStore(b.store);
-    const name = String(b.name || "").trim();
-    const category = String(b.category || "").trim();
-    const sub_category = b.sub_category ? String(b.sub_category).trim() : null;
-    const shelf_life_days = Number(b.shelf_life_days ?? 0);
-
-    if (!name) return res.status(400).json({ error: "missing_name" });
-    if (!category) return res.status(400).json({ error: "missing_category" });
-    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0)
-      return res.status(400).json({ error: "bad_shelf_life_days" });
-
-    // store-separated unique
-    const r = await query(
-      `
-      INSERT INTO public.items (store, name, category, sub_category, shelf_life_days, is_active, deleted_at)
-      VALUES ($1,$2,$3,$4,$5, TRUE, NULL)
-      ON CONFLICT (store, name)
-      DO UPDATE SET
-        category = EXCLUDED.category,
-        sub_category = EXCLUDED.sub_category,
-        shelf_life_days = EXCLUDED.shelf_life_days,
-        is_active = TRUE,
-        deleted_at = NULL
-      RETURNING *
-      `,
-      [store, name, category, sub_category, shelf_life_days]
-    );
-
-    res.json({ ok: true, item: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: "manager_item_add_failed", detail: String(e.message || e) });
-  }
-});
-
-// PATCH /api/manager/items/:id  {store, category, sub_category, shelf_life_days}
-app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const b = req.body || {};
-    const store = mustStore(b.store);
-
-    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
-
-    const category = b.category != null ? String(b.category).trim() : null;
-    const sub_category = b.sub_category != null ? String(b.sub_category).trim() || null : null;
-    const shelf_life_days = b.shelf_life_days != null ? Number(b.shelf_life_days) : null;
-
-    if (shelf_life_days != null && (!Number.isFinite(shelf_life_days) || shelf_life_days < 0)) {
-      return res.status(400).json({ error: "bad_shelf_life_days" });
-    }
-
-    const r = await query(
-      `
-      UPDATE public.items
-      SET category = COALESCE($3, category),
-          sub_category = $4,
-          shelf_life_days = COALESCE($5, shelf_life_days)
-      WHERE id = $1 AND store = $2
-      RETURNING *
-      `,
-      [id, store, category, sub_category, shelf_life_days]
-    );
-
-    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, item: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: "manager_item_update_failed", detail: String(e.message || e) });
-  }
-});
-
-// DELETE /api/manager/items/:id?store=PDD  (soft delete)
-app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const store = mustStore(req.query.store);
-
-    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
-
-    const r = await query(
-      `
-      UPDATE public.items
-      SET is_active = FALSE,
-          deleted_at = NOW()
-      WHERE id = $1 AND store = $2
-      RETURNING *
-      `,
-      [id, store]
-    );
-
-    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, item: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: "manager_item_delete_failed", detail: String(e.message || e) });
-  }
-});
-
-// =========================
-// MANAGER CATEGORIES (Store-separated)
-// =========================
-
-// GET /api/manager/categories?store=PDD
-app.get("/api/manager/categories", requireManager, async (req, res) => {
-  try {
-    const store = mustStore(req.query.store);
-
-    const r = await query(
-      `
-      SELECT id, store, name, sort_order, is_active, deleted_at
-      FROM public.categories
-      WHERE store = $1
-      ORDER BY (deleted_at IS NOT NULL) ASC, is_active DESC, sort_order ASC NULLS LAST, name ASC
-      `,
-      [store]
-    );
-
-    res.json(r.rows);
-  } catch (e) {
-    res.status(400).json({ error: String(e.message || e) });
-  }
-});
-
-// POST /api/manager/categories  {store, name, sort_order}
-app.post("/api/manager/categories", requireManager, async (req, res) => {
-  try {
-    const b = req.body || {};
-    const store = mustStore(b.store);
-    const name = String(b.name || "").trim();
-    const sort_order = Number(b.sort_order ?? 100);
-
-    if (!name) return res.status(400).json({ error: "missing_name" });
-    if (!Number.isFinite(sort_order)) return res.status(400).json({ error: "bad_sort_order" });
-
-    const r = await query(
-      `
-      INSERT INTO public.categories (store, name, sort_order, is_active, deleted_at)
-      VALUES ($1,$2,$3, TRUE, NULL)
-      ON CONFLICT (store, name)
-      DO UPDATE SET
-        sort_order = EXCLUDED.sort_order,
-        is_active = TRUE,
-        deleted_at = NULL
-      RETURNING *
-      `,
-      [store, name, sort_order]
-    );
-
-    res.json({ ok: true, category: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: "manager_category_add_failed", detail: String(e.message || e) });
-  }
-});
-
-// PATCH /api/manager/categories/:id  {store, name, sort_order}
-app.patch("/api/manager/categories/:id", requireManager, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const b = req.body || {};
-    const store = mustStore(b.store);
-
-    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
-
-    const name = b.name != null ? String(b.name).trim() : null;
-    const sort_order = b.sort_order != null ? Number(b.sort_order) : null;
-
-    if (sort_order != null && !Number.isFinite(sort_order))
-      return res.status(400).json({ error: "bad_sort_order" });
-
-    const r = await query(
-      `
-      UPDATE public.categories
-      SET name = COALESCE($3, name),
-          sort_order = COALESCE($4, sort_order)
-      WHERE id = $1 AND store = $2
-      RETURNING *
-      `,
-      [id, store, name, sort_order]
-    );
-
-    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, category: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: "manager_category_update_failed", detail: String(e.message || e) });
-  }
-});
-
-// DELETE /api/manager/categories/:id?store=PDD (soft delete)
-app.delete("/api/manager/categories/:id", requireManager, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const store = mustStore(req.query.store);
-
-    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad_id" });
-
-    const r = await query(
-      `
-      UPDATE public.categories
-      SET is_active = FALSE,
-          deleted_at = NOW()
-      WHERE id = $1 AND store = $2
-      RETURNING *
-      `,
-      [id, store]
-    );
-
-    if (!r.rows.length) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, category: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: "manager_category_delete_failed", detail: String(e.message || e) });
-  }
-});
-
-// =========================
-// STATIC FILES
-// =========================
+// -------- Static files (public/) --------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// SPA fallback
+// -------- Helpers --------
+function ok(res, data) {
+  res.json(data);
+}
+function bad(res, code, msg) {
+  res.status(code).json({ error: msg });
+}
+
+// -------- Manager middleware --------
+function requireManager(req, res, next) {
+  const hdr = req.headers.authorization || "";
+  const token = hdr.startsWith("Bearer ") ? hdr.slice(7) : "";
+  if (!token) return bad(res, 401, "Missing token");
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (!payload?.role || payload.role !== "manager") return bad(res, 401, "Invalid token");
+    req.manager = payload;
+    next();
+  } catch {
+    return bad(res, 401, "Invalid/expired token");
+  }
+}
+
+// =========================
+// Public API
+// =========================
+
+// GET /api/categories?store=PDD
+app.get("/api/categories", async (req, res) => {
+  const store = normStore(req.query.store);
+  if (!store) return bad(res, 400, "store required (PDD/SKH)");
+
+  try {
+    const rows = await q(
+      `
+      select id, store, name, sort_order, is_active, deleted_at
+      from public.categories
+      where store = $1
+        and deleted_at is null
+        and is_active = true
+      order by sort_order asc nulls last, name asc
+      `,
+      [store]
+    );
+
+    ok(res, rows.rows);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to load categories");
+  }
+});
+
+// GET /api/items?store=PDD
+app.get("/api/items", async (req, res) => {
+  const store = normStore(req.query.store);
+  if (!store) return bad(res, 400, "store required (PDD/SKH)");
+
+  try {
+    const rows = await q(
+      `
+      select id, store, name, category, sub_category, shelf_life_days, is_active, deleted_at
+      from public.items
+      where store = $1
+        and deleted_at is null
+        and is_active = true
+      order by category asc, name asc
+      `,
+      [store]
+    );
+
+    ok(res, rows.rows);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to load items");
+  }
+});
+
+// POST /api/log
+app.post("/api/log", async (req, res) => {
+  const b = req.body || {};
+
+  const store = normStore(b.store);
+  if (!store) return bad(res, 400, "store required");
+
+  // minimum fields
+  const item_id = Number(b.item_id);
+  const item_name = String(b.item_name || "").trim();
+  const category = String(b.category || "").trim();
+  const sub_category = b.sub_category ? String(b.sub_category).trim() : null;
+
+  const staff = String(b.staff || "").trim();
+  const shift = String(b.shift || "").trim();
+
+  const quantity = b.quantity === null || b.quantity === undefined ? null : Number(b.quantity);
+
+  const expiry = b.expiry ? String(b.expiry).trim() : null; // date string
+  const expiry_at = b.expiry_at ? String(b.expiry_at).trim() : null; // ISO datetime
+
+  if (!item_id || !item_name || !category || !staff || !shift) {
+    return bad(res, 400, "Missing required fields");
+  }
+
+  try {
+    await q(
+      `
+      insert into public.logs
+        (store, item_id, item_name, category, sub_category, staff, shift, quantity, expiry, expiry_at, created_at)
+      values
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+      `,
+      [store, item_id, item_name, category, sub_category, staff, shift, quantity, expiry, expiry_at]
+    );
+
+    ok(res, { ok: true });
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to save log");
+  }
+});
+
+// GET /api/expiry?store=PDD
+// Returns latest log per item_name (for that store)
+app.get("/api/expiry", async (req, res) => {
+  const store = normStore(req.query.store);
+  if (!store) return bad(res, 400, "store required (PDD/SKH)");
+
+  try {
+    const rows = await q(
+      `
+      select distinct on (item_name)
+        item_name as name,
+        category,
+        sub_category,
+        coalesce(expiry_at::text, expiry::text) as expiry_value,
+        created_at
+      from public.logs
+      where store = $1
+      order by item_name, created_at desc
+      `,
+      [store]
+    );
+
+    ok(res, rows.rows);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to load expiry");
+  }
+});
+
+// =========================
+// Manager API (JWT protected)
+// =========================
+
+// POST /api/manager/login { pin }
+app.post("/api/manager/login", async (req, res) => {
+  const pin = String(req.body?.pin || "").trim();
+  if (!pin) return bad(res, 400, "PIN required");
+
+  if (pin !== MANAGER_PIN) return bad(res, 401, "Wrong PIN");
+
+  const token = jwt.sign({ role: "manager" }, JWT_SECRET, { expiresIn: "7d" });
+  ok(res, { token });
+});
+
+// ----- Manager: Items -----
+// GET /api/manager/items?store=PDD (includes inactive/deleted too if you want later)
+app.get("/api/manager/items", requireManager, async (req, res) => {
+  const store = normStore(req.query.store);
+  if (!store) return bad(res, 400, "store required");
+
+  try {
+    const rows = await q(
+      `
+      select id, store, name, category, sub_category, shelf_life_days, is_active, deleted_at
+      from public.items
+      where store = $1
+        and deleted_at is null
+      order by category asc, name asc
+      `,
+      [store]
+    );
+    ok(res, rows.rows);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to load manager items");
+  }
+});
+
+// POST /api/manager/items
+app.post("/api/manager/items", requireManager, async (req, res) => {
+  const b = req.body || {};
+  const store = normStore(b.store);
+  if (!store) return bad(res, 400, "store required");
+
+  const name = String(b.name || "").trim();
+  const category = String(b.category || "").trim();
+  const sub_category = b.sub_category ? String(b.sub_category).trim() : null;
+
+  const shelf_life_days = Number(b.shelf_life_days ?? 0);
+  if (!name || !category) return bad(res, 400, "name + category required");
+  if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return bad(res, 400, "invalid shelf_life_days");
+
+  try {
+    // If exists but deleted/inactive, revive it
+    const out = await q(
+      `
+      insert into public.items (store, name, category, sub_category, shelf_life_days, is_active, deleted_at)
+      values ($1,$2,$3,$4,$5,true,null)
+      returning *
+      `,
+      [store, name, category, sub_category, shelf_life_days]
+    );
+
+    ok(res, out.rows[0]);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to add item");
+  }
+});
+
+// PATCH /api/manager/items/:id
+app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return bad(res, 400, "Invalid id");
+
+  const b = req.body || {};
+  const category = b.category !== undefined ? String(b.category || "").trim() : undefined;
+  const sub_category = b.sub_category !== undefined ? (b.sub_category ? String(b.sub_category).trim() : null) : undefined;
+  const shelf_life_days = b.shelf_life_days !== undefined ? Number(b.shelf_life_days) : undefined;
+  const is_active = b.is_active !== undefined ? !!b.is_active : undefined;
+
+  if (shelf_life_days !== undefined && (!Number.isFinite(shelf_life_days) || shelf_life_days < 0)) {
+    return bad(res, 400, "invalid shelf_life_days");
+  }
+
+  try {
+    const out = await q(
+      `
+      update public.items
+      set
+        category = coalesce($2, category),
+        sub_category = $3,
+        shelf_life_days = coalesce($4, shelf_life_days),
+        is_active = coalesce($5, is_active)
+      where id = $1
+      returning *
+      `,
+      [
+        id,
+        category ?? null,
+        sub_category === undefined ? null : sub_category, // if omitted, keep null is ok
+        shelf_life_days ?? null,
+        is_active ?? null,
+      ]
+    );
+
+    if (!out.rows.length) return bad(res, 404, "Not found");
+    ok(res, out.rows[0]);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to update item");
+  }
+});
+
+// DELETE /api/manager/items/:id  (SOFT delete)
+app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return bad(res, 400, "Invalid id");
+
+  try {
+    const out = await q(
+      `
+      update public.items
+      set deleted_at = now(), is_active = false
+      where id = $1
+      returning id
+      `,
+      [id]
+    );
+    if (!out.rows.length) return bad(res, 404, "Not found");
+    ok(res, { ok: true });
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to delete item");
+  }
+});
+
+// ----- Manager: Categories -----
+// GET /api/manager/categories?store=PDD
+app.get("/api/manager/categories", requireManager, async (req, res) => {
+  const store = normStore(req.query.store);
+  if (!store) return bad(res, 400, "store required");
+
+  try {
+    const rows = await q(
+      `
+      select id, store, name, sort_order, is_active, deleted_at
+      from public.categories
+      where store = $1
+        and deleted_at is null
+      order by sort_order asc nulls last, name asc
+      `,
+      [store]
+    );
+    ok(res, rows.rows);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to load categories");
+  }
+});
+
+// POST /api/manager/categories
+app.post("/api/manager/categories", requireManager, async (req, res) => {
+  const b = req.body || {};
+  const store = normStore(b.store);
+  if (!store) return bad(res, 400, "store required");
+
+  const name = String(b.name || "").trim();
+  const sort_order = Number(b.sort_order ?? 0);
+
+  if (!name) return bad(res, 400, "name required");
+  if (!Number.isFinite(sort_order)) return bad(res, 400, "sort_order invalid");
+
+  try {
+    // Upsert-like behavior: if same store+name existed but deleted, revive it
+    const out = await q(
+      `
+      insert into public.categories (store, name, sort_order, is_active, deleted_at)
+      values ($1,$2,$3,true,null)
+      returning *
+      `,
+      [store, name, sort_order]
+    );
+    ok(res, out.rows[0]);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to add category");
+  }
+});
+
+// PATCH /api/manager/categories/:id
+app.patch("/api/manager/categories/:id", requireManager, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return bad(res, 400, "Invalid id");
+
+  const b = req.body || {};
+  const name = b.name !== undefined ? String(b.name || "").trim() : undefined;
+  const sort_order = b.sort_order !== undefined ? Number(b.sort_order) : undefined;
+  const is_active = b.is_active !== undefined ? !!b.is_active : undefined;
+
+  if (sort_order !== undefined && !Number.isFinite(sort_order)) return bad(res, 400, "sort_order invalid");
+
+  try {
+    const out = await q(
+      `
+      update public.categories
+      set
+        name = coalesce($2, name),
+        sort_order = coalesce($3, sort_order),
+        is_active = coalesce($4, is_active)
+      where id = $1
+      returning *
+      `,
+      [id, name ?? null, sort_order ?? null, is_active ?? null]
+    );
+
+    if (!out.rows.length) return bad(res, 404, "Not found");
+    ok(res, out.rows[0]);
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to update category");
+  }
+});
+
+// DELETE /api/manager/categories/:id  (SOFT delete)
+app.delete("/api/manager/categories/:id", requireManager, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return bad(res, 400, "Invalid id");
+
+  try {
+    const out = await q(
+      `
+      update public.categories
+      set deleted_at = now(), is_active = false
+      where id = $1
+      returning id
+      `,
+      [id]
+    );
+
+    if (!out.rows.length) return bad(res, 404, "Not found");
+    ok(res, { ok: true });
+  } catch (e) {
+    bad(res, 500, e.message || "Failed to delete category");
+  }
+});
+
+// -------- Health --------
+app.get("/api/health", (req, res) => ok(res, { ok: true }));
+
+// -------- SPA fallback (optional) --------
+// If you use routes later, keep this.
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.listen(PORT, () => console.log("✅ Server running on", PORT));
+app.listen(PORT, () => {
+  console.log(`✅ PreCheck server running on :${PORT}`);
+});
