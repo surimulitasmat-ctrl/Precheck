@@ -1,11 +1,14 @@
 /* =========================
    PreCheck — app.js (FULL)
-   Working with your latest index.html:
-   - btnMenu + drawerBackdrop exists in HTML (no injection)
-   - Drawer open/close works (X + outside click)
-   - Mockup Home summary + category tiles (icons)
-   - Category page inline qty + expiry + yellow Save
-   - Keeps expiry rules + shelf life + store separated endpoints
+   ALL-IN-ONE (STEP 2–5):
+   - Home UI (summary cards + category tiles + icons + colors)
+   - Drawer hamburger (uses existing index.html: #btnMenu, #drawerBackdrop, etc.)
+   - Category editor UI (qty + expiry + yellow Save)
+   - Expiry logic: AUTO / MANUAL / EOD / HOURLY + Chicken Bacon (C) rule + shelf life rules
+   - Alerts page (Today / Tomorrow / Safe) — NO 2-3 days
+   - Manager mode (PIN login + tidy dashboard tiles)
+   - Manager CRUD: items + categories (soft delete)
+   - Store-separated: PDD vs SKH
    ========================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -64,13 +67,43 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/* ---------- DOM ---------- */
+const main = $("#main");
+const topbar = $("#topbar");
+const sessionLine = $("#sessionLine");
+
+// drawer elements from your index.html
+const drawerBackdrop = $("#drawerBackdrop");
+const btnMenu = $("#btnMenu");
+const btnDrawerClose = $("#btnDrawerClose");
+const drawerHome = $("#drawerHome");
+const drawerAlerts = $("#drawerAlerts");
+const drawerManager = $("#drawerManager");
+const drawerLogout = $("#drawerLogout");
+
+// modal
+const modalBackdrop = $("#modalBackdrop");
+const modalTitleEl = $("#modalTitle");
+const modalBodyEl = $("#modalBody");
+const modalCloseBtn = $("#modalClose");
+
 /* ---------- Constants ---------- */
+const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
+
+// fixed time dropdown for HOURLY_FIXED
+const FIXED_TIME_SLOTS = ["11:00", "15:00", "19:00", "23:00"];
+
+// items that are hourly fixed (edit if needed)
+const HOURLY_FIXED_ITEMS = new Set([norm("Soup"), norm("Soups")]);
+
+// Always manual date-only items (besides Unopened chiller)
+const MANUAL_ALWAYS = new Set([]);
+
 /**
- * IMPORTANT:
- * - Categories are kept as before.
- * - Display rename: "Back counter" -> "Fountain Drinks"
+ * IMPORTANT: Visible category names (must match what you want)
+ * Legacy DB may still have "Back counter". We DISPLAY it as "Fountain Drinks".
  */
-const CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   "Prepared items",
   "Unopened chiller",
   "Thawing",
@@ -82,16 +115,7 @@ const CATEGORIES = [
   "Sauce",
 ];
 
-const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
-
-// Fixed time dropdown items (if you still use it)
-const FIXED_TIME_SLOTS = ["11:00", "15:00", "19:00", "23:00"];
-const HOURLY_FIXED_ITEMS = new Set([norm("Soup"), norm("Soups")]);
-
-// Always manual date-only items (besides Unopened chiller) – keep empty unless needed
-const MANUAL_ALWAYS = new Set([]);
-
-/* ---------- Category Tile UI (icons + colors) ---------- */
+/* Tile UI: colors + icons */
 const CAT_UI = {
   "Prepared items": { tone: "green", icon: "/assets/cat-icons/prepared.png" },
   "Unopened chiller": { tone: "blue", icon: "/assets/cat-icons/unopened.png" },
@@ -104,38 +128,23 @@ const CAT_UI = {
   Sauce: { tone: "purple", icon: "/assets/cat-icons/sauce.png" },
 };
 
-/* ---------- DOM ---------- */
-const main = $("#main");
-const topbar = $("#topbar");
-const sessionLine = $("#sessionLine");
-
-// Modal elements
-const modalBackdrop = $("#modalBackdrop");
-const modalTitleEl = $("#modalTitle");
-const modalBodyEl = $("#modalBody");
-const modalCloseBtn = $("#modalClose");
-
-// Drawer elements (FROM YOUR HTML)
-const btnMenu = $("#btnMenu");
-const drawerBackdrop = $("#drawerBackdrop");
-const btnDrawerClose = $("#btnDrawerClose");
-const drawerHome = $("#drawerHome");
-const drawerAlerts = $("#drawerAlerts");
-const drawerManager = $("#drawerManager");
-const drawerLogout = $("#drawerLogout");
-
-// Role badge button (FROM YOUR HTML)
-const rolePillBtn = $("#rolePill");
-
 /* ---------- State ---------- */
 const state = {
   session: { store: "", shift: "", staff: "" },
-  items: [],
-  latestExpiryRows: [],
   view: { page: "session", category: null, sauceSub: null, filter: "all" },
   navStack: [],
   manager: { token: "" },
-  categoryDraft: {}, // [itemId] = { qty: number|null, expType:"DATE"|"PICK"|"EOD"|"TIME"|"" , expValue:"YYYY-MM-DD"|"HH:MM"|"" }
+
+  // data
+  categories: [...DEFAULT_CATEGORIES],
+  items: [],
+  latestExpiryRows: [],
+
+  // per-category draft
+  categoryDraft: {},
+
+  // manager ui
+  managerModePage: "dashboard", // dashboard | items | categories
 };
 
 /* ---------- Storage ---------- */
@@ -175,7 +184,7 @@ function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
   t.classList.remove("hidden");
-  setTimeout(() => t.classList.add("hidden"), 1800);
+  setTimeout(() => t.classList.add("hidden"), 1700);
 }
 
 /* ---------- Modal ---------- */
@@ -198,14 +207,9 @@ function closeModal() {
   modalBackdrop.setAttribute("aria-hidden", "true");
   modalBodyEl.innerHTML = "";
 }
-function bindModalOnce() {
-  if (modalCloseBtn && modalCloseBtn.dataset.bound === "1") return;
-  if (modalCloseBtn) {
-    modalCloseBtn.dataset.bound = "1";
-    modalCloseBtn.addEventListener("click", closeModal);
-  }
-  if (modalBackdrop && modalBackdrop.dataset.bound !== "1") {
-    modalBackdrop.dataset.bound = "1";
+function bindModal() {
+  if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+  if (modalBackdrop) {
     modalBackdrop.addEventListener("click", (e) => {
       if (e.target === modalBackdrop) closeModal();
     });
@@ -259,15 +263,16 @@ async function apiManager(method, url, body) {
   return data;
 }
 
-/* ---------- Category normalize (with legacy mapping) ---------- */
+/* ---------- Category normalize (legacy mapping) ---------- */
 function canonicalCategory(cat) {
   const raw = String(cat || "").trim();
   const n = norm(raw);
 
-  // Legacy DB name -> display name
+  // Legacy rename: "Back counter" -> "Fountain Drinks" (DISPLAY)
   if (n === norm("Back counter")) return "Fountain Drinks";
 
-  const hit = CATEGORIES.find((x) => norm(x) === n);
+  // if DB already uses Fountain Drinks, keep it
+  const hit = state.categories.find((x) => norm(x) === n) || DEFAULT_CATEGORIES.find((x) => norm(x) === n);
   return hit || raw || "Unknown";
 }
 
@@ -277,12 +282,12 @@ function getShelfLifeDays(item) {
   return Number.isFinite(v) ? v : 0;
 }
 
-/* ---------- Expiry mode rules ---------- */
+/* ---------- Expiry mode logic ---------- */
 function getMode(item) {
   const cat = canonicalCategory(item.category);
   const nameN = norm(item.name);
 
-  // Chicken Bacon (C) ONLY is end of day
+  // Chicken Bacon (C) = EOD
   if (nameN === norm("Chicken Bacon (C)")) return "EOD";
 
   // Unopened chiller always manual date-only
@@ -296,10 +301,11 @@ function getMode(item) {
   const sl = getShelfLifeDays(item);
   if (sl > 7) return "MANUAL_DATE";
 
+  // default
   return "AUTO";
 }
 
-/* ---------- Drawer (bind once, no injection) ---------- */
+/* ---------- Drawer (uses your index.html drawer) ---------- */
 function openDrawer() {
   if (!drawerBackdrop) return;
   drawerBackdrop.classList.remove("hidden");
@@ -310,64 +316,61 @@ function closeDrawer() {
   drawerBackdrop.classList.add("hidden");
   drawerBackdrop.setAttribute("aria-hidden", "true");
 }
-function bindDrawerOnce() {
-  if (!drawerBackdrop || drawerBackdrop.dataset.bound === "1") return;
-  drawerBackdrop.dataset.bound = "1";
+function bindDrawer() {
+  if (!drawerBackdrop) return;
 
-  // open
-  if (btnMenu && btnMenu.dataset.bound !== "1") {
-    btnMenu.dataset.bound = "1";
-    btnMenu.addEventListener("click", (e) => {
+  if (btnMenu) {
+    btnMenu.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
       openDrawer();
-    });
+    };
+  }
+  if (btnDrawerClose) {
+    btnDrawerClose.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeDrawer();
+    };
   }
 
-  // click outside closes
+  // click outside to close
   drawerBackdrop.addEventListener("click", (e) => {
     if (e.target === drawerBackdrop) closeDrawer();
   });
 
-  // X closes
-  if (btnDrawerClose && btnDrawerClose.dataset.bound !== "1") {
-    btnDrawerClose.dataset.bound = "1";
-    btnDrawerClose.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      closeDrawer();
-    });
-  }
-
-  // menu actions
-  if (drawerHome) drawerHome.addEventListener("click", () => { closeDrawer(); navHome(); });
-  if (drawerAlerts) drawerAlerts.addEventListener("click", () => { closeDrawer(); setView({ page:"alerts", filter:"all" }, true); });
-  if (drawerManager) drawerManager.addEventListener("click", () => { closeDrawer(); goManager(); });
-  if (drawerLogout) drawerLogout.addEventListener("click", () => { closeDrawer(); doLogout(); });
+  // buttons
+  if (drawerHome) drawerHome.onclick = () => { closeDrawer(); setView({ page: "home", category: null, sauceSub: null }, true); };
+  if (drawerAlerts) drawerAlerts.onclick = () => { closeDrawer(); setView({ page: "alerts", filter: "all" }, true); };
+  if (drawerManager) drawerManager.onclick = () => {
+    closeDrawer();
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  };
+  if (drawerLogout) drawerLogout.onclick = () => { closeDrawer(); doLogout(); };
 }
 
-/* ---------- Role pill (top-right) ---------- */
+/* ---------- Top-right role pill (uses #rolePill from index.html) ---------- */
 function updateRolePill() {
-  if (!rolePillBtn) return;
+  const pill = $("#rolePill");
+  if (!pill) return;
+
+  pill.classList.remove("hidden");
 
   const isMgr = isManagerMode();
-  rolePillBtn.classList.remove("hidden");
+  const label = isMgr ? "Manager" : "Staff";
+  const icon = isMgr ? "👑" : "🧢";
 
-  // build button content
-  rolePillBtn.className = `role-pill ${isMgr ? "role-pill--mgr" : "role-pill--staff"}`;
-  rolePillBtn.innerHTML = `
-    <span class="role-text">${isMgr ? "Manager" : "Staff"}</span>
-    <span class="role-ico" aria-hidden="true">${isMgr ? "👑" : "🧢"}</span>
+  pill.className = `role-pill ${isMgr ? "role-pill--mgr" : "role-pill--staff"}`;
+  pill.innerHTML = `
+    <span class="role-text">${label}</span>
+    <span class="role-ico" aria-hidden="true">${icon}</span>
   `;
 
-  // bind once
-  if (rolePillBtn.dataset.bound !== "1") {
-    rolePillBtn.dataset.bound = "1";
-    rolePillBtn.addEventListener("click", () => {
-      if (isManagerMode()) setView({ page: "manager" }, true);
-      else openManagerLogin();
-    });
-  }
+  pill.onclick = () => {
+    if (isManagerMode()) setView({ page: "manager" }, true);
+    else openManagerLogin();
+  };
 }
 
 /* ---------- Session line ---------- */
@@ -384,7 +387,7 @@ function updateSessionLine() {
 /* ---------- Navigation ---------- */
 function setView(next, push = true) {
   const prev = { ...state.view };
-  state.view = { ...next };
+  state.view = { ...state.view, ...next };
   if (push) state.navStack.push(prev);
 
   try { history.pushState({ t: Date.now() }, ""); } catch {}
@@ -395,44 +398,22 @@ function goBack() {
   if (prev) {
     state.view = prev;
     render();
-    return;
-  }
-  if (confirm("Exit PreCheck?")) {
-    // allow
   } else {
-    try { history.pushState({ t: Date.now() }, ""); } catch {}
+    setView({ page: "home" }, false);
   }
 }
-function bindSwipeBack() {
-  let sx = 0, sy = 0, st = 0;
-
-  window.addEventListener("touchstart", (e) => {
-    if (!e.touches || !e.touches[0]) return;
-    sx = e.touches[0].clientX;
-    sy = e.touches[0].clientY;
-    st = Date.now();
-  }, { passive: true });
-
-  window.addEventListener("touchend", (e) => {
-    const t = e.changedTouches && e.changedTouches[0];
-    if (!t) return;
-    const dx = t.clientX - sx;
-    const dy = t.clientY - sy;
-    const dt = Date.now() - st;
-
-    if (dx > 70 && Math.abs(dy) < 45 && dt < 600) {
-      const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-      const drawerOpen = drawerBackdrop && !drawerBackdrop.classList.contains("hidden");
-      if (modalOpen || drawerOpen) return;
-      goBack();
-    }
-  }, { passive: true });
-
+function bindBackHandling() {
   window.addEventListener("popstate", () => {
-    const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-    if (modalOpen) { closeModal(); return; }
-    const drawerOpen = drawerBackdrop && !drawerBackdrop.classList.contains("hidden");
-    if (drawerOpen) { closeDrawer(); return; }
+    // close modal first
+    if (modalBackdrop && !modalBackdrop.classList.contains("hidden")) {
+      closeModal();
+      return;
+    }
+    // close drawer if open
+    if (drawerBackdrop && !drawerBackdrop.classList.contains("hidden")) {
+      closeDrawer();
+      return;
+    }
     goBack();
   });
 
@@ -443,6 +424,25 @@ function bindSwipeBack() {
 }
 
 /* ---------- Data load ---------- */
+async function loadCategories() {
+  // Prefer server categories (store-separated). If missing, fallback to default list.
+  try {
+    const rows = await apiGet(`/api/categories?store=${encodeURIComponent(state.session.store)}`);
+    if (Array.isArray(rows) && rows.length) {
+      const names = rows.map((r) => String(r.name || "").trim()).filter(Boolean);
+      // ensure Sauce exists if you use sauce sub menu
+      state.categories = names.length ? names : [...DEFAULT_CATEGORIES];
+      // if server returns "Back counter", still display Fountain Drinks (mapping)
+      // but keep categories list visible as Fountain Drinks if not present:
+      if (!state.categories.some((c) => norm(c) === norm("Fountain Drinks")) && state.categories.some((c) => norm(c) === norm("Back counter"))) {
+        state.categories = state.categories.map((c) => (norm(c) === norm("Back counter") ? "Fountain Drinks" : c));
+      }
+      return;
+    }
+  } catch {}
+  state.categories = [...DEFAULT_CATEGORIES];
+}
+
 async function loadItems() {
   const rows = await apiGet(`/api/items?store=${encodeURIComponent(state.session.store)}`);
   state.items = (rows || []).map((x) => ({
@@ -451,6 +451,7 @@ async function loadItems() {
     sub_category: x.sub_category ?? null,
   }));
 }
+
 async function loadLatestExpiry() {
   try {
     const rows = await apiGet(`/api/expiry?store=${encodeURIComponent(state.session.store)}`);
@@ -460,7 +461,7 @@ async function loadLatestExpiry() {
   }
 }
 
-/* ---------- Home summary counts ---------- */
+/* ---------- Summary counts (NO 2-3 days) ---------- */
 function computeSummaryCounts() {
   const today = todayISODate();
   const tomorrow = addDaysISODate(today, 1);
@@ -475,16 +476,16 @@ function computeSummaryCounts() {
     else if (d === tomorrow) expTomorrow++;
   }
 
-  const totalWithExpiry = (state.latestExpiryRows || []).filter((r) => isoDateOnlyFromAny(r.expiry_value)).length;
+  const totalWithExpiry = (state.latestExpiryRows || []).filter((r) => isoDateOnlyFromAny(r.expiry_value || r.expiry || r.expiry_at)).length;
   const allSafe = Math.max(0, totalWithExpiry - expToday - expTomorrow);
 
   return { expToday, expTomorrow, allSafe };
 }
 
-/* ---------- Category counts ---------- */
+/* ---------- Home counts ---------- */
 function categoryCounts() {
   const counts = {};
-  for (const c of CATEGORIES) counts[c] = 0;
+  for (const c of state.categories) counts[c] = 0;
 
   for (const it of state.items) {
     const c = canonicalCategory(it.category);
@@ -527,8 +528,7 @@ function renderSession() {
         <input id="staffInp" class="input" placeholder="Your name" />
       </div>
 
-      <button id="btnStart" type="button"
-        style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
+      <button id="btnStart" type="button" class="btn-yellow">
         Start
       </button>
 
@@ -548,6 +548,7 @@ function renderSession() {
 
   btnStart.addEventListener("click", async () => {
     err.classList.add("hidden");
+
     const store = storeSel.value.trim();
     const shift = shiftSel.value.trim();
     const staff = staffInp.value.trim();
@@ -562,6 +563,7 @@ function renderSession() {
     saveSession();
 
     try {
+      await loadCategories();
       await loadItems();
       await loadLatestExpiry();
     } catch (e) {
@@ -606,7 +608,7 @@ function renderHome() {
       <div class="home-h2">Tap a Category to Manage Items</div>
 
       <div class="tiles-2col">
-        ${CATEGORIES.map((cat) => {
+        ${state.categories.map((cat) => {
           const ui = CAT_UI[cat] || {};
           const count = counts[cat] ?? 0;
           return `
@@ -636,7 +638,7 @@ function renderHome() {
   });
 }
 
-/* ---------- Render: Sauce menu ---------- */
+/* ---------- Sauce menu ---------- */
 function renderSauceMenu() {
   updateRolePill();
   updateSessionLine();
@@ -649,11 +651,11 @@ function renderSauceMenu() {
 
     <section class="tiles-2col">
       ${SAUCE_SUBS.map((s) => {
-        const ui = CAT_UI["Sauce"];
+        const ui = CAT_UI["Sauce"] || {};
         return `
-          <button class="mock-tile mock-${escapeHtml(ui.tone)}" data-sauce="${escapeHtml(s)}" type="button">
+          <button class="mock-tile mock-${escapeHtml(ui.tone || "purple")}" data-sauce="${escapeHtml(s)}" type="button">
             <div class="mock-ico">
-              <img src="${escapeHtml(ui.icon)}" alt="" loading="lazy" />
+              <img src="${escapeHtml(ui.icon || "")}" alt="" loading="lazy" onerror="this.style.opacity=.15" />
             </div>
             <div class="mock-title">${escapeHtml(s)}</div>
             <div class="mock-sub">Tap to view items</div>
@@ -664,6 +666,7 @@ function renderSauceMenu() {
   `;
 
   $("#backBtn").addEventListener("click", () => goBack());
+
   $$("[data-sauce]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const sub = btn.getAttribute("data-sauce");
@@ -677,6 +680,7 @@ function getItemsForCurrentList() {
   const { category, sauceSub } = state.view;
 
   let list = state.items.filter((it) => norm(canonicalCategory(it.category)) === norm(category));
+
   if (category === "Sauce") {
     list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
   }
@@ -685,17 +689,19 @@ function getItemsForCurrentList() {
   return list;
 }
 
-/* ---------- Expiry choices (NO “2–3 days” options) ---------- */
+/* ---------- Expiry dropdown choices (NO 2-3 days) ---------- */
 function buildExpiryChoicesForItem(it) {
   const mode = getMode(it);
   const today = todayISODate();
   const tomorrow = addDaysISODate(today, 1);
 
-  if (mode === "EOD") return [{ type: "EOD", label: "End of day (today)", value: today }];
+  if (mode === "EOD") {
+    return [{ type: "EOD", label: "End of day (today)", value: today }];
+  }
 
   if (mode === "HOURLY_FIXED") {
     return [
-      { type: "TIME", label: "Pick Time (Today)", value: "" },
+      { type: "TIME", label: "Select time", value: "" },
       ...FIXED_TIME_SLOTS.map((t) => ({ type: "TIME", label: t, value: t })),
     ];
   }
@@ -712,6 +718,7 @@ function buildExpiryChoicesForItem(it) {
   ];
 }
 
+/* ---------- Helper text ---------- */
 function getInlineHelperText(it) {
   const mode = getMode(it);
   const sl = getShelfLifeDays(it);
@@ -723,7 +730,7 @@ function getInlineHelperText(it) {
   return "Select expiry.";
 }
 
-/* ---------- Render: Category editor (inline qty+expiry) ---------- */
+/* ---------- Render: Category Editor ---------- */
 function renderCategoryEditor() {
   updateRolePill();
   updateSessionLine();
@@ -732,10 +739,13 @@ function renderCategoryEditor() {
   const title = category === "Sauce" ? `Sauce • ${sauceSub}` : category;
 
   const list = getItemsForCurrentList();
+  if (!state.categoryDraft) state.categoryDraft = {};
 
-  // init drafts
+  // init draft for list
   for (const it of list) {
-    if (!state.categoryDraft[it.id]) state.categoryDraft[it.id] = { qty: null, expType: "", expValue: "" };
+    if (!state.categoryDraft[it.id]) {
+      state.categoryDraft[it.id] = { qty: null, expType: "", expValue: "" };
+    }
   }
 
   main.innerHTML = `
@@ -747,17 +757,18 @@ function renderCategoryEditor() {
     <section class="edit-list">
       ${
         list.length
-          ? list.map((it) => {
-              const draft = state.categoryDraft[it.id] || { qty: null, expType: "", expValue: "" };
-              const choices = buildExpiryChoicesForItem(it);
-              const mode = getMode(it);
+          ? list
+              .map((it) => {
+                const draft = state.categoryDraft[it.id] || { qty: null, expType: "", expValue: "" };
+                const choices = buildExpiryChoicesForItem(it);
 
-              const needsDatePicker = draft.expType === "PICK" || mode === "MANUAL_DATE";
-              const datePickerValue = needsDatePicker ? (draft.expValue || "") : "";
+                const mode = getMode(it);
+                const needsDatePicker = draft.expType === "PICK" || mode === "MANUAL_DATE";
+                const datePickerValue = needsDatePicker ? (draft.expValue || "") : "";
 
-              const qtyShown = draft.qty == null ? "" : String(draft.qty);
+                const qtyShown = draft.qty == null ? "" : String(draft.qty);
 
-              return `
+                return `
                 <div class="edit-card" data-item="${it.id}">
                   <div class="edit-name">${escapeHtml(it.name)}</div>
 
@@ -771,11 +782,16 @@ function renderCategoryEditor() {
                     <div class="exp-wrap">
                       <select class="exp-sel input">
                         <option value="">Select</option>
-                        ${choices.map((c) => {
-                          const key = `${c.type}::${c.value || ""}`;
-                          const sel = draft.expType === c.type && String(draft.expValue || "") === String(c.value || "") ? "selected" : "";
-                          return `<option value="${escapeHtml(key)}" ${sel}>${escapeHtml(c.label)}</option>`;
-                        }).join("")}
+                        ${choices
+                          .map((c) => {
+                            const key = `${c.type}::${c.value || ""}`;
+                            const sel =
+                              draft.expType === c.type && String(draft.expValue || "") === String(c.value || "")
+                                ? "selected"
+                                : "";
+                            return `<option value="${escapeHtml(key)}" ${sel}>${escapeHtml(c.label)}</option>`;
+                          })
+                          .join("")}
                       </select>
 
                       <div class="exp-pick ${needsDatePicker ? "" : "hidden"}">
@@ -787,14 +803,14 @@ function renderCategoryEditor() {
                   <div class="edit-helper">${escapeHtml(getInlineHelperText(it))}</div>
                 </div>
               `;
-            }).join("")
+              })
+              .join("")
           : `<div class="empty">No items found.</div>`
       }
     </section>
 
     <div class="save-bar">
-      <button id="btnSaveCategory" type="button"
-        style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
+      <button id="btnSaveCategory" type="button" class="btn-yellow">
         Save ${escapeHtml(title)}
       </button>
       <div id="saveErr" class="error hidden" style="margin-top:10px;"></div>
@@ -803,7 +819,7 @@ function renderCategoryEditor() {
 
   $("#backBtn").addEventListener("click", () => goBack());
 
-  // bind interactions
+  // bind cards
   $$(".edit-card", main).forEach((card) => {
     const id = Number(card.getAttribute("data-item"));
     const draft = state.categoryDraft[id];
@@ -817,7 +833,11 @@ function renderCategoryEditor() {
     const expDate = $(".exp-date", card);
 
     function setQty(v) {
-      if (v == null || v === "") { draft.qty = null; qtyInp.value = ""; return; }
+      if (v == null || v === "") {
+        draft.qty = null;
+        qtyInp.value = "";
+        return;
+      }
       const n = Number(v);
       if (!Number.isFinite(n) || n < 0) return;
       draft.qty = n;
@@ -881,6 +901,7 @@ function renderCategoryEditor() {
 
       const hasQty = d.qty != null && Number.isFinite(Number(d.qty));
       const hasExpiry = !!d.expType;
+
       if (!hasQty && !hasExpiry) continue;
 
       // validate qty
@@ -893,6 +914,7 @@ function renderCategoryEditor() {
         }
       }
 
+      // build expiry payload
       let expiry = null;
       let expiry_at = null;
 
@@ -922,7 +944,7 @@ function renderCategoryEditor() {
           return;
         }
         if (d.expType === "DATE") expiry = d.expValue;
-        else if (d.expType === "PICK") {
+        if (d.expType === "PICK") {
           if (!d.expValue) {
             err.textContent = `Pick a date for "${it.name}".`;
             err.classList.remove("hidden");
@@ -932,7 +954,7 @@ function renderCategoryEditor() {
         }
       }
 
-      // enforce shelf life for AUTO
+      // shelf-life enforcement (AUTO only)
       if (expiry && mode === "AUTO") {
         const sl = getShelfLifeDays(it);
         const maxDate = addDaysISODate(today, Math.max(0, sl || 0));
@@ -943,17 +965,25 @@ function renderCategoryEditor() {
         }
       }
 
-      toSave.push({ item: it, qty: d.qty == null ? null : Number(d.qty), expiry, expiry_at });
+      toSave.push({
+        item: it,
+        qty: d.qty == null ? null : Number(d.qty),
+        expiry,
+        expiry_at,
+      });
     }
 
-    if (!toSave.length) { toast("Nothing to save"); return; }
+    if (!toSave.length) {
+      toast("Nothing to save");
+      return;
+    }
 
     try {
-      const btn = $("#btnSaveCategory");
-      btn.disabled = true;
+      $("#btnSaveCategory").disabled = true;
 
       for (const s of toSave) {
         const it = s.item;
+
         const payload = {
           item_id: it.id,
           item_name: it.name,
@@ -967,8 +997,9 @@ function renderCategoryEditor() {
           expiry_at: s.expiry_at || null,
           created_at: new Date().toISOString(),
         };
+
         await apiPost("/api/log", payload);
-        await sleep(30);
+        await sleep(40);
       }
 
       toast("Saved ✅");
@@ -989,7 +1020,7 @@ function renderCategoryEditor() {
   });
 }
 
-/* ---------- Render: Alerts (summary list) ---------- */
+/* ---------- Alerts page (Today / Tomorrow / Safe) ---------- */
 async function renderAlerts() {
   updateRolePill();
   updateSessionLine();
@@ -1001,7 +1032,7 @@ async function renderAlerts() {
   main.innerHTML = `
     <div class="page-head">
       <button id="backBtn" class="btn-ghost" type="button">← Back</button>
-      <div class="page-title">Summary</div>
+      <div class="page-title">Alerts</div>
     </div>
 
     <div class="card">
@@ -1012,14 +1043,17 @@ async function renderAlerts() {
   `;
 
   $("#backBtn").addEventListener("click", () => goBack());
+
   const wrap = $("#alertsWrap");
 
   try {
     if (!state.latestExpiryRows || !state.latestExpiryRows.length) {
       await loadLatestExpiry();
     }
-    let rows = (state.latestExpiryRows || [])
-      .map((r) => ({ ...r, _date: isoDateOnlyFromAny(r.expiry_value || "") }))
+
+    let rows = state.latestExpiryRows || [];
+    rows = rows
+      .map((r) => ({ ...r, _date: isoDateOnlyFromAny(r.expiry_value || r.expiry || r.expiry_at) }))
       .filter((r) => r._date);
 
     if (filter === "today") rows = rows.filter((r) => r._date === today);
@@ -1031,40 +1065,59 @@ async function renderAlerts() {
       return;
     }
 
-    wrap.innerHTML = rows
-      .map((r) => `
-        <div class="alert-row">
-          <div>
-            <div class="alert-name">${escapeHtml(r.name)}</div>
-            <div class="alert-extra">${escapeHtml(r.category)}${r.sub_category ? ` • ${escapeHtml(r.sub_category)}` : ""}</div>
-          </div>
-          <div style="font-weight:1000;color:var(--green-dark)">${escapeHtml(r.expiry_value)}</div>
+    // grouped sections
+    const todayRows = rows.filter((r) => r._date === today);
+    const tomorrowRows = rows.filter((r) => r._date === tomorrow);
+    const safeRows = rows.filter((r) => r._date !== today && r._date !== tomorrow);
+
+    function section(title, arr) {
+      if (!arr.length) return "";
+      return `
+        <div class="alert-section">
+          <div class="alert-section-title">${escapeHtml(title)}</div>
+          ${arr
+            .map(
+              (r) => `
+              <div class="alert-row">
+                <div>
+                  <div class="alert-name">${escapeHtml(r.name || r.item_name || "")}</div>
+                  <div class="alert-extra">${escapeHtml(canonicalCategory(r.category || ""))}${r.sub_category ? ` • ${escapeHtml(r.sub_category)}` : ""}</div>
+                </div>
+                <div class="alert-date">${escapeHtml(r._date)}</div>
+              </div>
+            `
+            )
+            .join("")}
         </div>
-      `)
-      .join("");
+      `;
+    }
+
+    wrap.innerHTML =
+      section("Expiring Today", todayRows) +
+      section("Expiring Tomorrow", tomorrowRows) +
+      (filter === "safe" || filter === "all" ? section("All Safe", safeRows) : "");
   } catch (e) {
     wrap.innerHTML = `<div class="error">Failed: ${escapeHtml(e.message || e)}</div>`;
   }
 }
 
-/* ---------- Manager login ---------- */
+/* ---------- Manager login modal ---------- */
 function openManagerLogin() {
   openModal(
     "Manager Access",
     `
-      <div class="field">
-        <label class="label">Enter PIN</label>
-        <input id="pinInp" class="input" inputmode="numeric" placeholder="PIN" />
-        <div class="helper">Manager only.</div>
-      </div>
+    <div class="field">
+      <label class="label">Enter PIN</label>
+      <input id="pinInp" class="input" inputmode="numeric" placeholder="PIN" />
+      <div class="helper">Manager only.</div>
+    </div>
 
-      <div id="pinErr" class="error hidden"></div>
+    <div id="pinErr" class="error hidden"></div>
 
-      <button id="btnPinLogin" type="button"
-        style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
-        Login
-      </button>
-    `
+    <button id="btnPinLogin" type="button" class="btn-yellow">
+      Login
+    </button>
+  `
   );
 
   const pinInp = $("#pinInp", modalBodyEl);
@@ -1086,6 +1139,7 @@ function openManagerLogin() {
       closeModal();
       toast("Manager mode ✅");
       updateRolePill();
+      state.managerModePage = "dashboard";
       setView({ page: "manager" }, true);
     } catch (e) {
       err.textContent = e?.message || "Login failed.";
@@ -1094,25 +1148,9 @@ function openManagerLogin() {
   });
 }
 
-/* ---------- Manager page (kept basic, works with your endpoints) ---------- */
-async function renderManager() {
-  updateRolePill();
-  updateSessionLine();
-
-  if (!isManagerMode()) {
-    main.innerHTML = `
-      <div class="card">
-        <div class="h1">Manager</div>
-        <div class="muted">Login required.</div>
-        <button id="btnGoLogin" type="button"
-          style="margin-top:12px;width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
-          Enter PIN
-        </button>
-      </div>
-    `;
-    $("#btnGoLogin").addEventListener("click", openManagerLogin);
-    return;
-  }
+/* ---------- Manager: Dashboard (tidy tiles) ---------- */
+function renderManagerDashboard() {
+  const { expToday, expTomorrow, allSafe } = computeSummaryCounts();
 
   main.innerHTML = `
     <div class="page-head">
@@ -1120,20 +1158,83 @@ async function renderManager() {
       <div class="page-title">Manager</div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Items</div>
-      <div class="muted">Store: <b>${escapeHtml(state.session.store)}</b></div>
-      <input id="mgrSearch" class="input" placeholder="Search item name..." style="margin-top:10px;" />
-      <button id="btnAddItem" type="button"
-        style="margin-top:10px;width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
-        Add Item
-      </button>
-      <div id="mgrList" class="muted" style="margin-top:12px;">Loading…</div>
-    </div>
+    <section class="manager-panel">
+      <div class="summary-row">
+        <button class="sum-card sum-red" id="mSumToday" type="button">
+          <div class="sum-num">${expToday}</div>
+          <div class="sum-lbl">Expiring<br/>Today</div>
+        </button>
+
+        <button class="sum-card sum-amber" id="mSumTomorrow" type="button">
+          <div class="sum-num">${expTomorrow}</div>
+          <div class="sum-lbl">Expiring<br/>Tomorrow</div>
+        </button>
+
+        <button class="sum-card sum-green" id="mSumSafe" type="button">
+          <div class="sum-num">${allSafe}</div>
+          <div class="sum-lbl">All<br/>Safe</div>
+        </button>
+      </div>
+
+      <div class="home-h2">Manage</div>
+
+      <div class="mgr-tiles">
+        <button class="mgr-tile" id="mgrGoAdd">
+          <div class="mgr-t-ico">➕</div>
+          <div class="mgr-t-title">Add Item</div>
+          <div class="mgr-t-sub">Create a new item</div>
+        </button>
+
+        <button class="mgr-tile" id="mgrGoItems">
+          <div class="mgr-t-ico">✏️</div>
+          <div class="mgr-t-title">Edit Items</div>
+          <div class="mgr-t-sub">Search & edit items</div>
+        </button>
+
+        <button class="mgr-tile" id="mgrGoCats">
+          <div class="mgr-t-ico">🗂️</div>
+          <div class="mgr-t-title">Categories</div>
+          <div class="mgr-t-sub">Add / edit / delete</div>
+        </button>
+      </div>
+    </section>
   `;
 
   $("#backBtn").addEventListener("click", () => goBack());
-  $("#btnAddItem").addEventListener("click", openManagerAddItem);
+
+  $("#mSumToday").onclick = () => setView({ page: "alerts", filter: "today" }, true);
+  $("#mSumTomorrow").onclick = () => setView({ page: "alerts", filter: "tomorrow" }, true);
+  $("#mSumSafe").onclick = () => setView({ page: "alerts", filter: "safe" }, true);
+
+  $("#mgrGoAdd").onclick = () => openManagerAddItem();
+  $("#mgrGoItems").onclick = () => { state.managerModePage = "items"; renderManager(); };
+  $("#mgrGoCats").onclick = () => { state.managerModePage = "categories"; renderManager(); };
+}
+
+/* ---------- Manager: Items list editor ---------- */
+async function renderManagerItems() {
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="backBtn" class="btn-ghost" type="button">← Back</button>
+      <div class="page-title">Edit Items</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Search</div>
+      <input id="mgrSearch" class="input" placeholder="Type item name..." />
+      <button id="btnAddItem" type="button" class="btn-yellow" style="margin-top:10px;">
+        Add Item
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Items</div>
+      <div id="mgrList" class="muted">Loading…</div>
+    </div>
+  `;
+
+  $("#backBtn").onclick = () => { state.managerModePage = "dashboard"; renderManager(); };
+  $("#btnAddItem").onclick = openManagerAddItem;
 
   const listEl = $("#mgrList");
   const searchEl = $("#mgrSearch");
@@ -1163,13 +1264,13 @@ async function renderManager() {
         const sl = Number(r.shelf_life_days ?? 0);
 
         return `
-          <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;">
-            <div style="font-weight:1000;font-size:16px;margin-bottom:10px;">${escapeHtml(r.name)}</div>
+          <div class="mgr-item">
+            <div class="mgr-item-name">${escapeHtml(r.name)}</div>
 
             <div class="field">
               <label class="label">Category</label>
               <select class="input mgr-cat" data-id="${r.id}">
-                ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+                ${state.categories.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
               </select>
             </div>
 
@@ -1184,17 +1285,12 @@ async function renderManager() {
             <div class="field">
               <label class="label">Shelf life (days)</label>
               <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
+              <div class="helper">&gt;7 days becomes manual in app.</div>
             </div>
 
-            <div style="display:flex;gap:10px;">
-              <button class="mgr-save" data-id="${r.id}" type="button"
-                style="flex:1;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
-                Save
-              </button>
-              <button class="mgr-del" data-id="${r.id}" type="button"
-                style="flex:1;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:#fff;border:1px solid rgba(0,0,0,0.12);color:#c62828;cursor:pointer;">
-                Delete
-              </button>
+            <div class="mgr-actions">
+              <button class="mgr-save btn-yellow" data-id="${r.id}" type="button">Save</button>
+              <button class="mgr-del btn-danger" data-id="${r.id}" type="button">Delete</button>
             </div>
 
             <div class="mgr-err error hidden" data-id="${r.id}"></div>
@@ -1203,7 +1299,7 @@ async function renderManager() {
       })
       .join("");
 
-    // save
+    // bind save/delete
     $$(".mgr-save", listEl).forEach((b) => {
       b.addEventListener("click", async () => {
         const id = Number(b.getAttribute("data-id"));
@@ -1217,6 +1313,7 @@ async function renderManager() {
         const category = String(catSel.value || "").trim();
         const sub_category = String(subSel.value || "").trim() || null;
         const shelf_life_days = Number(String(slInp.value || "0").trim());
+
         const finalSub = norm(category) === norm("Sauce") ? sub_category : null;
 
         if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
@@ -1234,7 +1331,6 @@ async function renderManager() {
           });
           toast("Saved ✅");
           await loadItems();
-          await loadLatestExpiry();
         } catch (e) {
           err.textContent = e.message || "Save failed.";
           err.classList.remove("hidden");
@@ -1242,7 +1338,6 @@ async function renderManager() {
       });
     });
 
-    // delete (soft)
     $$(".mgr-del", listEl).forEach((b) => {
       b.addEventListener("click", async () => {
         const id = Number(b.getAttribute("data-id"));
@@ -1256,7 +1351,6 @@ async function renderManager() {
           toast("Deleted ✅");
           rows = rows.filter((x) => Number(x.id) !== id);
           await loadItems();
-          await loadLatestExpiry();
           renderRows();
         } catch (e) {
           err.textContent = e.message || "Delete failed.";
@@ -1270,43 +1364,220 @@ async function renderManager() {
   renderRows();
 }
 
-/* ---------- Manager: Add Item ---------- */
+/* ---------- Manager: Categories CRUD ---------- */
+async function renderManagerCategories() {
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="backBtn" class="btn-ghost" type="button">← Back</button>
+      <div class="page-title">Categories</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Add Category</div>
+      <div style="display:flex;gap:10px;">
+        <input id="catNewName" class="input" placeholder="Category name" />
+        <button id="catAddBtn" class="btn-yellow" type="button" style="width:120px;">Add</button>
+      </div>
+      <div id="catAddErr" class="error hidden" style="margin-top:8px;"></div>
+      <div class="helper" style="margin-top:8px;">Store-separated: PDD categories are separate from SKH.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Current Categories</div>
+      <div id="catList" class="muted">Loading…</div>
+    </div>
+  `;
+
+  $("#backBtn").onclick = () => { state.managerModePage = "dashboard"; renderManager(); };
+
+  const listEl = $("#catList");
+  const addErr = $("#catAddErr");
+  const addBtn = $("#catAddBtn");
+  const nameInp = $("#catNewName");
+
+  // load from server
+  let rows = [];
+  try {
+    rows = await apiManager("GET", `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`);
+  } catch (e) {
+    listEl.innerHTML = `
+      <div class="error">
+        Categories endpoints not available yet.<br/>
+        (Server needs /api/manager/categories).<br/>
+        App will still work using built-in categories.
+      </div>
+    `;
+    return;
+  }
+
+  function renderRows() {
+    if (!rows.length) {
+      listEl.innerHTML = `<div class="muted">No categories.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = rows
+      .map((r) => {
+        const name = String(r.name || "").trim();
+        return `
+          <div class="cat-row">
+            <input class="input cat-name" data-id="${r.id}" value="${escapeHtml(canonicalCategory(name))}" />
+            <button class="btn-yellow cat-save" data-id="${r.id}" type="button">Save</button>
+            <button class="btn-danger cat-del" data-id="${r.id}" type="button">Delete</button>
+          </div>
+          <div class="cat-err error hidden" data-id="${r.id}"></div>
+        `;
+      })
+      .join("");
+
+    // save
+    $$(".cat-save", listEl).forEach((b) => {
+      b.onclick = async () => {
+        const id = Number(b.getAttribute("data-id"));
+        const err = $(`.cat-err[data-id="${id}"]`, listEl);
+        err.classList.add("hidden");
+
+        const inp = $(`.cat-name[data-id="${id}"]`, listEl);
+        const newName = String(inp.value || "").trim();
+        if (!newName) {
+          err.textContent = "Name required.";
+          err.classList.remove("hidden");
+          return;
+        }
+
+        try {
+          await apiManager("PATCH", `/api/manager/categories/${id}`, {
+            store: state.session.store,
+            name: newName,
+          });
+          toast("Category saved ✅");
+          await loadCategories();
+          renderHome(); // refresh counts/tiles names if needed
+        } catch (e) {
+          err.textContent = e.message || "Save failed.";
+          err.classList.remove("hidden");
+        }
+      };
+    });
+
+    // delete
+    $$(".cat-del", listEl).forEach((b) => {
+      b.onclick = async () => {
+        const id = Number(b.getAttribute("data-id"));
+        const err = $(`.cat-err[data-id="${id}"]`, listEl);
+        err.classList.add("hidden");
+
+        if (!confirm("Delete this category?")) return;
+
+        try {
+          await apiManager("DELETE", `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`);
+          toast("Category deleted ✅");
+          rows = rows.filter((x) => Number(x.id) !== id);
+          await loadCategories();
+          renderRows();
+        } catch (e) {
+          err.textContent = e.message || "Delete failed.";
+          err.classList.remove("hidden");
+        }
+      };
+    });
+  }
+
+  addBtn.onclick = async () => {
+    addErr.classList.add("hidden");
+    const name = String(nameInp.value || "").trim();
+    if (!name) {
+      addErr.textContent = "Name required.";
+      addErr.classList.remove("hidden");
+      return;
+    }
+
+    try {
+      const out = await apiManager("POST", "/api/manager/categories", {
+        store: state.session.store,
+        name,
+      });
+      rows.unshift(out);
+      nameInp.value = "";
+      toast("Category added ✅");
+      await loadCategories();
+      renderRows();
+    } catch (e) {
+      addErr.textContent = e.message || "Add failed.";
+      addErr.classList.remove("hidden");
+    }
+  };
+
+  renderRows();
+}
+
+/* ---------- Manager router ---------- */
+async function renderManager() {
+  updateRolePill();
+  updateSessionLine();
+
+  if (!isManagerMode()) {
+    main.innerHTML = `
+      <div class="card">
+        <div class="h1">Manager</div>
+        <div class="muted">Login required.</div>
+        <button id="btnGoLogin" type="button" class="btn-yellow" style="margin-top:12px;">
+          Enter PIN
+        </button>
+      </div>
+    `;
+    $("#btnGoLogin").addEventListener("click", openManagerLogin);
+    return;
+  }
+
+  // ensure expiry summary exists for manager dashboard
+  if (!state.latestExpiryRows || !state.latestExpiryRows.length) {
+    await loadLatestExpiry();
+  }
+
+  if (state.managerModePage === "items") return renderManagerItems();
+  if (state.managerModePage === "categories") return renderManagerCategories();
+  return renderManagerDashboard();
+}
+
+/* ---------- Manager: Add item modal ---------- */
 function openManagerAddItem() {
   openModal(
     "Add Item",
     `
-      <div class="field">
-        <label class="label">Name</label>
-        <input id="newName" class="input" placeholder="Item name" />
-      </div>
+    <div class="modal-item-title">New item</div>
 
-      <div class="field">
-        <label class="label">Category</label>
-        <select id="newCat" class="input">
-          ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
-        </select>
-      </div>
+    <div class="field">
+      <label class="label">Name</label>
+      <input id="newName" class="input" placeholder="Item name" />
+    </div>
 
-      <div class="field">
-        <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
-        <select id="newSub" class="input">
-          <option value="" selected>(none)</option>
-          ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
-        </select>
-      </div>
+    <div class="field">
+      <label class="label">Category</label>
+      <select id="newCat" class="input">
+        ${state.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+      </select>
+    </div>
 
-      <div class="field">
-        <label class="label">Shelf life (days)</label>
-        <input id="newSL" class="input" inputmode="numeric" value="1" />
-      </div>
+    <div class="field">
+      <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
+      <select id="newSub" class="input">
+        <option value="" selected>(none)</option>
+        ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
+      </select>
+    </div>
 
-      <div id="addErr" class="error hidden"></div>
+    <div class="field">
+      <label class="label">Shelf life (days)</label>
+      <input id="newSL" class="input" inputmode="numeric" value="1" />
+    </div>
 
-      <button id="btnAddSave" type="button"
-        style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
-        Save
-      </button>
-    `
+    <div id="addErr" class="error hidden"></div>
+
+    <button id="btnAddSave" type="button" class="btn-yellow">
+      Save
+    </button>
+  `
   );
 
   const nameEl = $("#newName", modalBodyEl);
@@ -1346,10 +1617,12 @@ function openManagerAddItem() {
       });
 
       await loadItems();
-      await loadLatestExpiry();
       closeModal();
       toast("Added ✅");
-      render();
+
+      // stay in manager
+      state.managerModePage = "items";
+      setView({ page: "manager" }, true);
     } catch (e) {
       err.textContent = e.message || "Failed";
       err.classList.remove("hidden");
@@ -1364,7 +1637,8 @@ function doLogout() {
     setManagerToken("");
     toast("Back to staff mode");
     updateRolePill();
-    setView({ page: "home", category: null, sauceSub: null, filter: "all" }, false);
+    state.managerModePage = "dashboard";
+    setView({ page: "home", category: null, sauceSub: null }, true);
     return;
   }
 
@@ -1372,19 +1646,8 @@ function doLogout() {
   state.session = { store: "", shift: "", staff: "" };
   saveSession();
   state.navStack = [];
-  state.view = { page: "session", category: null, sauceSub: null, filter: "all" };
+  state.view = { page: "session", category: null, sauceSub: null };
   render();
-}
-
-/* ---------- Drawer nav helpers ---------- */
-function navHome() {
-  state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null, filter: "all" };
-  render();
-}
-function goManager() {
-  if (isManagerMode()) setView({ page: "manager" }, true);
-  else openManagerLogin();
 }
 
 /* ---------- Render router ---------- */
@@ -1400,6 +1663,7 @@ async function render() {
   }
 
   const page = state.view.page;
+
   if (page === "session") return renderSession();
   if (page === "home") return renderHome();
   if (page === "sauce_menu") return renderSauceMenu();
@@ -1411,48 +1675,59 @@ async function render() {
   renderHome();
 }
 
-/* ---------- Inject CSS (so you don’t need to edit style.css yet) ---------- */
-function injectUIStylesOnce() {
-  if ($("#precheckUiCss")) return;
-
+/* ---------- Inject CSS (keep current theme, add needed UI styles) ---------- */
+function injectFullCSS() {
+  if ($("#precheckFullCss")) return;
   const css = document.createElement("style");
-  css.id = "precheckUiCss";
+  css.id = "precheckFullCss";
   css.textContent = `
-    /* role pill colors */
-    .role-pill{border:0;border-radius:999px;padding:10px 14px;font-weight:1000;display:flex;gap:10px;align-items:center;cursor:pointer}
-    .role-pill--mgr{background:rgba(229,57,53,.12);color:#b71c1c}
-    .role-pill--staff{background:rgba(30,136,229,.12);color:#0d47a1}
-    .role-ico{font-size:18px}
+    /* Role pill */
+    .role-pill{
+      display:inline-flex;align-items:center;gap:10px;
+      border:0;border-radius:999px;padding:10px 14px;
+      font-weight:1000;cursor:pointer;user-select:none;
+    }
+    .role-pill--mgr{ background:rgba(229,57,53,.12); color:#b71c1c; }
+    .role-pill--staff{ background:rgba(30,136,229,.12); color:#0d47a1; }
+    .role-text{ font-weight:1000; }
+    .role-ico{ font-size:18px; }
 
-    /* Drawer */
-    .drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:999;display:flex;align-items:stretch}
-    .drawer-backdrop.hidden{display:none}
-    .drawer{width:78%;max-width:330px;background:#fff;border-top-right-radius:18px;border-bottom-right-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.18);overflow:hidden}
-    .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.08)}
-    .drawer-title{font-weight:1000}
-    .drawer-body{display:flex;flex-direction:column;padding:10px}
-    .drawer-item{width:100%;text-align:left;border:0;background:#fff;padding:14px 14px;border-radius:14px;font-weight:900;cursor:pointer}
-    .drawer-item:hover{background:rgba(0,0,0,.04)}
-    .drawer-sep{height:1px;background:rgba(0,0,0,.08);margin:10px 8px}
-    .drawer-item.danger{color:#c62828}
-
-    /* Home mock */
+    /* Home */
     .home-mock{padding-bottom:18px}
-    .summary-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:14px 0 14px}
-    .sum-card{border:0;border-radius:14px;padding:12px 10px;box-shadow:0 12px 24px rgba(0,0,0,.10);cursor:pointer}
+    .summary-row{
+      display:grid;grid-template-columns:1fr 1fr 1fr;
+      gap:10px;margin:14px 0 14px
+    }
+    .sum-card{
+      border:0;border-radius:14px;padding:12px 10px;
+      box-shadow:0 12px 24px rgba(0,0,0,.10);
+      cursor:pointer;text-align:left;
+    }
     .sum-num{font-size:26px;font-weight:1100;line-height:1}
     .sum-lbl{margin-top:6px;font-size:12px;font-weight:900;opacity:.9;line-height:1.1}
     .sum-red{background:#ffe6e6;color:#b71c1c}
     .sum-amber{background:#fff2dd;color:#6a3d00}
     .sum-green{background:#e7f7ea;color:#0b5a2a}
-    .home-h2{font-weight:1100;font-size:18px;margin:6px 2px 12px}
 
+    .home-h2{font-weight:1100;font-size:18px;margin:6px 2px 12px}
     .tiles-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .mock-tile{border:0;border-radius:16px;padding:14px;box-shadow:0 14px 26px rgba(0,0,0,.12);cursor:pointer;text-align:left;min-height:108px;position:relative;overflow:hidden}
-    .mock-ico{width:54px;height:54px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.24);backdrop-filter: blur(4px)}
+
+    .mock-tile{
+      border:0;border-radius:16px;padding:14px;
+      box-shadow:0 14px 26px rgba(0,0,0,.12);
+      cursor:pointer;text-align:left;min-height:108px;
+      position:relative;overflow:hidden;
+    }
+    .mock-ico{
+      width:54px;height:54px;border-radius:16px;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(255,255,255,.24);
+      backdrop-filter: blur(4px)
+    }
     .mock-ico img{width:46px;height:46px;object-fit:contain}
     .mock-title{margin-top:10px;font-weight:1100;font-size:16px;color:#fff}
     .mock-sub{margin-top:4px;font-weight:900;font-size:12px;color:rgba(255,255,255,.9)}
+
     .mock-green{background:linear-gradient(135deg,#1f8a4a,#0f5f33)}
     .mock-blue{background:linear-gradient(135deg,#2b89ff,#1762c7)}
     .mock-cyan{background:linear-gradient(135deg,#26c6da,#0b7a86)}
@@ -1462,6 +1737,40 @@ function injectUIStylesOnce() {
     .mock-teal{background:linear-gradient(135deg,#26a69a,#00695c)}
     .mock-green3{background:linear-gradient(135deg,#2e7d32,#0b5a2a)}
     .mock-purple{background:linear-gradient(135deg,#7e57c2,#4527a0)}
+
+    /* Buttons */
+    .btn-yellow{
+      width:100%;
+      border:0;
+      border-radius:999px;
+      padding:14px 16px;
+      font-weight:1000;
+      background:var(--yellow, #ffcc00);
+      color:#1b1b1b;
+      box-shadow:0 12px 22px rgba(0,0,0,0.10);
+      cursor:pointer;
+    }
+    .btn-ghost{
+      border:1px solid rgba(0,0,0,0.12);
+      background:#fff;
+      border-radius:999px;
+      padding:10px 14px;
+      font-weight:900;
+      cursor:pointer;
+    }
+    .btn-danger{
+      border:1px solid rgba(0,0,0,0.12);
+      background:#fff;
+      color:#c62828;
+      border-radius:999px;
+      padding:12px 14px;
+      font-weight:1000;
+      cursor:pointer;
+    }
+
+    /* Page head */
+    .page-head{display:flex;align-items:center;gap:10px;margin:10px 0 12px}
+    .page-title{font-weight:1100;font-size:18px}
 
     /* Category editor */
     .edit-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
@@ -1475,6 +1784,44 @@ function injectUIStylesOnce() {
     .exp-pick.hidden{display:none}
     .edit-helper{margin-top:10px;font-size:12px;opacity:.75;font-weight:700}
     .save-bar{position:sticky;bottom:0;background:linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,.9) 40%, rgba(255,255,255,1));padding:12px 0 6px;margin-top:18px}
+
+    /* Alerts */
+    .alert-section{margin-top:12px}
+    .alert-section-title{font-weight:1100;margin:10px 0 8px}
+    .alert-row{
+      display:flex;justify-content:space-between;gap:12px;
+      padding:12px 0;border-top:1px dashed rgba(0,0,0,0.12)
+    }
+    .alert-name{font-weight:1100}
+    .alert-extra{font-size:12px;opacity:.75;font-weight:800}
+    .alert-date{font-weight:1100;color:var(--green-dark, #0b5a2a)}
+
+    /* Manager tiles */
+    .mgr-tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .mgr-tile{
+      border:0;border-radius:16px;padding:14px;
+      box-shadow:0 14px 26px rgba(0,0,0,.12);
+      background:#fff;
+      cursor:pointer;text-align:left;
+    }
+    .mgr-t-ico{font-size:22px}
+    .mgr-t-title{margin-top:10px;font-weight:1100}
+    .mgr-t-sub{margin-top:4px;font-size:12px;opacity:.75;font-weight:800}
+
+    .mgr-item{border-top:1px dashed rgba(0,0,0,.12);padding-top:12px;margin-top:12px}
+    .mgr-item-name{font-weight:1100;font-size:16px;margin-bottom:10px}
+    .mgr-actions{display:flex;gap:10px;margin-top:10px}
+    .mgr-actions .btn-yellow{width:auto;flex:1}
+    .mgr-actions .btn-danger{width:auto;flex:1}
+
+    /* Category rows */
+    .cat-row{display:flex;gap:10px;align-items:center;margin-top:10px}
+    .cat-row .input{flex:1}
+    .cat-row .btn-yellow{width:110px}
+    .cat-row .btn-danger{width:110px}
+
+    /* Drawer close button should be clickable */
+    #btnDrawerClose{cursor:pointer}
   `;
   document.head.appendChild(css);
 }
@@ -1482,16 +1829,18 @@ function injectUIStylesOnce() {
 /* ---------- Boot ---------- */
 async function boot() {
   ensureToast();
-  injectUIStylesOnce();
-  bindModalOnce();
-  bindDrawerOnce();
-  bindSwipeBack();
+  bindModal();
+  injectFullCSS();
+  bindDrawer();
+  bindBackHandling();
 
   loadSession();
   setManagerToken(getManagerToken());
 
+  // load data if session exists
   if (state.session.store && state.session.shift && state.session.staff) {
     try {
+      await loadCategories();
       await loadItems();
       await loadLatestExpiry();
       state.view = { page: "home", category: null, sauceSub: null, filter: "all" };
@@ -1508,8 +1857,11 @@ async function boot() {
 boot().catch((e) => {
   console.error(e);
   if (main) {
-    main.innerHTML = `<div class="card"><div class="h1">Error</div><div class="error">${escapeHtml(
-      e?.message || e
-    )}</div></div>`;
+    main.innerHTML = `
+      <div class="card">
+        <div class="h1">Error</div>
+        <div class="error">${escapeHtml(e?.message || e)}</div>
+      </div>
+    `;
   }
 });
