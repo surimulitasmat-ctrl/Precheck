@@ -325,32 +325,43 @@ function getMode(item) {
 
 /* ---------- Side Drawer Nav (hamburger) ---------- */
 function ensureDrawer() {
-  // already created
-  if ($("#drawerBackdrop")) return;
+  // If drawer already exists, reuse it (DON'T return)
+  let backdrop = $("#drawerBackdrop");
 
-  const backdrop = document.createElement("div");
-  backdrop.id = "drawerBackdrop";
-  backdrop.className = "drawer-backdrop hidden";
-  backdrop.innerHTML = `
-    <aside class="drawer" role="dialog" aria-modal="true">
-      <div class="drawer-head">
-        <div class="drawer-title">Menu</div>
-        <button id="drawerClose" class="icon-btn" type="button" aria-label="Close">✕</button>
-      </div>
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.id = "drawerBackdrop";
+    backdrop.className = "drawer-backdrop hidden";
+    backdrop.innerHTML = `
+      <aside class="drawer" role="dialog" aria-modal="true">
+        <div class="drawer-head">
+          <div class="drawer-title">Menu</div>
+          <button id="drawerClose" class="icon-btn" type="button" aria-label="Close">✕</button>
+        </div>
 
-      <div class="drawer-body">
-        <button class="drawer-item" id="dHome" type="button">🏠 Home</button>
-        <button class="drawer-item" id="dAlerts" type="button">🔔 Alerts</button>
-        <button class="drawer-item" id="dManager" type="button">🛠️ Manager</button>
-        <button class="drawer-item" id="dLogout" type="button">🚪 Logout</button>
-      </div>
+        <div class="drawer-body">
+          <button class="drawer-item" id="dHome" type="button">🏠 Home</button>
+          <button class="drawer-item" id="dAlerts" type="button">🔔 Alerts</button>
+          <button class="drawer-item" id="dManager" type="button">🛠️ Manager</button>
+          <button class="drawer-item" id="dLogout" type="button">🚪 Logout</button>
+        </div>
 
-      <div class="drawer-foot muted" style="padding:12px 16px;">
-        <div style="font-size:12px;opacity:.8">PreCheck</div>
-      </div>
-    </aside>
-  `;
-  document.body.appendChild(backdrop);
+        <div class="drawer-foot muted" style="padding:12px 16px;">
+          <div style="font-size:12px;opacity:.8">PreCheck</div>
+        </div>
+      </aside>
+    `;
+    document.body.appendChild(backdrop);
+  }
+
+  // Bind only once
+  if (backdrop.dataset.bound === "1") {
+    // Still expose open/close every time
+    state._drawerOpen = () => backdrop.classList.remove("hidden");
+    state._drawerClose = () => backdrop.classList.add("hidden");
+    return;
+  }
+  backdrop.dataset.bound = "1";
 
   const close = () => backdrop.classList.add("hidden");
   const open = () => backdrop.classList.remove("hidden");
@@ -361,34 +372,39 @@ function ensureDrawer() {
   });
 
   // X button closes
-  const closeBtn = $("#drawerClose");
+  const closeBtn = $("#drawerClose", backdrop);
   if (closeBtn) closeBtn.addEventListener("click", close);
 
-  // bindings
-  $("#dHome").addEventListener("click", () => {
+  // Menu buttons
+  const dHome = $("#dHome", backdrop);
+  const dAlerts = $("#dAlerts", backdrop);
+  const dManager = $("#dManager", backdrop);
+  const dLogout = $("#dLogout", backdrop);
+
+  if (dHome) dHome.addEventListener("click", () => {
     close();
     state.navStack = [];
     state.view = { page: "home", category: null, sauceSub: null };
     render();
   });
 
-  $("#dAlerts").addEventListener("click", () => {
+  if (dAlerts) dAlerts.addEventListener("click", () => {
     close();
     setView({ page: "alerts", category: null, sauceSub: null }, true);
   });
 
-  $("#dManager").addEventListener("click", () => {
+  if (dManager) dManager.addEventListener("click", () => {
     close();
     if (isManagerMode()) setView({ page: "manager" }, true);
     else openManagerLogin();
   });
 
-  $("#dLogout").addEventListener("click", () => {
+  if (dLogout) dLogout.addEventListener("click", () => {
     close();
     doLogout();
   });
 
-  // expose helpers if you still want them
+  // expose helpers
   state._drawerOpen = open;
   state._drawerClose = close;
 }
@@ -396,18 +412,13 @@ function ensureDrawer() {
 function ensureHamburger() {
   if (!topbar) return;
 
-  // If drawer not created yet, create it first
+  // Make sure drawer exists + is bound
   ensureDrawer();
 
-  // Remove any extra menu buttons (keep only one)
-  const existing = [
-    ...document.querySelectorAll("#menuBtn, #btnMenu, [data-menu='hamburger']")
-  ];
-
-  let btn = existing[0] || null;
-
-  // delete duplicates
-  for (let i = 1; i < existing.length; i++) existing[i].remove();
+  // Keep only ONE hamburger
+  const all = [...document.querySelectorAll("#menuBtn, #btnMenu, [data-menu='hamburger']")];
+  let btn = all[0] || null;
+  for (let i = 1; i < all.length; i++) all[i].remove();
 
   if (!btn) {
     const row = $(".topbar-row", topbar) || topbar;
@@ -426,22 +437,22 @@ function ensureHamburger() {
         <path d="M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
       </svg>
     `;
-
     brandWrap.prepend(btn);
   } else {
-    // normalize id so everything is consistent
     btn.id = "menuBtn";
   }
 
-  // Prevent double-binding
+  // reset click
   btn.onclick = null;
-
   btn.addEventListener("click", () => {
-    const backdrop = $("#drawerBackdrop");
-    if (!backdrop) return; // should never happen now
-    backdrop.classList.remove("hidden");
+    if (state._drawerOpen) state._drawerOpen();
+    else {
+      const b = $("#drawerBackdrop");
+      if (b) b.classList.remove("hidden");
+    }
   });
 }
+
 
 
 
