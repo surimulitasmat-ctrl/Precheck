@@ -6,54 +6,52 @@
     <title>PreCheck</title>
 
     <meta name="theme-color" content="#009A44" />
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="/manifest.json?v=20260111a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=20260111a" />
   </head>
 
   <body>
+    <!-- TOP BAR -->
     <header class="topbar" id="topbar">
       <div class="topbar-row">
+        <button id="btnMenu" class="menu-btn" type="button" aria-label="Open menu">☰</button>
+
         <div class="brand-wrap">
           <div class="brand">PreCheck</div>
-          <!-- badge + session info injected here -->
           <div id="sessionLine" class="session-line hidden"></div>
         </div>
 
+        <!-- role badge moved to top right -->
         <div class="topbar-right">
-          <button id="btnManager" class="chip" type="button">Manager</button>
-          <button id="btnLogout" class="chip chip--ghost" type="button">Logout</button>
+          <button id="rolePill" class="role-pill hidden" type="button" aria-label="Role"></button>
         </div>
       </div>
     </header>
 
+    <!-- LEFT DRAWER -->
+    <div id="drawerBackdrop" class="drawer-backdrop hidden" aria-hidden="true">
+      <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Menu">
+        <div class="drawer-head">
+          <div class="drawer-title">Menu</div>
+          <button id="btnDrawerClose" class="icon-btn" type="button" aria-label="Close">✕</button>
+        </div>
+
+        <div class="drawer-body">
+          <button class="drawer-item" id="drawerHome" type="button">🏠 Home</button>
+          <button class="drawer-item" id="drawerAlerts" type="button">🔔 Alerts</button>
+          <button class="drawer-item" id="drawerManager" type="button">🛠️ Manager</button>
+          <div class="drawer-sep"></div>
+          <button class="drawer-item danger" id="drawerLogout" type="button">🚪 Logout</button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- MAIN -->
     <main id="main" class="container"></main>
 
-    <!-- Bottom Nav (ONLY ONE) -->
-    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Bottom navigation">
-      <button id="navHome" class="bottom-tab" type="button">
-        <div class="bn-ico">🏠</div>
-        <div class="bn-txt">Home</div>
-      </button>
-
-      <button id="navAlerts" class="bottom-tab" type="button">
-        <div class="bn-ico">🔔</div>
-        <div class="bn-txt">Alerts</div>
-      </button>
-
-      <button id="navManager" class="bottom-tab" type="button">
-        <div class="bn-ico">🛠️</div>
-        <div class="bn-txt">Manager</div>
-      </button>
-
-      <button id="navLogout" class="bottom-tab" type="button">
-        <div class="bn-ico">🚪</div>
-        <div class="bn-txt">Logout</div>
-      </button>
-    </nav>
-
-    <!-- Modal -->
+    <!-- MODAL -->
     <div id="modalBackdrop" class="backdrop hidden" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true">
         <div class="modal-head">
@@ -66,6 +64,6 @@
 
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260111a"></script>
   </body>
 </html>
