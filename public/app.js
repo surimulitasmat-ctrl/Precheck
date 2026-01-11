@@ -386,34 +386,47 @@ function ensureDrawer() {
 }
 
 function ensureHamburger() {
-  if ($("#menuBtn")) return;
   if (!topbar) return;
 
-  // insert hamburger on the left of brand
-  const row = $(".topbar-row", topbar) || topbar;
-  const brandWrap = $(".brand-wrap", topbar) || row;
+  // If a menu button already exists (maybe from HTML), reuse it
+  let btn = $("#menuBtn") || $("#btnMenu") || document.querySelector('[data-menu="hamburger"]');
 
-  const btn = document.createElement("button");
-  btn.id = "menuBtn";
-  btn.type = "button";
-  btn.className = "icon-btn";
-  btn.setAttribute("aria-label", "Menu");
-  btn.style.marginRight = "10px";
-  btn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <path d="M4 6h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-      <path d="M4 12h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-      <path d="M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-    </svg>
-  `;
+  if (!btn) {
+    // Create ONE button only
+    const row = $(".topbar-row", topbar) || topbar;
+    const brandWrap = $(".brand-wrap", topbar) || row;
 
-  // place at very left
-  brandWrap.prepend(btn);
+    btn = document.createElement("button");
+    btn.id = "menuBtn";
+    btn.type = "button";
+    btn.className = "icon-btn";
+    btn.setAttribute("aria-label", "Menu");
+    btn.style.marginRight = "10px";
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path d="M4 6h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+        <path d="M4 12h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+        <path d="M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+      </svg>
+    `;
 
-  btn.addEventListener("click", () => {
-    if (state._drawerOpen) state._drawerOpen();
+    // Put at far left
+    brandWrap.prepend(btn);
+  } else {
+    // If your HTML hamburger exists, ensure it has the correct id
+    if (!btn.id) btn.id = "menuBtn";
+  }
+
+  // IMPORTANT: avoid double-binding click (clone trick)
+  const fresh = btn.cloneNode(true);
+  btn.replaceWith(fresh);
+
+  fresh.addEventListener("click", () => {
+    const backdrop = $("#drawerBackdrop");
+    if (backdrop) backdrop.classList.remove("hidden");
   });
 }
+
 
 /* ---------- Top-right role badge (Manager/Staff) ---------- */
 function updateTopRightRole() {
