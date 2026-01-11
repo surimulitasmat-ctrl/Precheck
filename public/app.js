@@ -396,11 +396,20 @@ function ensureDrawer() {
 function ensureHamburger() {
   if (!topbar) return;
 
-  // If a menu button already exists (maybe from HTML), reuse it
-  let btn = $("#menuBtn") || $("#btnMenu") || document.querySelector('[data-menu="hamburger"]');
+  // If drawer not created yet, create it first
+  ensureDrawer();
+
+  // Remove any extra menu buttons (keep only one)
+  const existing = [
+    ...document.querySelectorAll("#menuBtn, #btnMenu, [data-menu='hamburger']")
+  ];
+
+  let btn = existing[0] || null;
+
+  // delete duplicates
+  for (let i = 1; i < existing.length; i++) existing[i].remove();
 
   if (!btn) {
-    // Create ONE button only
     const row = $(".topbar-row", topbar) || topbar;
     const brandWrap = $(".brand-wrap", topbar) || row;
 
@@ -418,22 +427,22 @@ function ensureHamburger() {
       </svg>
     `;
 
-    // Put at far left
     brandWrap.prepend(btn);
   } else {
-    // If your HTML hamburger exists, ensure it has the correct id
-    if (!btn.id) btn.id = "menuBtn";
+    // normalize id so everything is consistent
+    btn.id = "menuBtn";
   }
 
-  // IMPORTANT: avoid double-binding click (clone trick)
-  const fresh = btn.cloneNode(true);
-  btn.replaceWith(fresh);
+  // Prevent double-binding
+  btn.onclick = null;
 
-  fresh.addEventListener("click", () => {
+  btn.addEventListener("click", () => {
     const backdrop = $("#drawerBackdrop");
-    if (backdrop) backdrop.classList.remove("hidden");
+    if (!backdrop) return; // should never happen now
+    backdrop.classList.remove("hidden");
   });
 }
+
 
 
 /* ---------- Top-right role badge (Manager/Staff) ---------- */
