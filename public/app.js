@@ -326,6 +326,8 @@ function getMode(item) {
 /* ---------- Side Drawer Nav (hamburger) ---------- */
 function ensureDrawer() {
   if ($("#drawerBackdrop")) return;
+const closeBtn = $("#drawerClose");
+if (closeBtn) closeBtn.addEventListener("click", () => backdrop.classList.add("hidden"));
 
   const backdrop = document.createElement("div");
   backdrop.id = "drawerBackdrop";
