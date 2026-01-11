@@ -1,8 +1,10 @@
 /* =========================
    PreCheck — app.js (FULL)
-   Single-file, safe copy/paste
-   UI: Topbar + Bottom nav (Home/Alerts/Manager/Logout)
-   Manager: per-store + soft delete
+   - Top bar: badges + session line
+   - Bottom nav: Home / Alerts / Manager / Logout
+   - Yellow buttons: Start / Save / Login / OK
+   - Store-separated categories + items
+   - Manager: add/edit/delete categories + items (soft delete)
    ========================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -46,60 +48,32 @@ function toISOAtLocalTime(isoDate, hhmm) {
   return d.toISOString();
 }
 
-/* ---------- Constants ---------- */
-const CATEGORIES = [
-  "Prepared items",
-  "Unopened chiller",
-  "Thawing",
-  "Vegetables",
-  "Backroom",
-  "Back counter",
-  "Front counter",
-  "Back counter chiller",
-  "Sauce",
-];
-
-const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
-
-const FIXED_TIME_SLOTS = ["11:00", "15:00", "19:00", "23:00"];
-const HOURLY_FIXED_ITEMS = new Set([norm("Soup"), norm("Soups")]);
-
-const MANUAL_ALWAYS = new Set([]);
-
-/* ---------- Tile meta (emoji icons + tones) ---------- */
-const TILE_META = {
-  "Prepared items": { tone: "green", icon: "🧾" },
-  "Unopened chiller": { tone: "blue", icon: "🧊" },
-  Thawing: { tone: "cyan", icon: "❄️" },
-  Vegetables: { tone: "lime", icon: "🥬" },
-  Backroom: { tone: "orange", icon: "📦" },
-  "Back counter": { tone: "yellow", icon: "🧂" },
-  "Front counter": { tone: "red", icon: "🥣" },
-  "Back counter chiller": { tone: "teal", icon: "🧀" },
-  Sauce: { tone: "purple", icon: "🧴" },
-};
-
 /* ---------- DOM ---------- */
 const main = $("#main");
 const sessionLine = $("#sessionLine");
-const topBtnManager = $("#btnManager");
-const topBtnLogout = $("#btnLogout");
+const btnManagerTop = $("#btnManager");
+const btnLogoutTop = $("#btnLogout");
+
+const navHome = $("#navHome");
+const navAlerts = $("#navAlerts");
+const navManager = $("#navManager");
+const navLogout = $("#navLogout");
+const bottomNav = $("#bottomNav");
 
 const modalBackdrop = $("#modalBackdrop");
 const modalTitleEl = $("#modalTitle");
 const modalBodyEl = $("#modalBody");
 const modalCloseBtn = $("#modalClose");
 
-const navHome = $("#navHome");
-const navAlerts = $("#navAlerts");
-const navManager = $("#navManager");
-const navLogout = $("#navLogout"); // may be injected by old versions
+const toastEl = $("#toast");
 
 /* ---------- State ---------- */
 const state = {
   session: { store: "", shift: "", staff: "" },
-  items: [],
-  view: { page: "session", category: null, sauceSub: null },
+  categories: [], // store-scoped
+  items: [], // store-scoped
+  view: { page: "session", category: null },
+  manager: { token: "" },
   navStack: [],
 };
 
@@ -108,31 +82,32 @@ function loadSession() {
   try {
     const s = JSON.parse(localStorage.getItem("session") || "null");
     if (s && typeof s === "object") {
-      state.session = { store: s.store || "", shift: s.shift || "", staff: s.staff || "" };
+      state.session = {
+        store: s.store || "",
+        shift: s.shift || "",
+        staff: s.staff || "",
+      };
     }
   } catch {}
 }
 function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
 }
-
 function getManagerToken() {
   return localStorage.getItem("managerToken") || "";
 }
 function setManagerToken(t) {
   if (t) localStorage.setItem("managerToken", t);
   else localStorage.removeItem("managerToken");
+  state.manager.token = t || "";
 }
 function isManagerMode() {
   return !!getManagerToken();
 }
 
 /* ---------- Modal ---------- */
-function hasModal() {
-  return !!(modalBackdrop && modalTitleEl && modalBodyEl);
-}
 function openModal(title, bodyHtml) {
-  if (!hasModal()) {
+  if (!modalBackdrop || !modalTitleEl || !modalBodyEl) {
     alert(title || "Notice");
     return;
   }
@@ -142,29 +117,21 @@ function openModal(title, bodyHtml) {
   modalBackdrop.setAttribute("aria-hidden", "false");
 }
 function closeModal() {
-  if (!hasModal()) return;
+  if (!modalBackdrop || !modalBodyEl) return;
   modalBackdrop.classList.add("hidden");
   modalBackdrop.setAttribute("aria-hidden", "true");
   modalBodyEl.innerHTML = "";
 }
 
-if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
-if (modalBackdrop) {
-  modalBackdrop.addEventListener("click", (e) => {
-    if (e.target === modalBackdrop) closeModal();
-  });
-}
-
-/* ---------- Toast (simple) ---------- */
+/* ---------- Toast ---------- */
 function toast(msg) {
-  const el = $("#toast");
-  if (!el) return;
-  el.textContent = msg;
-  el.classList.remove("hidden");
-  setTimeout(() => el.classList.add("hidden"), 1600);
+  if (!toastEl) return alert(msg);
+  toastEl.textContent = msg;
+  toastEl.classList.remove("hidden");
+  setTimeout(() => toastEl.classList.add("hidden"), 1600);
 }
 
-/* ---------- API helpers ---------- */
+/* ---------- API ---------- */
 async function apiJSON(res) {
   try {
     return await res.json();
@@ -172,14 +139,12 @@ async function apiJSON(res) {
     return null;
   }
 }
-
 async function apiGet(url) {
   const res = await fetch(url);
   const data = await apiJSON(res);
   if (!res.ok) throw new Error(data?.error || `Request failed: ${res.status}`);
   return data;
 }
-
 async function apiPost(url, body) {
   const res = await fetch(url, {
     method: "POST",
@@ -190,7 +155,6 @@ async function apiPost(url, body) {
   if (!res.ok) throw new Error(data?.error || `Request failed: ${res.status}`);
   return data;
 }
-
 async function apiManager(method, url, body) {
   const token = getManagerToken();
   const res = await fetch(url, {
@@ -204,9 +168,7 @@ async function apiManager(method, url, body) {
 
   if (res.status === 401) {
     setManagerToken("");
-    updateTopbar();
-    updateBottomNav();
-    toast("Manager session expired");
+    toast("Manager session expired. Login again.");
     throw new Error("unauthorized");
   }
 
@@ -215,22 +177,18 @@ async function apiManager(method, url, body) {
   return data;
 }
 
-/* ---------- Category normalize ---------- */
-function canonicalCategory(cat) {
-  const n = norm(cat);
-  const hit = CATEGORIES.find((x) => norm(x) === n);
-  return hit || String(cat || "").trim() || "Unknown";
-}
+/* ---------- Expiry rules ---------- */
+const SAUCE_SUBS = ["Sandwich Unit", "Standby", "Open Inner"];
+const FIXED_TIME_SLOTS = ["11:00", "15:00", "19:00", "23:00"];
+const HOURLY_FIXED_ITEMS = new Set([norm("Soup"), norm("Soups")]);
+const MANUAL_ALWAYS = new Set([]); // add names if you want forced manual
 
-/* ---------- Shelf life ---------- */
 function getShelfLifeDays(item) {
-  const v = Number(item.shelf_life_days ?? item.shelfLifeDays ?? 0);
+  const v = Number(item.shelf_life_days ?? 0);
   return Number.isFinite(v) ? v : 0;
 }
-
-/* ---------- Expiry mode ---------- */
 function getMode(item) {
-  const cat = canonicalCategory(item.category);
+  const cat = String(item.category || "").trim();
   const nameN = norm(item.name);
 
   if (nameN === norm("Chicken Bacon (C)")) return "EOD";
@@ -242,8 +200,17 @@ function getMode(item) {
   if (sl > 7) return "MANUAL_DATE";
   return "AUTO";
 }
+function getHelperText(it) {
+  const mode = getMode(it);
+  const sl = getShelfLifeDays(it);
 
-/* ---------- UI: Topbar session line ---------- */
+  if (mode === "EOD") return "Expiry: End of day (auto).";
+  if (mode === "HOURLY_FIXED") return "Expiry: Select fixed time (today).";
+  if (mode === "MANUAL_DATE") return "Expiry: Staff sets date (manual).";
+  return `Expiry: Select date (0–${sl} day${sl === 1 ? "" : "s"}).`;
+}
+
+/* ---------- UI updates ---------- */
 function updateSessionLine() {
   if (!sessionLine) return;
 
@@ -251,76 +218,38 @@ function updateSessionLine() {
   const shift = state.session.shift || "";
   const staff = state.session.staff || "";
 
+  const hasSession = !!(store && shift && staff);
+
+  const roleBadge = isManagerMode()
+    ? `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;">MANAGER</span>`
+    : `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;">STAFF</span>`;
+
   const line = [store, shift, staff].filter(Boolean).join(" • ");
-  if (!line) {
-    sessionLine.classList.add("hidden");
-    sessionLine.innerHTML = "";
-    return;
-  }
 
-  // IMPORTANT: show ONLY ONE badge (manager OR staff)
-  const badge = isManagerMode()
-    ? `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#E53935;margin-right:10px;">MANAGER</span>`
-    : `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-weight:1000;font-size:12px;color:#fff;background:#1E88E5;margin-right:10px;">STAFF</span>`;
+  sessionLine.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      ${roleBadge}
+      <span style="font-weight:1000;">${escapeHtml(line || "")}</span>
+    </div>
+  `;
 
-  sessionLine.innerHTML = `${badge}${escapeHtml(line)}`;
-  sessionLine.classList.remove("hidden");
+  sessionLine.classList.toggle("hidden", !hasSession);
 }
 
-/* ---------- Top buttons ---------- */
-function updateTopbar() {
+function updateTopButtons() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
-  if (topBtnManager) topBtnManager.classList.toggle("hidden", !hasSession);
-  if (topBtnLogout) topBtnLogout.classList.toggle("hidden", !hasSession);
+
+  if (btnManagerTop) btnManagerTop.classList.toggle("hidden", !hasSession);
+  if (btnLogoutTop) btnLogoutTop.classList.toggle("hidden", !hasSession);
 }
 
-function bindTopbarButtons() {
-  if (topBtnManager && topBtnManager.dataset.bound !== "1") {
-    topBtnManager.dataset.bound = "1";
-    topBtnManager.addEventListener("click", () => {
-      if (isManagerMode()) {
-        setView({ page: "manager" }, true);
-      } else {
-        openManagerLogin();
-      }
-    });
-  }
-
-  if (topBtnLogout && topBtnLogout.dataset.bound !== "1") {
-    topBtnLogout.dataset.bound = "1";
-    topBtnLogout.addEventListener("click", () => {
-      if (isManagerMode()) {
-        if (!confirm("Exit manager mode?")) return;
-        setManagerToken("");
-        toast("Back to staff mode");
-        updateSessionLine();
-        updateBottomNav();
-        setView({ page: "home", category: null, sauceSub: null }, false);
-        return;
-      }
-
-      if (!confirm("Logout staff session?")) return;
-      state.session = { store: "", shift: "", staff: "" };
-      saveSession();
-      setManagerToken("");
-      state.items = [];
-      state.navStack = [];
-      setView({ page: "session", category: null, sauceSub: null }, false);
-    });
-  }
-}
-
-/* ---------- Bottom nav show/hide + active ---------- */
 function updateBottomNav() {
   const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
+  if (!bottomNav) return;
 
-  const nav = $("#bottomNav");
-  if (nav) nav.classList.toggle("hidden", !hasSession);
+  bottomNav.classList.toggle("hidden", !hasSession);
 
-  // Make Manager tab visible when session exists
-  if (navManager) navManager.classList.toggle("hidden", !hasSession);
-
-  // Active styling
+  // active state
   const page = state.view.page;
   const setActive = (el, on) => el && el.classList.toggle("active", !!on);
 
@@ -329,136 +258,45 @@ function updateBottomNav() {
   setActive(navManager, page === "manager");
 }
 
-function bindBottomNav() {
-  if (navHome && navHome.dataset.bound !== "1") {
-    navHome.dataset.bound = "1";
-    navHome.addEventListener("click", () => {
-      state.navStack = [];
-      setView({ page: "home", category: null, sauceSub: null }, false);
-    });
-  }
-
-  if (navAlerts && navAlerts.dataset.bound !== "1") {
-    navAlerts.dataset.bound = "1";
-    navAlerts.addEventListener("click", () => {
-      setView({ page: "alerts", category: null, sauceSub: null }, true);
-    });
-  }
-
-  if (navManager && navManager.dataset.bound !== "1") {
-    navManager.dataset.bound = "1";
-    navManager.addEventListener("click", () => {
-      if (isManagerMode()) setView({ page: "manager" }, true);
-      else openManagerLogin();
-    });
-  }
-
-  // If you have a logout tab in HTML, we’ll support it too:
-  if (navLogout && navLogout.dataset.bound !== "1") {
-    navLogout.dataset.bound = "1";
-    navLogout.addEventListener("click", () => {
-      if (topBtnLogout) topBtnLogout.click();
-    });
-  }
-}
-
 /* ---------- Navigation ---------- */
 function setView(next, push = true) {
   const prev = { ...state.view };
   state.view = { ...next };
-
   if (push) state.navStack.push(prev);
-
-  try {
-    history.pushState({ t: Date.now() }, "");
-  } catch {}
-
   render();
 }
-
 function goBack() {
   const prev = state.navStack.pop();
   if (prev) {
     state.view = prev;
     render();
+  } else {
+    state.view = { page: "home", category: null };
+    render();
   }
 }
 
-function bindSwipeBack() {
-  let sx = 0, sy = 0, st = 0;
-
-  window.addEventListener(
-    "touchstart",
-    (e) => {
-      if (!e.touches || !e.touches[0]) return;
-      sx = e.touches[0].clientX;
-      sy = e.touches[0].clientY;
-      st = Date.now();
-    },
-    { passive: true }
-  );
-
-  window.addEventListener(
-    "touchend",
-    (e) => {
-      const t = e.changedTouches && e.changedTouches[0];
-      if (!t) return;
-
-      const dx = t.clientX - sx;
-      const dy = t.clientY - sy;
-      const dt = Date.now() - st;
-
-      const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-      if (modalOpen) return;
-
-      if (dx > 70 && Math.abs(dy) < 45 && dt < 600) goBack();
-    },
-    { passive: true }
-  );
-
-  window.addEventListener("popstate", () => {
-    const modalOpen = modalBackdrop && !modalBackdrop.classList.contains("hidden");
-    if (modalOpen) {
-      closeModal();
-      return;
-    }
-    goBack();
-  });
-
-  try {
-    history.replaceState({ t: Date.now() }, "");
-    history.pushState({ t: Date.now() }, "");
-  } catch {}
-}
-
-/* ---------- Data load ---------- */
-async function loadItems() {
+/* ---------- Data load (store-scoped) ---------- */
+async function loadStoreData() {
   const store = state.session.store;
-  const rows = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
-  state.items = (rows || []).map((x) => ({
-    ...x,
-    category: canonicalCategory(x.category),
-    sub_category: x.sub_category ?? null,
-  }));
+  state.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+  state.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
 }
 
-/* ---------- Home counts ---------- */
-function categoryCounts() {
+function categoryCountsByName() {
   const counts = {};
-  for (const c of CATEGORIES) counts[c] = 0;
-
+  for (const c of state.categories) counts[c.name] = 0;
   for (const it of state.items) {
-    const c = canonicalCategory(it.category);
-    if (counts[c] == null) counts[c] = 0;
-    counts[c]++;
+    const c = String(it.category || "").trim();
+    counts[c] = (counts[c] || 0) + 1;
   }
   return counts;
 }
 
 /* ---------- Render: Session ---------- */
 function renderSession() {
-  updateTopbar();
   updateSessionLine();
+  updateTopButtons();
   updateBottomNav();
 
   main.innerHTML = `
@@ -501,15 +339,15 @@ function renderSession() {
   const storeSel = $("#storeSel");
   const shiftSel = $("#shiftSel");
   const staffInp = $("#staffInp");
-  const btnStart = $("#btnStart");
   const err = $("#startErr");
 
   storeSel.value = state.session.store || "";
   shiftSel.value = state.session.shift || "";
   staffInp.value = state.session.staff || "";
 
-  btnStart.addEventListener("click", async () => {
+  $("#btnStart").addEventListener("click", async () => {
     err.classList.add("hidden");
+
     const store = storeSel.value.trim();
     const shift = shiftSel.value.trim();
     const staff = staffInp.value.trim();
@@ -524,47 +362,59 @@ function renderSession() {
     saveSession();
 
     try {
-      await loadItems();
+      await loadStoreData();
+      state.navStack = [];
+      state.view = { page: "home", category: null };
+      render();
     } catch (e) {
-      err.textContent = `Failed to load items: ${e.message || e}`;
+      err.textContent = `Failed to load store data: ${e.message || e}`;
       err.classList.remove("hidden");
-      return;
     }
-
-    state.navStack = [];
-    setView({ page: "home", category: null, sauceSub: null }, false);
   });
 }
 
-/* ---------- Render: Home ---------- */
+/* ---------- Render: Home (categories from DB) ---------- */
 function renderHome() {
-  updateTopbar();
   updateSessionLine();
+  updateTopButtons();
   updateBottomNav();
 
-  const counts = categoryCounts();
+  const counts = categoryCountsByName();
 
   main.innerHTML = `
     <section class="home-surface">
       <div class="home-title">Categories</div>
       <div class="home-sub">Tap a category to log items.</div>
 
-      <section class="grid tiles-grid">
-        ${CATEGORIES.map((cat, idx) => {
-          const meta = TILE_META[cat] || TILE_META["Prepared items"];
-          const count = counts[cat] ?? 0;
-          const delay = Math.min(0.6, idx * 0.05).toFixed(2);
+      <section class="grid">
+        ${state.categories
+          .map((c) => {
+            const name = c.name;
+            const count = counts[name] || 0;
 
-          return `
-            <button class="tile tile--${meta.tone}" style="animation-delay:${delay}s" data-cat="${escapeHtml(cat)}" type="button">
-              <div class="tile-top">
-                <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
-              </div>
-              <div class="tile-title">${escapeHtml(cat)}</div>
-              <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
-            </button>
-          `;
-        }).join("")}
+            // simple emoji icon per name (no missing icons)
+            const icon =
+              name === "Prepared items" ? "🧾" :
+              name === "Unopened chiller" ? "🧊" :
+              name === "Thawing" ? "❄️" :
+              name === "Vegetables" ? "🥬" :
+              name === "Backroom" ? "📦" :
+              name === "Back counter" ? "🧂" :
+              name === "Front counter" ? "🥣" :
+              name === "Back counter chiller" ? "🧀" :
+              name === "Sauce" ? "🧴" : "📋";
+
+            return `
+              <button class="tile tile--green" data-cat="${escapeHtml(name)}" type="button">
+                <div class="tile-top">
+                  <div class="tile-icon" aria-hidden="true">${icon}</div>
+                </div>
+                <div class="tile-title">${escapeHtml(name)}</div>
+                <div class="tile-sub">${count} item${count === 1 ? "" : "s"}</div>
+              </button>
+            `;
+          })
+          .join("")}
       </section>
     </section>
   `;
@@ -572,16 +422,16 @@ function renderHome() {
   $$("[data-cat]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const cat = btn.getAttribute("data-cat");
-      if (cat === "Sauce") setView({ page: "sauce_menu", category: "Sauce", sauceSub: null }, true);
-      else setView({ page: "category", category: cat, sauceSub: null }, true);
+      if (cat === "Sauce") setView({ page: "sauce_menu", category: "Sauce" }, true);
+      else setView({ page: "category", category: cat }, true);
     });
   });
 }
 
 /* ---------- Render: Sauce menu ---------- */
 function renderSauceMenu() {
-  updateTopbar();
   updateSessionLine();
+  updateTopButtons();
   updateBottomNav();
 
   main.innerHTML = `
@@ -592,11 +442,10 @@ function renderSauceMenu() {
 
     <section class="grid">
       ${SAUCE_SUBS.map((s) => {
-        const meta = TILE_META["Sauce"];
         return `
-          <button class="tile tile--${meta.tone}" data-sauce="${escapeHtml(s)}" type="button">
+          <button class="tile tile--purple" data-sauce="${escapeHtml(s)}" type="button">
             <div class="tile-top">
-              <div class="tile-icon" aria-hidden="true">${meta.icon}</div>
+              <div class="tile-icon" aria-hidden="true">🧴</div>
             </div>
             <div class="tile-title">${escapeHtml(s)}</div>
             <div class="tile-sub">Tap to view items</div>
@@ -606,89 +455,30 @@ function renderSauceMenu() {
     </section>
   `;
 
-  $("#backBtn").addEventListener("click", goBack);
+  $("#backBtn").addEventListener("click", () => goBack());
 
   $$("[data-sauce]", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const sub = btn.getAttribute("data-sauce");
-      setView({ page: "category", category: "Sauce", sauceSub: sub }, true);
+      // category page uses "Sauce • sub"
+      setView({ page: "category", category: `Sauce • ${sub}` }, true);
     });
   });
 }
 
-/* ---------- Items for list ---------- */
-function getItemsForCurrentList() {
-  const { category, sauceSub } = state.view;
-
-  let list = state.items.filter((it) => norm(canonicalCategory(it.category)) === norm(category));
-
-  if (category === "Sauce") {
-    list = list.filter((it) => norm(it.sub_category || "") === norm(sauceSub || ""));
+/* ---------- Items list for category ---------- */
+function getItemsForCategoryPage(catLabel) {
+  if (catLabel.startsWith("Sauce • ")) {
+    const sub = catLabel.replace("Sauce • ", "").trim();
+    return state.items
+      .filter((x) => String(x.category).trim() === "Sauce")
+      .filter((x) => norm(x.sub_category || "") === norm(sub))
+      .sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
   }
 
-  list.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
-  return list;
-}
-
-function getHelperText(it) {
-  const mode = getMode(it);
-  const sl = getShelfLifeDays(it);
-
-  if (mode === "EOD") return "Expiry: End of day (auto).";
-  if (mode === "HOURLY_FIXED") return "Expiry: Select fixed time (today).";
-  if (mode === "MANUAL_DATE") return "Expiry: Staff sets date (manual).";
-  if (mode === "AUTO") return `Expiry: Select date (0–${sl} day${sl === 1 ? "" : "s"}).`;
-  return "Select expiry.";
-}
-
-/* ---------- Render: Category list ---------- */
-function renderCategoryList() {
-  updateTopbar();
-  updateSessionLine();
-  updateBottomNav();
-
-  const { category, sauceSub } = state.view;
-  const title = category === "Sauce" ? `Sauce • ${sauceSub}` : category;
-
-  const list = getItemsForCurrentList();
-
-  main.innerHTML = `
-    <div class="page-head">
-      <button id="backBtn" class="btn-ghost" type="button">← Back</button>
-      <div class="page-title">${escapeHtml(title)}</div>
-    </div>
-
-    <section class="list">
-      ${
-        list.length
-          ? list
-              .map(
-                (it) => `
-                <button class="list-row" data-item-id="${it.id}" type="button">
-                  <div class="list-row-main">
-                    <div class="list-row-title">${escapeHtml(it.name)}</div>
-                    <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
-                  </div>
-                  <div class="chev">›</div>
-                </button>
-              `
-              )
-              .join("")
-          : `<div class="empty">No items found.</div>`
-      }
-    </section>
-  `;
-
-  $("#backBtn").addEventListener("click", goBack);
-
-  $$("[data-item-id]", main).forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = Number(btn.getAttribute("data-item-id"));
-      const it = state.items.find((x) => Number(x.id) === id);
-      if (!it) return;
-      openLogModal(it);
-    });
-  });
+  return state.items
+    .filter((x) => String(x.category).trim() === String(catLabel).trim())
+    .sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
 }
 
 /* ---------- Log modal (yellow save) ---------- */
@@ -698,6 +488,7 @@ function openLogModal(item) {
   const today = todayISODate();
 
   let expiryHtml = "";
+
   if (mode === "MANUAL_DATE") {
     expiryHtml = `
       <div class="field">
@@ -755,7 +546,7 @@ function openLogModal(item) {
     <div class="field">
       <label class="label">Quantity (optional)</label>
       <input id="qtyInp" class="input" inputmode="numeric" placeholder="Leave blank if not needed" />
-      <div class="helper">Blank allowed.</div>
+      <div class="helper">${escapeHtml(getHelperText(item))}</div>
     </div>
 
     ${expiryHtml}
@@ -787,12 +578,12 @@ function openLogModal(item) {
       return;
     }
 
-    let expiry_date = "";
+    let expiry = null;
     let expiry_at = null;
 
     if (mode === "MANUAL_DATE") {
-      expiry_date = (expDate?.value || "").trim();
-      if (!expiry_date) {
+      expiry = (expDate?.value || "").trim() || null;
+      if (!expiry) {
         err.textContent = "Expiry required.";
         err.classList.remove("hidden");
         return;
@@ -808,8 +599,8 @@ function openLogModal(item) {
     } else if (mode === "EOD") {
       expiry_at = toISOAtLocalEndOfDay(today);
     } else {
-      expiry_date = (expSelect?.value || "").trim();
-      if (!expiry_date) {
+      expiry = (expSelect?.value || "").trim() || null;
+      if (!expiry) {
         err.textContent = "Expiry required.";
         err.classList.remove("hidden");
         return;
@@ -819,15 +610,14 @@ function openLogModal(item) {
     const payload = {
       item_id: item.id,
       item_name: item.name,
-      category: canonicalCategory(item.category),
+      category: item.category,
       sub_category: item.sub_category || null,
       store: state.session.store,
       staff: state.session.staff,
       shift: state.session.shift,
       quantity: qty,
-      expiry: expiry_date || null,
-      expiry_at: expiry_at || null,
-      created_at: new Date().toISOString(),
+      expiry,
+      expiry_at,
     };
 
     try {
@@ -841,16 +631,62 @@ function openLogModal(item) {
   });
 }
 
+/* ---------- Render: Category list ---------- */
+function renderCategoryList() {
+  updateSessionLine();
+  updateTopButtons();
+  updateBottomNav();
+
+  const title = state.view.category || "";
+  const list = getItemsForCategoryPage(title);
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="backBtn" class="btn-ghost" type="button">← Back</button>
+      <div class="page-title">${escapeHtml(title)}</div>
+    </div>
+
+    <section class="list">
+      ${
+        list.length
+          ? list
+              .map(
+                (it) => `
+                <button class="list-row" data-item-id="${it.id}" type="button">
+                  <div class="list-row-main">
+                    <div class="list-row-title">${escapeHtml(it.name)}</div>
+                    <div class="list-row-sub">${escapeHtml(getHelperText(it))}</div>
+                  </div>
+                  <div class="chev">›</div>
+                </button>
+              `
+              )
+              .join("")
+          : `<div class="empty">No items found.</div>`
+      }
+    </section>
+  `;
+
+  $("#backBtn").addEventListener("click", () => goBack());
+  $$("[data-item-id]", main).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-item-id"));
+      const it = state.items.find((x) => Number(x.id) === id);
+      if (it) openLogModal(it);
+    });
+  });
+}
+
 /* ---------- Alerts ---------- */
 async function renderAlerts() {
-  updateTopbar();
   updateSessionLine();
+  updateTopButtons();
   updateBottomNav();
 
   main.innerHTML = `
     <div class="card">
       <div class="h1">Alerts</div>
-      <div class="muted">Items with logged expiry (latest per item).</div>
+      <div class="muted">Latest expiry per item (this store).</div>
       <div id="alertsWrap" class="muted" style="margin-top:12px;">Loading...</div>
     </div>
   `;
@@ -864,14 +700,14 @@ async function renderAlerts() {
     }
 
     wrap.innerHTML = `
-      <div class="card-title">Latest expiry for ${escapeHtml(state.session.store)}</div>
+      <div class="card-title">Store: ${escapeHtml(state.session.store)}</div>
       ${rows
         .map(
           (r) => `
           <div class="alert-row">
             <div>
               <div class="alert-name">${escapeHtml(r.name)}</div>
-              <div class="alert-extra">${escapeHtml(r.category)}${r.sub_category ? ` • ${escapeHtml(r.sub_category)}` : ""}</div>
+              <div class="alert-extra">${escapeHtml(r.category || "")}${r.sub_category ? ` • ${escapeHtml(r.sub_category)}` : ""}</div>
             </div>
             <div style="font-weight:1000;color:var(--green-dark)">${escapeHtml(r.expiry_value || "-")}</div>
           </div>
@@ -884,7 +720,7 @@ async function renderAlerts() {
   }
 }
 
-/* ---------- Manager login modal ---------- */
+/* ---------- Manager login modal (yellow login) ---------- */
 function openManagerLogin() {
   openModal(
     "Manager Access",
@@ -892,7 +728,7 @@ function openManagerLogin() {
     <div class="field">
       <label class="label">Enter PIN</label>
       <input id="pinInp" class="input" inputmode="numeric" placeholder="PIN" />
-      <div class="helper">Manager is per-store: ${escapeHtml(state.session.store)}</div>
+      <div class="helper">Manager only.</div>
     </div>
 
     <div id="pinErr" class="error hidden"></div>
@@ -906,9 +742,8 @@ function openManagerLogin() {
 
   const pinInp = $("#pinInp", modalBodyEl);
   const err = $("#pinErr", modalBodyEl);
-  const btn = $("#btnPinLogin", modalBodyEl);
 
-  btn.addEventListener("click", async () => {
+  $("#btnPinLogin", modalBodyEl).addEventListener("click", async () => {
     err.classList.add("hidden");
     const pin = (pinInp.value || "").trim();
     if (!pin) {
@@ -918,13 +753,11 @@ function openManagerLogin() {
     }
 
     try {
-      const out = await apiPost("/api/manager/login", { pin, store: state.session.store });
+      const out = await apiPost("/api/manager/login", { pin });
       setManagerToken(out.token || "");
       closeModal();
       toast("Manager mode ✅");
-      updateSessionLine();
-      updateBottomNav();
-      setView({ page: "manager" }, true);
+      setView({ page: "manager", category: null }, true);
     } catch (e) {
       err.textContent = e?.message || "Login failed.";
       err.classList.remove("hidden");
@@ -932,70 +765,232 @@ function openManagerLogin() {
   });
 }
 
-/* ---------- Manager page (SOFT delete only) ---------- */
-async function renderManager() {
-  updateTopbar();
-  updateSessionLine();
-  updateBottomNav();
+/* ---------- Manager: Categories UI (store-separated) ---------- */
+async function renderManagerCategoriesInto(containerEl) {
+  const store = state.session.store;
 
-  if (!isManagerMode()) {
-    main.innerHTML = `
-      <div class="card">
-        <div class="h1">Manager</div>
-        <div class="muted">Login required.</div>
-        <button id="btnGoLogin" type="button"
-          style="margin-top:12px;width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
-          Enter PIN
-        </button>
-      </div>
-    `;
-    $("#btnGoLogin").addEventListener("click", openManagerLogin);
-    return;
-  }
-
-  main.innerHTML = `
+  containerEl.innerHTML = `
     <div class="card">
-      <div class="h1">Manager</div>
-      <div class="muted">
-        Store: <strong>${escapeHtml(state.session.store)}</strong><br/>
-        Manager can (current):
-        <ul style="margin:8px 0 0 18px;">
-          <li>Edit item category / sauce sub-category / shelf life</li>
-          <li>Add new item (this store only)</li>
-          <li>Soft delete item (this store only)</li>
-        </ul>
-      </div>
-    </div>
+      <div class="card-title">Categories (${escapeHtml(store)})</div>
 
-    <div class="card">
-      <div class="card-title">Search</div>
-      <input id="mgrSearch" class="input" placeholder="Type item name..." />
-      <button id="btnAddItem" type="button"
-        style="margin-top:10px;width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
-        Add Item
+      <div class="field">
+        <label class="label">New Category Name</label>
+        <input id="catNewName" class="input" placeholder="e.g. Backroom" />
+      </div>
+
+      <div class="field">
+        <label class="label">Sort Order</label>
+        <input id="catNewSort" class="input" inputmode="numeric" value="100" />
+        <div class="helper">Smaller number shows higher on Home.</div>
+      </div>
+
+      <button id="btnCatAdd" type="button"
+        style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
+        Add Category
       </button>
+
+      <div id="catAddErr" class="error hidden"></div>
     </div>
 
     <div class="card">
-      <div class="card-title">Items</div>
-      <div id="mgrList" class="muted">Loading…</div>
+      <div class="card-title">Manage Categories</div>
+      <div id="catList" class="muted">Loading…</div>
     </div>
   `;
 
-  $("#btnAddItem").addEventListener("click", openManagerAddItem);
-
-  const listEl = $("#mgrList");
-  const searchEl = $("#mgrSearch");
+  const addErr = $("#catAddErr", containerEl);
+  const listEl = $("#catList", containerEl);
 
   let rows = [];
   try {
-    rows = await apiManager("GET", "/api/manager/items");
+    rows = await apiManager("GET", `/api/manager/categories?store=${encodeURIComponent(store)}`);
   } catch (e) {
     listEl.innerHTML = `<div class="error">Failed: ${escapeHtml(e.message || e)}</div>`;
     return;
   }
 
-  function renderRows() {
+  function draw() {
+    if (!rows.length) {
+      listEl.innerHTML = `<div class="muted">No categories yet.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = rows
+      .map((c) => {
+        const inactive = !(c.is_active ?? true) || !!c.deleted_at;
+        return `
+          <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;opacity:${inactive ? "0.55" : "1"};">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+              <div style="font-weight:1000;font-size:15px;">${escapeHtml(c.name)}</div>
+              ${inactive ? `<span class="pill" style="padding:6px 10px;font-weight:1000;">Inactive</span>` : ""}
+            </div>
+
+            <div class="field">
+              <label class="label">Rename</label>
+              <input class="input cat-name" data-id="${c.id}" value="${escapeHtml(c.name)}" />
+            </div>
+
+            <div class="field">
+              <label class="label">Sort Order</label>
+              <input class="input cat-sort" data-id="${c.id}" inputmode="numeric" value="${escapeHtml(c.sort_order ?? 100)}" />
+            </div>
+
+            <div style="display:flex;gap:10px;">
+              <button class="cat-save" data-id="${c.id}" type="button"
+                style="flex:1;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:var(--yellow);color:#1b1b1b;cursor:pointer;">
+                Save
+              </button>
+
+              <button class="cat-del" data-id="${c.id}" type="button"
+                style="flex:1;border:0;border-radius:999px;padding:12px 14px;font-weight:1000;background:#fff;border:1px solid rgba(0,0,0,0.12);color:#c62828;cursor:pointer;">
+                Delete
+              </button>
+            </div>
+
+            <div class="cat-err error hidden" data-id="${c.id}"></div>
+          </div>
+        `;
+      })
+      .join("");
+
+    $$(".cat-save", listEl).forEach((b) => {
+      b.addEventListener("click", async () => {
+        const id = Number(b.getAttribute("data-id"));
+        const err = $(`.cat-err[data-id="${id}"]`, listEl);
+        err.classList.add("hidden");
+
+        const nameInp = $(`.cat-name[data-id="${id}"]`, listEl);
+        const sortInp = $(`.cat-sort[data-id="${id}"]`, listEl);
+
+        const name = String(nameInp.value || "").trim();
+        const sort_order = Number(String(sortInp.value || "100").trim());
+
+        if (!name) {
+          err.textContent = "Name required.";
+          err.classList.remove("hidden");
+          return;
+        }
+        if (!Number.isFinite(sort_order)) {
+          err.textContent = "Sort order must be a number.";
+          err.classList.remove("hidden");
+          return;
+        }
+
+        try {
+          const out = await apiManager("PATCH", `/api/manager/categories/${id}`, {
+            store,
+            name,
+            sort_order,
+          });
+          rows = rows.map((x) => (Number(x.id) === id ? out.category : x));
+          toast("Category saved ✅");
+
+          // refresh store categories on home
+          state.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+        } catch (e) {
+          err.textContent = e.message || "Save failed.";
+          err.classList.remove("hidden");
+        }
+      });
+    });
+
+    $$(".cat-del", listEl).forEach((b) => {
+      b.addEventListener("click", async () => {
+        const id = Number(b.getAttribute("data-id"));
+        const err = $(`.cat-err[data-id="${id}"]`, listEl);
+        err.classList.add("hidden");
+
+        if (!confirm("Delete this category for this store? (Soft delete)")) return;
+
+        try {
+          const out = await apiManager(
+            "DELETE",
+            `/api/manager/categories/${id}?store=${encodeURIComponent(store)}`
+          );
+          rows = rows.map((x) => (Number(x.id) === id ? out.category : x));
+          toast("Category deleted ✅");
+
+          state.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+          draw();
+        } catch (e) {
+          err.textContent = e.message || "Delete failed.";
+          err.classList.remove("hidden");
+        }
+      });
+    });
+  }
+
+  $("#btnCatAdd", containerEl).addEventListener("click", async () => {
+    addErr.classList.add("hidden");
+    const name = String($("#catNewName", containerEl).value || "").trim();
+    const sort_order = Number(String($("#catNewSort", containerEl).value || "100").trim());
+
+    if (!name) {
+      addErr.textContent = "Name required.";
+      addErr.classList.remove("hidden");
+      return;
+    }
+    if (!Number.isFinite(sort_order)) {
+      addErr.textContent = "Sort order must be a number.";
+      addErr.classList.remove("hidden");
+      return;
+    }
+
+    try {
+      const out = await apiManager("POST", "/api/manager/categories", { store, name, sort_order });
+      rows.unshift(out.category);
+      toast("Category added ✅");
+      $("#catNewName", containerEl).value = "";
+      state.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+      draw();
+    } catch (e) {
+      addErr.textContent = e.message || "Add failed.";
+      addErr.classList.remove("hidden");
+    }
+  });
+
+  draw();
+}
+
+/* ---------- Manager: Items UI (store-separated) ---------- */
+async function renderManagerItemsInto(containerEl) {
+  const store = state.session.store;
+
+  containerEl.innerHTML = `
+    <div class="card">
+      <div class="card-title">Items (${escapeHtml(store)})</div>
+
+      <div class="field">
+        <label class="label">Search</label>
+        <input id="mgrSearch" class="input" placeholder="Type item name..." />
+      </div>
+
+      <button id="btnAddItem" type="button"
+        style="width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
+        Add Item
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Manage Items</div>
+      <div id="mgrList" class="muted">Loading…</div>
+    </div>
+  `;
+
+  const listEl = $("#mgrList", containerEl);
+  const searchEl = $("#mgrSearch", containerEl);
+
+  let rows = [];
+  try {
+    rows = await apiManager("GET", `/api/manager/items?store=${encodeURIComponent(store)}`);
+  } catch (e) {
+    listEl.innerHTML = `<div class="error">Failed: ${escapeHtml(e.message || e)}</div>`;
+    return;
+  }
+
+  $("#btnAddItem", containerEl).addEventListener("click", () => openManagerAddItem(store));
+
+  function draw() {
     const q = norm(searchEl.value || "");
     const filtered = q ? rows.filter((r) => norm(r.name).includes(q)) : rows;
 
@@ -1004,36 +999,40 @@ async function renderManager() {
       return;
     }
 
+    const categoryOptions = state.categories.map((c) => c.name);
+
     listEl.innerHTML = filtered
       .slice(0, 200)
       .map((r) => {
-        const cat = canonicalCategory(r.category);
-        const sub = r.sub_category || "";
-        const sl = Number(r.shelf_life_days ?? 0);
+        const inactive = !(r.is_active ?? true) || !!r.deleted_at;
 
         return `
-          <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;">
-            <div style="font-weight:1000;font-size:16px;margin-bottom:10px;">${escapeHtml(r.name)}</div>
+          <div style="border-top:1px dashed rgba(0,0,0,0.10);padding-top:12px;margin-top:12px;opacity:${inactive ? "0.55" : "1"};">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+              <div style="font-weight:1000;font-size:16px;">${escapeHtml(r.name)}</div>
+              ${inactive ? `<span class="pill" style="padding:6px 10px;font-weight:1000;">Inactive</span>` : ""}
+            </div>
 
             <div class="field">
               <label class="label">Category</label>
               <select class="input mgr-cat" data-id="${r.id}">
-                ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(cat) ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+                ${categoryOptions
+                  .map((c) => `<option value="${escapeHtml(c)}" ${norm(c) === norm(r.category) ? "selected" : ""}>${escapeHtml(c)}</option>`)
+                  .join("")}
               </select>
             </div>
 
             <div class="field">
               <label class="label">Sauce Sub-category (only if Category = Sauce)</label>
               <select class="input mgr-sub" data-id="${r.id}">
-                <option value="" ${sub ? "" : "selected"}>(none)</option>
-                ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(sub) ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
+                <option value="" ${(r.sub_category || "") === "" ? "selected" : ""}>(none)</option>
+                ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}" ${norm(s) === norm(r.sub_category || "") ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
               </select>
-              <div class="helper">If category is not Sauce, sub-category must be empty.</div>
             </div>
 
             <div class="field">
               <label class="label">Shelf life (days)</label>
-              <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(sl)}" />
+              <input class="input mgr-sl" data-id="${r.id}" inputmode="numeric" value="${escapeHtml(r.shelf_life_days ?? 0)}" />
               <div class="helper">&gt;7 days becomes manual in app.</div>
             </div>
 
@@ -1065,10 +1064,10 @@ async function renderManager() {
         const slInp = $(`.mgr-sl[data-id="${id}"]`, listEl);
 
         const category = String(catSel.value || "").trim();
-        const sub_category = String(subSel.value || "").trim() || null;
         const shelf_life_days = Number(String(slInp.value || "0").trim());
+        const sub_category_raw = String(subSel.value || "").trim() || null;
 
-        const finalSub = norm(category) === norm("Sauce") ? sub_category : null;
+        const sub_category = norm(category) === norm("Sauce") ? sub_category_raw : null;
 
         if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) {
           err.textContent = "Shelf life must be a number ≥ 0.";
@@ -1077,13 +1076,19 @@ async function renderManager() {
         }
 
         try {
-          await apiManager("PATCH", `/api/manager/items/${id}`, {
+          const out = await apiManager("PATCH", `/api/manager/items/${id}`, {
+            store,
             category,
-            sub_category: finalSub,
+            sub_category,
             shelf_life_days,
           });
-          toast("Saved ✅");
-          await loadItems();
+
+          toast("Item saved ✅");
+
+          rows = rows.map((x) => (Number(x.id) === id ? out.item : x));
+
+          // refresh staff list instantly
+          state.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
         } catch (e) {
           err.textContent = e.message || "Save failed.";
           err.classList.remove("hidden");
@@ -1097,14 +1102,19 @@ async function renderManager() {
         const err = $(`.mgr-err[data-id="${id}"]`, listEl);
         err.classList.add("hidden");
 
-        if (!confirm("Soft delete this item? (It will be hidden, can be restored later)")) return;
+        if (!confirm("Delete this item? (Soft delete)")) return;
 
         try {
-          await apiManager("DELETE", `/api/manager/items/${id}`);
-          toast("Deleted ✅");
-          rows = rows.filter((x) => Number(x.id) !== id);
-          await loadItems();
-          renderRows();
+          const out = await apiManager(
+            "DELETE",
+            `/api/manager/items/${id}?store=${encodeURIComponent(store)}`
+          );
+
+          toast("Item deleted ✅");
+          rows = rows.map((x) => (Number(x.id) === id ? out.item : x));
+
+          state.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
+          draw();
         } catch (e) {
           err.textContent = e.message || "Delete failed.";
           err.classList.remove("hidden");
@@ -1113,12 +1123,14 @@ async function renderManager() {
     });
   }
 
-  searchEl.addEventListener("input", renderRows);
-  renderRows();
+  searchEl.addEventListener("input", draw);
+  draw();
 }
 
-/* ---------- Manager: Add item modal ---------- */
-function openManagerAddItem() {
+/* ---------- Add Item modal ---------- */
+function openManagerAddItem(store) {
+  const categoryOptions = state.categories.map((c) => c.name);
+
   openModal(
     "Add Item",
     `
@@ -1132,7 +1144,7 @@ function openManagerAddItem() {
     <div class="field">
       <label class="label">Category</label>
       <select id="newCat" class="input">
-        ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+        ${categoryOptions.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
       </select>
     </div>
 
@@ -1142,7 +1154,6 @@ function openManagerAddItem() {
         <option value="" selected>(none)</option>
         ${SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
       </select>
-      <div class="helper">If category is not Sauce, sub-category must be empty.</div>
     </div>
 
     <div class="field">
@@ -1159,22 +1170,23 @@ function openManagerAddItem() {
   `
   );
 
-  const nameEl = $("#newName", modalBodyEl);
-  const catEl = $("#newCat", modalBodyEl);
-  const subEl = $("#newSub", modalBodyEl);
-  const slEl = $("#newSL", modalBodyEl);
   const err = $("#addErr", modalBodyEl);
 
   $("#btnAddSave", modalBodyEl).addEventListener("click", async () => {
     err.classList.add("hidden");
 
-    const name = String(nameEl.value || "").trim();
-    const category = String(catEl.value || "").trim();
-    const sub = String(subEl.value || "").trim() || null;
-    const shelf_life_days = Number(String(slEl.value || "0").trim());
+    const name = String($("#newName", modalBodyEl).value || "").trim();
+    const category = String($("#newCat", modalBodyEl).value || "").trim();
+    const subRaw = String($("#newSub", modalBodyEl).value || "").trim() || null;
+    const shelf_life_days = Number(String($("#newSL", modalBodyEl).value || "0").trim());
 
     if (!name) {
       err.textContent = "Name required.";
+      err.classList.remove("hidden");
+      return;
+    }
+    if (!category) {
+      err.textContent = "Category required.";
       err.classList.remove("hidden");
       return;
     }
@@ -1184,38 +1196,141 @@ function openManagerAddItem() {
       return;
     }
 
-    const finalSub = norm(category) === norm("Sauce") ? sub : null;
+    const sub_category = norm(category) === norm("Sauce") ? subRaw : null;
 
     try {
       await apiManager("POST", "/api/manager/items", {
+        store,
         name,
         category,
-        sub_category: finalSub,
+        sub_category,
         shelf_life_days,
       });
 
-      await loadItems();
       closeModal();
-      toast("Added ✅");
-      setView({ page: "manager" }, false);
+      toast("Item added ✅");
+
+      // refresh store items
+      state.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
+      render();
     } catch (e) {
-      err.textContent = e.message || "Failed";
+      err.textContent = e.message || "Add failed.";
       err.classList.remove("hidden");
     }
   });
 }
 
-/* ---------- Render router ---------- */
+/* ---------- Manager page ---------- */
+async function renderManager() {
+  updateSessionLine();
+  updateTopButtons();
+  updateBottomNav();
+
+  if (!isManagerMode()) {
+    main.innerHTML = `
+      <div class="card">
+        <div class="h1">Manager</div>
+        <div class="muted">Login required.</div>
+
+        <button id="btnGoLogin" type="button"
+          style="margin-top:12px;width:100%;border:0;border-radius:999px;padding:14px 16px;font-weight:1000;background:var(--yellow);color:#1b1b1b;box-shadow:0 12px 22px rgba(0,0,0,0.10);cursor:pointer;">
+          Enter PIN
+        </button>
+      </div>
+    `;
+    $("#btnGoLogin").addEventListener("click", openManagerLogin);
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="card">
+      <div class="h1">Manager</div>
+      <div class="muted">
+        Store-separated controls. Changes affect ONLY <strong>${escapeHtml(state.session.store)}</strong>.
+      </div>
+    </div>
+
+    <div id="mgrCats"></div>
+    <div id="mgrItems"></div>
+  `;
+
+  const catsMount = $("#mgrCats");
+  const itemsMount = $("#mgrItems");
+
+  await renderManagerCategoriesInto(catsMount);
+  await renderManagerItemsInto(itemsMount);
+}
+
+/* ---------- Bind top + bottom buttons ---------- */
+function bindGlobalButtons() {
+  if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+  if (modalBackdrop) {
+    modalBackdrop.addEventListener("click", (e) => {
+      if (e.target === modalBackdrop) closeModal();
+    });
+  }
+
+  if (btnManagerTop) {
+    btnManagerTop.addEventListener("click", () => {
+      if (isManagerMode()) setView({ page: "manager", category: null }, true);
+      else openManagerLogin();
+    });
+  }
+
+  if (btnLogoutTop) {
+    btnLogoutTop.addEventListener("click", () => doLogout());
+  }
+
+  if (navHome) {
+    navHome.addEventListener("click", () => {
+      state.navStack = [];
+      setView({ page: "home", category: null }, false);
+    });
+  }
+  if (navAlerts) {
+    navAlerts.addEventListener("click", () => setView({ page: "alerts", category: null }, true));
+  }
+  if (navManager) {
+    navManager.addEventListener("click", () => {
+      if (isManagerMode()) setView({ page: "manager", category: null }, true);
+      else openManagerLogin();
+    });
+  }
+  if (navLogout) {
+    navLogout.addEventListener("click", () => doLogout());
+  }
+}
+
+function doLogout() {
+  // if manager mode: log out manager only
+  if (isManagerMode()) {
+    if (!confirm("Exit manager mode?")) return;
+    setManagerToken("");
+    toast("Back to staff mode");
+    render();
+    return;
+  }
+
+  if (!confirm("Logout staff session?")) return;
+  state.session = { store: "", shift: "", staff: "" };
+  saveSession();
+  state.navStack = [];
+  state.view = { page: "session", category: null };
+  render();
+}
+
+/* ---------- Router ---------- */
 async function render() {
   if (!main) return;
 
+  const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
+
   updateSessionLine();
-  updateTopbar();
+  updateTopButtons();
   updateBottomNav();
 
-  const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
   if (!hasSession && state.view.page !== "session") {
-    state.view = { page: "session", category: null, sauceSub: null };
+    state.view = { page: "session", category: null };
   }
 
   const page = state.view.page;
@@ -1227,27 +1342,28 @@ async function render() {
   if (page === "alerts") return renderAlerts();
   if (page === "manager") return renderManager();
 
-  state.view = { page: "home", category: null, sauceSub: null };
+  state.view = { page: "home", category: null };
   renderHome();
 }
 
 /* ---------- Boot ---------- */
 async function boot() {
+  bindGlobalButtons();
+
   loadSession();
+  setManagerToken(getManagerToken());
 
-  bindTopbarButtons();
-  bindBottomNav();
-  bindSwipeBack();
+  const hasSession = !!(state.session.store && state.session.shift && state.session.staff);
 
-  if (state.session.store && state.session.shift && state.session.staff) {
+  if (hasSession) {
     try {
-      await loadItems();
-      state.view = { page: "home", category: null, sauceSub: null };
+      await loadStoreData();
+      state.view = { page: "home", category: null };
     } catch {
-      state.view = { page: "session", category: null, sauceSub: null };
+      state.view = { page: "session", category: null };
     }
   } else {
-    state.view = { page: "session", category: null, sauceSub: null };
+    state.view = { page: "session", category: null };
   }
 
   render();
