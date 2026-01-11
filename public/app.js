@@ -325,8 +325,8 @@ function getMode(item) {
 
 /* ---------- Side Drawer Nav (hamburger) ---------- */
 function ensureDrawer() {
-  // If drawer already exists, reuse it (DON'T return)
-  let backdrop = $("#drawerBackdrop");
+  // Create once
+  let backdrop = document.getElementById("drawerBackdrop");
 
   if (!backdrop) {
     backdrop = document.createElement("div");
@@ -354,65 +354,77 @@ function ensureDrawer() {
     document.body.appendChild(backdrop);
   }
 
-  // Bind only once
-  if (backdrop.dataset.bound === "1") {
-    // Still expose open/close every time
-    state._drawerOpen = () => backdrop.classList.remove("hidden");
-    state._drawerClose = () => backdrop.classList.add("hidden");
-    return;
-  }
-  backdrop.dataset.bound = "1";
-
   const close = () => backdrop.classList.add("hidden");
   const open = () => backdrop.classList.remove("hidden");
+
+  // IMPORTANT: remove any old handlers then bind again (prevents “not working”)
+  backdrop.onclick = null;
 
   // click outside drawer closes
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) close();
   });
 
-  // X button closes
-const closeBtn = $("#drawerClose", backdrop);
-if (closeBtn) {
-  // remove old handler (if any) and bind again
-  closeBtn.onclick = null;
-  closeBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation(); // important: prevent backdrop click conflicts
-    close();
-  });
-}
+  // stop clicks inside drawer from bubbling to backdrop
+  const drawer = backdrop.querySelector(".drawer");
+  if (drawer) {
+    drawer.onclick = null;
+    drawer.addEventListener("click", (e) => e.stopPropagation());
+  }
 
-  // Menu buttons
-  const dHome = $("#dHome", backdrop);
-  const dAlerts = $("#dAlerts", backdrop);
-  const dManager = $("#dManager", backdrop);
-  const dLogout = $("#dLogout", backdrop);
+  // X button closes (scoped)
+  const closeBtn = backdrop.querySelector("#drawerClose");
+  if (closeBtn) {
+    closeBtn.onclick = null;
+    closeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    });
+  }
 
-  if (dHome) dHome.addEventListener("click", () => {
-    close();
-    state.navStack = [];
-    state.view = { page: "home", category: null, sauceSub: null };
-    render();
-  });
+  // Menu buttons (scoped)
+  const dHome = backdrop.querySelector("#dHome");
+  const dAlerts = backdrop.querySelector("#dAlerts");
+  const dManager = backdrop.querySelector("#dManager");
+  const dLogout = backdrop.querySelector("#dLogout");
 
-  if (dAlerts) dAlerts.addEventListener("click", () => {
-    close();
-    setView({ page: "alerts", category: null, sauceSub: null }, true);
-  });
+  if (dHome) {
+    dHome.onclick = null;
+    dHome.addEventListener("click", () => {
+      close();
+      state.navStack = [];
+      state.view = { page: "home", category: null, sauceSub: null };
+      render();
+    });
+  }
 
-  if (dManager) dManager.addEventListener("click", () => {
-    close();
-    if (isManagerMode()) setView({ page: "manager" }, true);
-    else openManagerLogin();
-  });
+  if (dAlerts) {
+    dAlerts.onclick = null;
+    dAlerts.addEventListener("click", () => {
+      close();
+      setView({ page: "alerts", category: null, sauceSub: null }, true);
+    });
+  }
 
-  if (dLogout) dLogout.addEventListener("click", () => {
-    close();
-    doLogout();
-  });
+  if (dManager) {
+    dManager.onclick = null;
+    dManager.addEventListener("click", () => {
+      close();
+      if (isManagerMode()) setView({ page: "manager" }, true);
+      else openManagerLogin();
+    });
+  }
 
-  // expose helpers
+  if (dLogout) {
+    dLogout.onclick = null;
+    dLogout.addEventListener("click", () => {
+      close();
+      doLogout();
+    });
+  }
+
+  // expose for hamburger
   state._drawerOpen = open;
   state._drawerClose = close;
 }
@@ -420,18 +432,15 @@ if (closeBtn) {
 function ensureHamburger() {
   if (!topbar) return;
 
-  // Make sure drawer exists + is bound
-  ensureDrawer();
+  // Remove duplicates if they exist (VERY IMPORTANT)
+  document.querySelectorAll("#menuBtn").forEach((el, i) => {
+    if (i > 0) el.remove();
+  });
 
-  // Keep only ONE hamburger
-  const all = [...document.querySelectorAll("#menuBtn, #btnMenu, [data-menu='hamburger']")];
-  let btn = all[0] || null;
-  for (let i = 1; i < all.length; i++) all[i].remove();
+  let btn = document.getElementById("menuBtn");
 
   if (!btn) {
-    const row = $(".topbar-row", topbar) || topbar;
-    const brandWrap = $(".brand-wrap", topbar) || row;
-
+    const brandWrap = document.querySelector(".brand-wrap") || topbar;
     btn = document.createElement("button");
     btn.id = "menuBtn";
     btn.type = "button";
@@ -446,18 +455,15 @@ function ensureHamburger() {
       </svg>
     `;
     brandWrap.prepend(btn);
-  } else {
-    btn.id = "menuBtn";
   }
 
-  // reset click
+  // Always rebind click (no clone trick)
   btn.onclick = null;
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    ensureDrawer(); // make sure drawer exists + handlers are bound
     if (state._drawerOpen) state._drawerOpen();
-    else {
-      const b = $("#drawerBackdrop");
-      if (b) b.classList.remove("hidden");
-    }
   });
 }
 
