@@ -28,6 +28,24 @@ function escapeHtml(s) {
 function norm(s) {
   return String(s ?? "").trim().toLowerCase();
 }
+// ===== Expiry Date Formatting (STEP 1) =====
+function formatDate(d) {
+  const date = new Date(d);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = date.toLocaleString("en-GB", { month: "short" });
+  const year = date.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
+function todayStr() {
+  return formatDate(new Date());
+}
+
+function tomorrowStr() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return formatDate(d);
+}
 function todayISODate() {
   const d = new Date();
   const y = d.getFullYear();
