@@ -6,26 +6,33 @@
     <title>PreCheck</title>
 
     <meta name="theme-color" content="#009A44" />
-    <link rel="manifest" href="/manifest.json?v=20260111a" />
+    <link rel="manifest" href="/manifest.json?v=20260113a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <link rel="stylesheet" href="/style.css?v=20260111a" />
+    <link rel="stylesheet" href="/style.css?v=20260113a" />
   </head>
 
   <body>
     <!-- TOP BAR -->
     <header class="topbar" id="topbar">
       <div class="topbar-row">
-        <button id="btnMenu" class="menu-btn" type="button" aria-label="Open menu">☰</button>
+        <!-- ONE hamburger only -->
+        <button id="btnMenu" class="menu-btn" type="button" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M4 6h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            <path d="M4 12h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            <path d="M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+          </svg>
+        </button>
 
         <div class="brand-wrap">
           <div class="brand">PreCheck</div>
           <div id="sessionLine" class="session-line hidden"></div>
         </div>
 
-        <!-- role badge moved to top right -->
         <div class="topbar-right">
-          <button id="rolePill" class="role-pill hidden" type="button" aria-label="Role"></button>
+          <!-- role badge injected by app.js -->
+          <div id="roleHost"></div>
         </div>
       </div>
     </header>
@@ -39,11 +46,15 @@
         </div>
 
         <div class="drawer-body">
-          <button class="drawer-item" id="drawerHome" type="button">🏠 Home</button>
-          <button class="drawer-item" id="drawerAlerts" type="button">🔔 Alerts</button>
-          <button class="drawer-item" id="drawerManager" type="button">🛠️ Manager</button>
-          <div class="drawer-sep"></div>
-          <button class="drawer-item danger" id="drawerLogout" type="button">🚪 Logout</button>
+          <button class="drawer-item big" id="drawerHome" type="button">🏠 Home</button>
+          <button class="drawer-item big" id="drawerAlerts" type="button">🔔 Alerts</button>
+          <button class="drawer-item big" id="drawerManager" type="button">👑 Manager</button>
+          <button class="drawer-item big" id="drawerSummary" type="button">📊 Summary</button>
+          <button class="drawer-item big" id="drawerWISR" type="button">🧾 WISR Count</button>
+
+          <div class="drawer-spacer"></div>
+
+          <button class="drawer-item big danger" id="drawerLogout" type="button">⛔ Logout</button>
         </div>
       </aside>
     </div>
@@ -64,6 +75,6 @@
 
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/app.js?v=20260111a"></script>
+    <script src="/app.js?v=20260113a"></script>
   </body>
 </html>
