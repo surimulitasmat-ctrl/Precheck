@@ -1,56 +1,228 @@
 /* =========================
    PreCheck — public/app.js (FULL)
-   Works with your current index.html IDs:
-   - #topbar, #btnMenu, #drawerBackdrop, #btnDrawerClose
-   - #drawerHome, #drawerAlerts, #drawerManager, #drawerLogout
-   - #main, #rolePill, #sessionLine
+   Compatible with your index.html IDs:
+   - #btnMenu, #drawerBackdrop, #btnDrawerClose
+   - #drawerHome, #drawerAlerts, #drawerManager, #drawerSummary, #drawerWISR, #drawerLogout
+   - #main, #roleHost, #sessionLine
    - modal: #modalBackdrop #modalClose #modalTitle #modalBody
+   - #toast
    ========================= */
 
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-/* ---------- tiny CSS safety (in case some classes missing) ---------- */
-(function injectTinyCss() {
-  const css = `
-  .hidden{display:none !important;}
-  .btn{border:0;border-radius:14px;padding:12px 14px;font-weight:800}
-  .btn-yellow{background:#F7C948;color:#1a1a1a}
-  .btn-red{background:#E53935;color:#fff}
-  .btn-blue{background:#1E88E5;color:#fff}
-  .btn-ghost{background:transparent;border:1px solid rgba(0,0,0,.12)}
-  .row{display:flex;gap:10px;align-items:center}
-  .col{display:flex;flex-direction:column;gap:10px}
-  .card{background:#fff;border-radius:18px;padding:14px;box-shadow:0 10px 24px rgba(0,0,0,.08)}
-  .muted{opacity:.7}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-  .tileBig{border-radius:22px;padding:18px;color:#fff;min-height:120px;display:flex;flex-direction:column;justify-content:center;gap:10px;position:relative;overflow:hidden;transform:translateY(10px);opacity:0;animation:tileIn .45s ease forwards}
-  .tileBig .emoji{font-size:44px;line-height:1}
-  .tileBig .name{font-size:20px;font-weight:900}
-  .tileBig .sub{font-size:13px;font-weight:800;opacity:.9}
-  @keyframes tileIn{to{transform:translateY(0);opacity:1}}
-  .pill{border-radius:999px;padding:10px 14px;font-weight:900;display:inline-flex;align-items:center;gap:8px}
-  .pill.manager{background:#E53935;color:#fff}
-  .pill.staff{background:#1E88E5;color:#fff}
-  .listItem{padding:14px;border-radius:16px;background:#fff;box-shadow:0 8px 18px rgba(0,0,0,.07)}
-  .qtyBox{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid rgba(0,0,0,.10);border-radius:14px;padding:10px 12px;min-width:140px}
-  .qtyBtn{width:42px;height:42px;border-radius:14px;border:0;background:rgba(0,0,0,.06);font-size:22px;font-weight:900}
-  .select{width:100%;border:1px solid rgba(0,0,0,.12);border-radius:14px;padding:12px 12px;font-size:16px;background:#fff}
-  .divider{height:1px;background:rgba(0,0,0,.08);margin:10px 0}
-  .topBack{display:inline-flex;align-items:center;gap:10px}
-  .fadeIn{animation:fadeIn .22s ease both}
-  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-  `;
-  const s = document.createElement("style");
-  s.textContent = css;
-  document.head.appendChild(s);
-})();
+/* ---------- safe small helpers ---------- */
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+function dayKeyNow() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function ymd(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+function todayISO() { return ymd(new Date()); }
+function addDaysISO(baseISO, days) {
+  const dt = new Date(baseISO + "T00:00:00");
+  dt.setDate(dt.getDate() + days);
+  return ymd(dt);
+}
+function formatDMY(iso) {
+  if (!iso) return "";
+  const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
+  const day = dt.getDate();
+  const mon = dt.toLocaleString("en-GB", { month: "short" });
+  const year = dt.getFullYear();
+  return `${day} ${mon} ${year}`;
+}
 
-/* ---------- App state ---------- */
+/* ---------- localStorage ---------- */
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return { ...fallback, ...JSON.parse(raw) };
+  } catch {
+    return fallback;
+  }
+}
+function saveJSON(key, val) {
+  localStorage.setItem(key, JSON.stringify(val));
+}
+
+/* ---------- Toast ---------- */
+let _toastTimer = null;
+function toast(msg) {
+  const t = $("#toast");
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
+}
+
+/* ---------- Modal ---------- */
+function openModal(title, html, opts = {}) {
+  const b = $("#modalBackdrop");
+  if (!b) return;
+
+  $("#modalTitle").textContent = title || "Modal";
+  $("#modalBody").innerHTML = html || "";
+  b.classList.remove("hidden");
+
+  // block closing when required
+  if (opts.noBackdropClose) {
+    b.dataset.lock = "1";
+  } else {
+    b.dataset.lock = "0";
+  }
+}
+function closeModal() {
+  const b = $("#modalBackdrop");
+  if (!b) return;
+  b.classList.add("hidden");
+  $("#modalBody").innerHTML = "";
+  b.dataset.lock = "0";
+}
+function bindModal() {
+  const b = $("#modalBackdrop");
+  const c = $("#modalClose");
+  if (c) c.addEventListener("click", () => closeModal());
+  if (b) {
+    b.addEventListener("click", (e) => {
+      if (e.target !== b) return;
+      if (b.dataset.lock === "1") return;
+      closeModal();
+    });
+  }
+}
+
+/* ---------- Drawer ---------- */
+function openDrawer() { $("#drawerBackdrop")?.classList.remove("hidden"); }
+function closeDrawer() { $("#drawerBackdrop")?.classList.add("hidden"); }
+
+function bindDrawer() {
+  $("#btnMenu")?.addEventListener("click", (e) => { e.preventDefault(); openDrawer(); });
+  $("#btnDrawerClose")?.addEventListener("click", (e) => { e.preventDefault(); closeDrawer(); });
+
+  $("#drawerBackdrop")?.addEventListener("click", (e) => {
+    if (e.target === $("#drawerBackdrop")) closeDrawer();
+  });
+
+  $("#drawerHome")?.addEventListener("click", () => { closeDrawer(); goHome(); });
+  $("#drawerAlerts")?.addEventListener("click", () => { closeDrawer(); setView({ page: "alerts" }, true); });
+  $("#drawerManager")?.addEventListener("click", () => { closeDrawer(); setView({ page: "manager" }, true); });
+  $("#drawerSummary")?.addEventListener("click", () => { closeDrawer(); setView({ page: "summaryHome" }, true); });
+  $("#drawerWISR")?.addEventListener("click", () => { closeDrawer(); setView({ page: "wisr" }, true); });
+  $("#drawerLogout")?.addEventListener("click", () => { closeDrawer(); doLogout(); });
+}
+
+/* ---------- API ---------- */
+async function apiGet(path, token = "") {
+  const r = await fetch(path, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || `GET ${path} failed`);
+  return t ? JSON.parse(t) : {};
+}
+async function apiPost(path, body, token = "") {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || `POST ${path} failed`);
+  return t ? JSON.parse(t) : {};
+}
+async function apiPatch(path, body, token = "") {
+  const r = await fetch(path, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || `PATCH ${path} failed`);
+  return t ? JSON.parse(t) : {};
+}
+async function apiDel(path, token = "") {
+  const r = await fetch(path, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || `DELETE ${path} failed`);
+  return t ? JSON.parse(t) : {};
+}
+
+/* =========================================================
+   CONFIG
+   ========================================================= */
+const POPUP_ITEMS = [
+  "Mix green",
+  "Mac&cheese",
+  "Lettuce",
+  "Chicken Bacon (c)",
+  "Liquid Egg",
+  "Flatbread(Thawing)",
+  "Avocado",
+];
+
+// Home categories emoji (BIG)
+const CAT_EMOJI = {
+  "Prepared items": "🥪",
+  "Unopened chiller": "🧊",
+  "Thawing": "💧",
+  "Vegetables": "🥕",
+  "Backroom": "📦",
+  "Back counter": "🍞",
+  "Front counter": "🥪",
+  "Back counter chiller": "❄️",
+  "Fountain Drinks": "🥤",
+  "Sauce": "🧴",
+};
+
+// Sauce subcategories (3 colors, big emoji)
+const SAUCE_SUBS = [
+  { name: "Standby", emoji: "🧃", tone: "t-teal" },
+  { name: "Open Inner", emoji: "🧴", tone: "t-purple" },
+  { name: "Sandwich Unit", emoji: "🌶️", tone: "t-orange" },
+];
+
+// Categories forced to manual date (single bar)
+const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
+
+function isChickenBaconC(name) {
+  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
+}
+
+/* =========================================================
+   STATE
+   ========================================================= */
 const state = {
-  view: { page: "home", category: null, sauceSub: null },
+  view: { page: "home", category: null, sauceSub: null, bucket: null, summaryMode: null },
   navStack: [],
   session: loadJSON("session", {
     store: "",
@@ -63,297 +235,152 @@ const state = {
   data: {
     categories: [],
     items: [],
-    expiry: [],
   },
-  drafts: {},
+  drafts: {}, // itemKey -> { qty, expType, expDateISO }
 };
 
-/* ---------- constants ---------- */
-const POPUP_ITEMS = [
-  "Mix green",
-  "Mac&cheese",
-  "Lettuce",
-  "Chicken Bacon (c)",
-  "Liquid Egg",
-  "Flatbread(Thawing)",
-  "Avocado",
-];
+/* =========================================================
+   BOOT
+   ========================================================= */
+bindModal();
+bindDrawer();
+bindRoleBadge();
+startMidnightWatcher();
 
-const CAT_EMOJI = {
-  "Prepared items": "🥪",
-  "Unopened chiller": "🧊",
-  "Thawing": "💧",
-  "Vegetables": "🥕",
-  "Backroom": "📦",
-  "Front counter": "🥪",
-  "Back counter chiller": "❄️",
-  "Fountain Drinks": "🥤",
-  "Sauce": "🧴",
-};
-
-const SAUCE_SUBS = [
-  { name: "Standby", emoji: "🧃", tone: "teal" },
-  { name: "Open Inner", emoji: "🧴", tone: "purple" },
-  { name: "Sandwich Unit", emoji: "🌶️", tone: "orange" },
-];
-
-const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
-
-function isChickenBaconC(name) {
-  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
-  return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
-}
-
-/* ---------- BOOT (DOM READY) ---------- */
-window.addEventListener("DOMContentLoaded", () => {
-  try {
-    bindTopbar();
-    bindDrawer();
-    bindModal();
-    midnightAutoReset();
-    boot().catch(console.error);
-  } catch (e) {
-    console.error("Boot error:", e);
-  }
+boot().catch((e) => {
+  console.error(e);
+  toast("App error — check console");
 });
 
 async function boot() {
   ensureSessionDayKey();
-  maybeShowExpiryPopup();
 
+  // If session missing -> session setup
   if (!state.session.store || !state.session.staff) {
+    renderShell();
     openSessionSetup();
     return;
   }
+
+  // Popup once per day, and resets after midnight even without logout
+  maybeShowExpiryPopup();
 
   await loadAllForCurrentStore();
   render();
 }
 
-/* ---------- storage ---------- */
-function loadJSON(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return { ...fallback, ...JSON.parse(raw) };
-  } catch {
-    return fallback;
+/* =========================================================
+   SESSION / MIDNIGHT RESET
+   ========================================================= */
+function ensureSessionDayKey() {
+  const k = dayKeyNow();
+  if (!state.session.sessionDayKey) {
+    state.session.sessionDayKey = k;
+    saveJSON("session", state.session);
   }
 }
-function saveSession() {
-  localStorage.setItem("session", JSON.stringify(state.session));
+
+function startMidnightWatcher() {
+  setInterval(() => {
+    const k = dayKeyNow();
+    if (state.session.sessionDayKey && state.session.sessionDayKey !== k) {
+      // midnight reached
+      state.session.sessionDayKey = k;
+      saveJSON("session", state.session);
+
+      // allow popup again
+      localStorage.removeItem(popupSeenKeyForDay(k));
+
+      // show popup even if app left open
+      maybeShowExpiryPopup(true);
+    }
+  }, 30 * 1000);
 }
 
-/* ---------- date helpers ---------- */
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
-function ymd(d) {
-  const dt = new Date(d);
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
-}
-function formatDMY(d) {
-  const dt = new Date(d);
-  const day = dt.getDate();
-  const mon = dt.toLocaleString("en-GB", { month: "short" });
-  const year = dt.getFullYear();
-  return `${day} ${mon} ${year}`;
-}
-function todayISO() {
-  return ymd(new Date());
-}
-function addDaysISO(baseISO, n) {
-  const dt = new Date(baseISO + "T00:00:00");
-  dt.setDate(dt.getDate() + n);
-  return ymd(dt);
+function popupSeenKeyForDay(dayKey) {
+  return `expiry_popup_seen_${dayKey}`;
 }
 
-/* ---------- API (FIXED: token support) ---------- */
-async function apiGet(path, token = "") {
-  const r = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t || "Request failed");
-  return t ? JSON.parse(t) : {};
-}
-async function apiPost(path, body, token = "") {
-  const r = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-async function apiPatch(path, body, token = "") {
-  const r = await fetch(path, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-async function apiDel(path, token = "") {
-  const r = await fetch(path, {
-    method: "DELETE",
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
+function maybeShowExpiryPopup(force = false) {
+  const k = dayKeyNow();
+  const seenKey = popupSeenKeyForDay(k);
+
+  if (!force && localStorage.getItem(seenKey) === "1") return;
+
+  localStorage.setItem(seenKey, "1");
+
+  const list = POPUP_ITEMS.map((x) => `
+    <li>
+      <span class="popup-dot"></span>
+      <span>${escapeHtml(x)}</span>
+    </li>
+  `).join("");
+
+  openModal(
+    "PLEASE check the expiry date",
+    `
+      <div class="popup-title">PLEASE check the expiry date of the items below:</div>
+      <ul class="popup-list">${list}</ul>
+      <div style="margin-top:14px">
+        <button id="popupOk" class="btn-yellow">OK</button>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+  $("#popupOk")?.addEventListener("click", () => closeModal());
 }
 
+/* =========================================================
+   LOAD DATA
+   ========================================================= */
 async function loadAllForCurrentStore() {
   const store = state.session.store;
-
   state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
   state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
-  state.data.expiry = await apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
 
-  state.data.items = state.data.items.map((it) => ({
+  // normalize sub_category to avoid standby/open inner empty due to casing/spaces
+  state.data.items = (state.data.items || []).map((it) => ({
     ...it,
-    sub_category: it.sub_category ? String(it.sub_category).trim() : null,
+    category: it.category ? String(it.category).trim() : it.category,
+    sub_category: it.sub_category != null ? String(it.sub_category).trim() : null,
+    name: it.name != null ? String(it.name).trim() : "",
   }));
 }
 
-/* ---------- UI: topbar ---------- */
-function bindTopbar() {
-  const rolePill = $("#rolePill");
-  if (!rolePill) return;
-
-  rolePill.addEventListener("click", () => {
-    toast(state.session.isManager ? "Manager mode" : "Staff mode");
-  });
+/* =========================================================
+   ROLE BADGE (Red Manager, Blue Staff)
+   ========================================================= */
+function bindRoleBadge() {
+  // will be rendered by updateTopbar()
 }
-
 function updateTopbar() {
-  const sessionLine = $("#sessionLine");
-  if (sessionLine) {
-    const s = state.session;
+  // session line
+  const s = state.session;
+  const line = $("#sessionLine");
+  if (line) {
     const show = s.store && s.staff;
-    sessionLine.classList.toggle("hidden", !show);
-    sessionLine.textContent = show ? `${s.store} • ${s.shift} • ${s.staff}` : "";
+    line.classList.toggle("hidden", !show);
+    line.textContent = show ? `${s.store} • ${s.shift} • ${s.staff}` : "";
   }
 
-  const rolePill = $("#rolePill");
-  if (rolePill) {
-    rolePill.classList.toggle("hidden", false);
-    if (state.session.isManager) {
-      rolePill.className = "role-pill pill manager";
-      rolePill.textContent = "Manager 👑";
-    } else {
-      rolePill.className = "role-pill pill staff";
-      rolePill.textContent = "Staff 👤";
-    }
-  }
-}
-
-/* ---------- UI: drawer ---------- */
-function bindDrawer() {
-  const btnMenu = $("#btnMenu");
-  const backdrop = $("#drawerBackdrop");
-  const btnClose = $("#btnDrawerClose");
-
-  if (btnMenu) btnMenu.addEventListener("click", (e) => { e.preventDefault(); openDrawer(); });
-  if (backdrop) backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeDrawer(); });
-  if (btnClose) btnClose.addEventListener("click", (e) => { e.preventDefault(); closeDrawer(); });
-
-  const dHome = $("#drawerHome");
-  const dAlerts = $("#drawerAlerts");
-  const dManager = $("#drawerManager");
-  const dLogout = $("#drawerLogout");
-
-  if (dHome) dHome.addEventListener("click", () => { closeDrawer(); goHome(); });
-  if (dAlerts) dAlerts.addEventListener("click", () => { closeDrawer(); setView({ page: "alerts" }, true); });
-  if (dManager) dManager.addEventListener("click", () => { closeDrawer(); setView({ page: "manager" }, true); });
-  if (dLogout) dLogout.addEventListener("click", () => { closeDrawer(); doLogout(); });
-
-  ensureDrawerExtraButtons();
-}
-
-function ensureDrawerExtraButtons() {
-  const drawer = $("#drawer");
-  if (!drawer) return;
-
-  if ($("#drawerSummary")) return;
-
-  const body = $(".drawer-body", drawer) || drawer;
-
-  const sep = document.createElement("div");
-  sep.style.height = "1px";
-  sep.style.background = "rgba(0,0,0,.08)";
-  sep.style.margin = "10px 0";
-
-  const summary = document.createElement("button");
-  summary.id = "drawerSummary";
-  summary.type = "button";
-  summary.textContent = "📊 Summary";
-  summary.style.fontSize = "18px";
-  summary.style.padding = "16px 14px";
-  summary.style.borderRadius = "16px";
-  summary.style.border = "1px solid rgba(0,0,0,.08)";
-  summary.style.background = "#fff";
-  summary.style.fontWeight = "900";
-  summary.addEventListener("click", () => {
-    closeDrawer();
-    setView({ page: "summaryHome" }, true);
+  // role button into #roleHost (blue staff, red manager)
+  const host = $("#roleHost");
+  if (!host) return;
+  host.innerHTML = `
+    <button id="roleBtn" class="role-btn ${s.isManager ? "manager" : "staff"}" type="button">
+      <span class="role-ico">${s.isManager ? "👑" : "👤"}</span>
+      <span>${s.isManager ? "Manager" : "Staff"}</span>
+    </button>
+  `;
+  $("#roleBtn")?.addEventListener("click", () => {
+    // simple info tap
+    toast(s.isManager ? "Manager mode" : "Staff mode");
   });
-
-  const wisr = document.createElement("button");
-  wisr.id = "drawerWISR";
-  wisr.type = "button";
-  wisr.textContent = "🧮 WISR Count";
-  wisr.style.fontSize = "18px";
-  wisr.style.padding = "16px 14px";
-  wisr.style.borderRadius = "16px";
-  wisr.style.border = "1px solid rgba(0,0,0,.08)";
-  wisr.style.background = "#fff";
-  wisr.style.fontWeight = "900";
-  wisr.addEventListener("click", () => {
-    closeDrawer();
-    toast("WISR Count (blank for now)");
-    setView({ page: "wisr" }, true);
-  });
-
-  const logout = $("#drawerLogout");
-  body.insertBefore(sep, logout || null);
-  body.insertBefore(summary, logout || null);
-  body.insertBefore(wisr, logout || null);
-
-  if (logout) {
-    logout.textContent = "🚫 Logout";
-    logout.style.fontSize = "18px";
-    logout.style.padding = "18px 14px";
-    logout.style.borderRadius = "16px";
-    logout.style.background = "#E53935";
-    logout.style.color = "#fff";
-    logout.style.fontWeight = "900";
-  }
 }
 
-function openDrawer() {
-  const b = $("#drawerBackdrop");
-  if (b) b.classList.remove("hidden");
-}
-function closeDrawer() {
-  const b = $("#drawerBackdrop");
-  if (b) b.classList.add("hidden");
-}
-
-/* ---------- navigation ---------- */
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
 function setView(next, push) {
   const curr = { ...state.view };
   if (push) state.navStack.push(curr);
@@ -362,150 +389,95 @@ function setView(next, push) {
 }
 function goBack() {
   const prev = state.navStack.pop();
-  state.view = prev || { page: "home", category: null, sauceSub: null };
+  state.view = prev || { page: "home", category: null, sauceSub: null, bucket: null, summaryMode: null };
   render();
 }
 function goHome() {
   state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null };
+  state.view = { page: "home", category: null, sauceSub: null, bucket: null, summaryMode: null };
   render();
 }
 
-/* ---------- modal ---------- */
-function bindModal() {
-  const mClose = $("#modalClose");
-  const backdrop = $("#modalBackdrop");
+/* =========================================================
+   RENDER DISPATCH
+   ========================================================= */
+function renderShell() {
+  updateTopbar();
+  $("#main").innerHTML = `<div class="card">Loading…</div>`;
+}
 
-  if (mClose) mClose.addEventListener("click", closeModal);
-  if (backdrop) {
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) closeModal();
-    });
+function render() {
+  updateTopbar();
+
+  const main = $("#main");
+  if (!main) return;
+
+  // session missing -> force setup
+  if (!state.session.store || !state.session.staff) {
+    main.innerHTML = `<div class="card">Session not started.</div>`;
+    openSessionSetup();
+    return;
   }
-}
-function openModal(title, html, opts = {}) {
-  const t = $("#modalTitle");
-  const b = $("#modalBody");
-  const mb = $("#modalBackdrop");
-  if (!t || !b || !mb) return;
 
-  t.textContent = title || "Modal";
-  b.innerHTML = html || "";
-  mb.classList.remove("hidden");
-
-  if (opts.noBackdropClose) {
-    mb.onclick = (e) => { if (e.target === mb) e.stopPropagation(); };
+  switch (state.view.page) {
+    case "home": return renderHome();
+    case "category": return renderCategory();
+    case "alerts": return renderAlerts();
+    case "manager": return renderManagerHome();
+    case "managerEditItems": return renderManagerEditItems();
+    case "managerCategories": return renderManagerCategories();
+    case "summaryHome": return renderSummaryHome();
+    case "summaryList": return renderSummaryList();
+    case "wisr": return renderWISR();
+    default:
+      main.innerHTML = `<div class="card">Unknown page</div>`;
   }
-}
-function closeModal() {
-  const mb = $("#modalBackdrop");
-  const b = $("#modalBody");
-  if (!mb || !b) return;
-  mb.classList.add("hidden");
-  b.innerHTML = "";
-}
-
-/* ---------- toast ---------- */
-let toastTimer = null;
-function toast(msg) {
-  const t = $("#toast");
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.remove("hidden");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
 /* =========================================================
-   SESSION: auto reset after midnight + setup modal + popup
+   SESSION SETUP MODAL
    ========================================================= */
-
-function dayKeyNow() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function ensureSessionDayKey() {
-  const k = dayKeyNow();
-  if (!state.session.sessionDayKey) {
-    state.session.sessionDayKey = k;
-    saveSession();
-  }
-}
-
-function midnightAutoReset() {
-  const check = () => {
-    const k = dayKeyNow();
-    if (state.session.sessionDayKey && state.session.sessionDayKey !== k) {
-      state.session.sessionDayKey = k;
-      localStorage.removeItem("expiry_popup_seen_" + k);
-      saveSession();
-      maybeShowExpiryPopup(true);
-      render();
-    }
-  };
-  setInterval(check, 30 * 1000);
-}
-
-function maybeShowExpiryPopup(force = false) {
-  const k = dayKeyNow();
-  const seenKey = "expiry_popup_seen_" + k;
-
-  if (!force && localStorage.getItem(seenKey) === "1") return;
-  localStorage.setItem(seenKey, "1");
-
-  const list = POPUP_ITEMS.map((x) => `<li style="padding:6px 0;font-weight:800">${escapeHtml(x)}</li>`).join("");
-  openModal(
-    "PLEASE check the expiry date",
-    `
-    <div class="card fadeIn" style="border:2px solid rgba(0,154,68,.18)">
-      <div style="font-weight:900;margin-bottom:8px">PLEASE check the expiry date of the items below:</div>
-      <ul style="margin:8px 0 0 18px">${list}</ul>
-      <div class="divider"></div>
-      <button id="okPopup" class="btn btn-yellow" style="width:100%;font-size:16px">OK</button>
-    </div>
-    `,
-    { noBackdropClose: true }
-  );
-  const ok = $("#okPopup");
-  if (ok) ok.addEventListener("click", closeModal);
-}
-
 function openSessionSetup() {
   const s = state.session;
 
   openModal(
     "Start Session",
     `
-    <div class="card fadeIn">
-      <div class="col">
-        <div style="font-weight:900">Select Store</div>
-        <div class="row">
-          <button id="pickPDD" class="btn" style="flex:1;background:#009A44;color:#fff">PDD</button>
-          <button id="pickSKH" class="btn" style="flex:1;background:#009A44;color:#fff;opacity:.85">SKH</button>
+      <div class="card">
+        <div class="field">
+          <span class="label">Select Store</span>
+          <div style="display:flex; gap:10px;">
+            <button id="pickPDD" class="btn-yellow" style="flex:1; border-radius:14px;">PDD</button>
+            <button id="pickSKH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;">SKH</button>
+          </div>
         </div>
 
-        <div style="font-weight:900;margin-top:10px">Shift</div>
-        <select id="shiftSel" class="select">
-          <option value="AM">AM</option>
-          <option value="PM">PM</option>
-        </select>
+        <div class="field">
+          <span class="label">Shift</span>
+          <select id="shiftSel" class="input">
+            <option value="AM">AM</option>
+            <option value="PM">PM</option>
+          </select>
+        </div>
 
-        <div style="font-weight:900;margin-top:10px">Staff Name / ID</div>
-        <input id="staffInp" class="select" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
+        <div class="field">
+          <span class="label">Staff Name / ID</span>
+          <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
+        </div>
 
-        <div class="divider"></div>
-        <button id="startBtn" class="btn btn-yellow" style="width:100%;font-size:16px">Start</button>
+        <div class="field">
+          <button id="startBtn" class="btn-yellow">Start</button>
+        </div>
 
-        <div style="font-size:12px" class="muted">Session will reset after midnight automatically.</div>
+        <div class="muted" style="font-size:12px; font-weight:900;">
+          Session auto resets after midnight.
+        </div>
       </div>
-    </div>
     `,
     { noBackdropClose: true }
   );
 
   let storePick = s.store || "PDD";
-
   const setPick = (val) => {
     storePick = val;
     const pdd = $("#pickPDD");
@@ -515,302 +487,332 @@ function openSessionSetup() {
   };
   setPick(storePick);
 
-  const pdd = $("#pickPDD");
-  const skh = $("#pickSKH");
-  if (pdd) pdd.addEventListener("click", () => setPick("PDD"));
-  if (skh) skh.addEventListener("click", () => setPick("SKH"));
+  $("#shiftSel").value = s.shift || "AM";
+  $("#pickPDD")?.addEventListener("click", () => setPick("PDD"));
+  $("#pickSKH")?.addEventListener("click", () => setPick("SKH"));
 
-  const startBtn = $("#startBtn");
-  if (startBtn) {
-    startBtn.addEventListener("click", async () => {
-      const staff = String($("#staffInp")?.value || "").trim();
-      const shift = String($("#shiftSel")?.value || "AM");
-      if (!staff) return toast("Please enter staff name/ID");
+  $("#startBtn")?.addEventListener("click", async () => {
+    const staff = String($("#staffInp")?.value || "").trim();
+    const shift = String($("#shiftSel")?.value || "AM").trim();
 
-      state.session.store = storePick;
-      state.session.shift = shift;
-      state.session.staff = staff;
-      state.session.isManager = false;
-      state.session.managerToken = "";
-      state.session.sessionDayKey = dayKeyNow();
-      saveSession();
+    if (!staff) return toast("Please enter staff name/ID");
 
-      closeModal();
-      try {
-        await loadAllForCurrentStore();
-        render();
-      } catch (e) {
-        console.error(e);
-        toast("Failed to load data");
-      }
-    });
-  }
+    state.session.store = storePick;
+    state.session.shift = shift;
+    state.session.staff = staff;
+
+    // back to staff mode on new session
+    state.session.isManager = false;
+    state.session.managerToken = "";
+
+    // day key for midnight reset
+    state.session.sessionDayKey = dayKeyNow();
+    saveJSON("session", state.session);
+
+    closeModal();
+
+    // show popup once per day (new session)
+    maybeShowExpiryPopup();
+
+    try {
+      await loadAllForCurrentStore();
+      goHome();
+    } catch (e) {
+      console.error(e);
+      toast("Failed to load data");
+    }
+  });
 }
 
 /* =========================================================
-   RENDER
+   HOME (emoji-only, BIG emoji + BIG name, animated one by one)
    ========================================================= */
-function render() {
-  updateTopbar();
-
-  const main = $("#main");
-  if (!main) return;
-
-  if (!state.session.store || !state.session.staff) {
-    main.innerHTML = `<div class="card fadeIn">Session not started.</div>`;
-    openSessionSetup();
-    return;
-  }
-
-  const v = state.view.page;
-
-  if (v === "home") return renderHome();
-  if (v === "category") return renderCategoryPage();
-  if (v === "alerts") return renderAlerts();
-  if (v === "manager") return renderManagerHome();
-  if (v === "managerEditItems") return renderManagerEditItems();
-  if (v === "managerCategories") return renderManagerCategories();
-  if (v === "summaryHome") return renderSummaryHome();
-  if (v === "summaryList") return renderSummaryList();
-  if (v === "wisr") return renderWISR();
-
-  main.innerHTML = `<div class="card">Unknown page</div>`;
+function tileToneForCategory(name) {
+  const map = {
+    "Prepared items": "t-green",
+    "Unopened chiller": "t-blue",
+    "Thawing": "t-cyan",
+    "Vegetables": "t-green2",
+    "Backroom": "t-orange",
+    "Back counter": "t-orange",
+    "Front counter": "t-red",
+    "Back counter chiller": "t-teal",
+    "Fountain Drinks": "t-green2",
+    "Sauce": "t-purple",
+  };
+  return map[name] || "t-green";
 }
 
-/* ---------- HOME ---------- */
 function renderHome() {
   const main = $("#main");
 
-  const cats = state.data.categories.map((c) => c.name);
+  const cats = (state.data.categories || [])
+    .filter((c) => c && (c.is_active !== false))
+    .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999));
 
+  // item count per category
   const counts = {};
-  for (const it of state.data.items) {
-    const c = it.category;
+  for (const it of (state.data.items || [])) {
+    const c = it.category || "";
     counts[c] = (counts[c] || 0) + 1;
   }
 
-  const tiles = cats
-    .map((name, idx) => {
-      const emoji = CAT_EMOJI[name] || "✅";
-      const color = tileColorFor(name);
-      const count = counts[name] || 0;
-      const delay = 40 * idx;
+  const tiles = cats.map((c, idx) => {
+    const name = String(c.name || "");
+    const emoji = CAT_EMOJI[name] || "✅";
+    const tone = tileToneForCategory(name);
+    const count = counts[name] || 0;
+    const delay = idx * 55;
 
-      return `
-      <button class="tileBig" style="${color};animation-delay:${delay}ms" data-cat="${escapeHtml(name)}" type="button">
-        <div class="emoji" style="font-size:56px">${emoji}</div>
-        <div class="name" style="font-size:24px">${escapeHtml(name)}</div>
-        <div class="sub">${count} items</div>
-      </button>`;
-    })
-    .join("");
+    return `
+      <button class="tile ${tone}" type="button" data-cat="${escapeHtml(name)}" style="animation-delay:${delay}ms;">
+        <div class="ico" style="width:auto;height:auto;">
+          <div style="font-size:52px; line-height:1;">${emoji}</div>
+        </div>
+        <div class="title" style="font-size:20px; font-weight:1200;">${escapeHtml(name)}</div>
+        <div class="sub" style="font-size:13px;">${count} items</div>
+      </button>
+    `;
+  }).join("");
 
-  main.innerHTML = `<div class="col fadeIn"><div class="grid2">${tiles}</div></div>`;
+  main.innerHTML = `
+    <div class="tiles-2col">
+      ${tiles}
+    </div>
+  `;
 
-  $$(".tileBig", main).forEach((b) => {
-    b.addEventListener("click", () => {
-      const cat = b.dataset.cat;
+  $$(".tile", main).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cat = btn.dataset.cat;
       setView({ page: "category", category: cat, sauceSub: null }, true);
     });
   });
 }
 
-function tileColorFor(name) {
-  const map = {
-    "Prepared items": "background:linear-gradient(135deg,#0B7A38,#0E9A44)",
-    "Unopened chiller": "background:linear-gradient(135deg,#1E6BD6,#2A86FF)",
-    Thawing: "background:linear-gradient(135deg,#0AA0B5,#0CC0D8)",
-    Vegetables: "background:linear-gradient(135deg,#2E7D32,#4CAF50)",
-    Backroom: "background:linear-gradient(135deg,#F57C00,#FB8C00)",
-    "Front counter": "background:linear-gradient(135deg,#C62828,#E53935)",
-    "Back counter chiller": "background:linear-gradient(135deg,#00796B,#009688)",
-    "Fountain Drinks": "background:linear-gradient(135deg,#1B5E20,#2E7D32)",
-    Sauce: "background:linear-gradient(135deg,#5E35B1,#7E57C2)",
-  };
-  return map[name] || "background:linear-gradient(135deg,#37474F,#546E7A)";
-}
-
-/* ---------- CATEGORY PAGE ---------- */
-function renderCategoryPage() {
-  const main = $("#main");
-  const cat = state.view.category;
-
-  if (cat === "Sauce" && !state.view.sauceSub) {
-    const tiles = SAUCE_SUBS.map((s, idx) => {
-      const color =
-        s.tone === "teal"
-          ? "background:linear-gradient(135deg,#00796B,#009688)"
-          : s.tone === "purple"
-          ? "background:linear-gradient(135deg,#5E35B1,#7E57C2)"
-          : "background:linear-gradient(135deg,#F57C00,#FB8C00)";
-      return `
-        <button class="tileBig" style="${color};min-height:110px;animation-delay:${idx * 50}ms" type="button" data-sub="${escapeHtml(s.name)}">
-          <div class="emoji" style="font-size:60px">${s.emoji}</div>
-          <div class="name" style="font-size:26px">${escapeHtml(s.name)}</div>
-        </button>
-      `;
-    }).join("");
-
-    main.innerHTML = `
-      <div class="col fadeIn">
-        <div class="topBack">
-          <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-          <div style="font-size:28px;font-weight:900;color:#0B7A38">Sauce</div>
-        </div>
-        <div class="grid2">${tiles}</div>
-      </div>
-    `;
-    $("#btnBack")?.addEventListener("click", goBack);
-    $$(".tileBig", main).forEach((b) => {
-      b.addEventListener("click", () => {
-        const sub = b.dataset.sub;
-        setView({ page: "category", category: "Sauce", sauceSub: sub }, true);
-      });
-    });
-    return;
-  }
-
-  const sauceSub = state.view.sauceSub;
-  const title = sauceSub ? `Sauce — ${sauceSub}` : cat;
-
-  let items = state.data.items.filter((x) => x.category === cat);
-  if (cat === "Sauce" && sauceSub) {
-    items = items.filter((x) => String(x.sub_category || "").toLowerCase() === String(sauceSub).toLowerCase());
-  }
-
-  const emptyHint = items.length
-    ? ""
-    : `<div class="card" style="border-left:6px solid #F7C948">
-         <div style="font-weight:900">No items found</div>
-         <div class="muted" style="margin-top:6px">
-           If this is Sauce, check your item sub_category matches: Standby / Open Inner / Sandwich Unit
-         </div>
-       </div>`;
-
-  const rows = items.map((it) => renderItemRow(it, cat)).join("");
-
-  main.innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">${escapeHtml(title)}</div>
-      </div>
-
-      ${emptyHint}
-
-      <div class="col" id="itemsWrap">${rows}</div>
-
-      <button id="saveCat" class="btn btn-yellow" style="width:100%;font-size:18px;padding:16px;border-radius:18px">
-        Save ${escapeHtml(cat)}
-      </button>
-    </div>
-  `;
-
-  $("#btnBack")?.addEventListener("click", goBack);
-  bindCategoryItemControls(items, cat);
-
-  $("#saveCat")?.addEventListener("click", async () => {
-    await saveCategoryDrafts(items, cat);
-  });
-}
-
+/* =========================================================
+   CATEGORY
+   - Sauce -> subcategory tiles (3 colors, big emoji, no frame)
+   - Items list with stepper + expiry input
+   - Floating appearance animation (one by one)
+   - Save button (yellow)
+   - Back button (yellow)
+   ========================================================= */
 function itemKey(it) {
   return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`;
 }
 
-function renderItemRow(it, cat) {
-  const key = itemKey(it);
-  const draft = state.drafts[key] || { qty: 0, expType: "", expDateISO: "" };
+function ensureDraft(key) {
+  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "" };
+  return state.drafts[key];
+}
 
+function renderSauceSubTiles() {
+  const tiles = SAUCE_SUBS.map((s, idx) => {
+    const delay = idx * 60;
+    return `
+      <button class="tile ${s.tone}" type="button" data-sub="${escapeHtml(s.name)}" style="min-height:128px; animation-delay:${delay}ms;">
+        <div class="ico" style="width:auto;height:auto;">
+          <div style="font-size:56px; line-height:1;">${s.emoji}</div>
+        </div>
+        <div class="title" style="font-size:20px; font-weight:1200;">${escapeHtml(s.name)}</div>
+        <div class="sub" style="font-size:12px;">Tap to open</div>
+      </button>
+    `;
+  }).join("");
+
+  $("#main").innerHTML = `
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">Sauce</div>
+    </div>
+    <div class="tiles-2col">${tiles}</div>
+  `;
+
+  $("#btnBack")?.addEventListener("click", goBack);
+
+  $$(".tile", $("#main")).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sub = btn.dataset.sub;
+      setView({ page: "category", category: "Sauce", sauceSub: sub }, true);
+    });
+  });
+}
+
+function renderCategory() {
+  const main = $("#main");
+  const cat = state.view.category;
+
+  if (!cat) return goHome();
+
+  // Sauce entry -> show sub tiles first
+  if (cat === "Sauce" && !state.view.sauceSub) {
+    return renderSauceSubTiles();
+  }
+
+  const sauceSub = state.view.sauceSub || null;
+  const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
+
+  // filter items by category (+ sauce sub)
+  let items = (state.data.items || []).filter((x) => String(x.category || "") === String(cat));
+  if (cat === "Sauce" && sauceSub) {
+    const target = String(sauceSub).toLowerCase();
+    items = items.filter((x) => String(x.sub_category || "").toLowerCase() === target);
+  }
+
+  const emptyMsg = items.length
+    ? ""
+    : `
+      <div class="card" style="border-left:6px solid var(--yellow); margin-bottom:12px;">
+        <div style="font-weight:1200;">No items found</div>
+        <div class="muted" style="font-weight:900; margin-top:6px;">
+          If this is Sauce subcategory: make sure item sub_category is exactly "${escapeHtml(sauceSub || "")}" in DB.
+        </div>
+      </div>
+    `;
+
+  const rows = items.map((it, idx) => renderItemRow(it, cat, idx)).join("");
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">${escapeHtml(title)}</div>
+    </div>
+
+    ${emptyMsg}
+
+    <div class="edit-list" id="itemsWrap">
+      ${rows}
+    </div>
+
+    <div class="save-bar">
+      <button id="saveBtn" class="btn-yellow">Save ${escapeHtml(cat)}</button>
+    </div>
+  `;
+
+  $("#btnBack")?.addEventListener("click", goBack);
+
+  bindItemControls(items, cat);
+
+  $("#saveBtn")?.addEventListener("click", async () => {
+    await saveCategoryDrafts(items, cat);
+  });
+}
+
+function renderItemRow(it, cat, idx) {
+  const key = itemKey(it);
+  const d = ensureDraft(key);
+
+  const animDelay = idx * 45;
+
+  // Expiry rules:
+  // - Unopened chiller + Fountain Drinks = manual date only (ONE bar)
+  // - Chicken Bacon (c) = End-of-day auto (no input)
+  // - Others = dropdown (Today/Tomorrow/Pick Date) + date input only when Pick Date
   const forceManual = FORCE_MANUAL_DATE_CATS.has(cat);
   const isCBC = isChickenBaconC(it.name);
 
   let expiryUI = "";
 
   if (isCBC) {
-    expiryUI = `<div class="muted" style="font-weight:800;margin-top:6px">Expiry: End of day (auto).</div>`;
+    expiryUI = `<div class="edit-helper">Expiry: End of day (auto).</div>`;
   } else if (forceManual) {
-    const v = draft.expDateISO || "";
     expiryUI = `
-      <div style="margin-top:8px">
-        <input class="select" data-expdate="${escapeHtml(key)}" type="date" value="${escapeHtml(v)}" />
-        <div class="muted" style="font-weight:800;margin-top:6px">Expiry: Pick a date (manual).</div>
+      <div class="exp-wrap">
+        <input class="input" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}" />
+        <div class="edit-helper">Expiry: Pick a date (manual).</div>
       </div>
     `;
   } else {
+    const selVal = d.expType || "";
     const today = todayISO();
     const tomorrow = addDaysISO(today, 1);
-    const selVal = draft.expType || "";
-    const pickLabel =
-      selVal === "PICK" && draft.expDateISO ? `Pick Date — ${formatDMY(draft.expDateISO)}` : "Pick Date";
 
     expiryUI = `
-      <div style="margin-top:8px">
-        <select class="select" data-expsel="${escapeHtml(key)}">
+      <div class="exp-wrap">
+        <select class="input" data-expsel="${escapeHtml(key)}">
           <option value="">Select</option>
           <option value="TODAY"${selVal === "TODAY" ? " selected" : ""}>Today — ${formatDMY(today)}</option>
           <option value="TOMORROW"${selVal === "TOMORROW" ? " selected" : ""}>Tomorrow — ${formatDMY(tomorrow)}</option>
-          <option value="PICK"${selVal === "PICK" ? " selected" : ""}>${pickLabel}</option>
+          <option value="PICK"${selVal === "PICK" ? " selected" : ""}>Pick a date</option>
         </select>
-        <div data-pickwrap="${escapeHtml(key)}" class="${selVal === "PICK" ? "" : "hidden"}" style="margin-top:8px">
-          <input class="select" data-expdate="${escapeHtml(key)}" type="date" value="${escapeHtml(draft.expDateISO || "")}" />
+
+        <div data-pickwrap="${escapeHtml(key)}" class="${selVal === "PICK" ? "" : "hidden"}">
+          <input class="input" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}" />
         </div>
-        <div class="muted" style="font-weight:800;margin-top:6px">Expiry: Today / Tomorrow / Pick Date.</div>
+
+        <div class="edit-helper">Expiry: Today / Tomorrow / Pick Date.</div>
       </div>
     `;
   }
 
   return `
-    <div class="listItem" data-item="${escapeHtml(key)}">
-      <div style="font-size:22px;font-weight:900">${escapeHtml(it.name)}</div>
-      <div class="row" style="margin-top:12px">
-        <div class="qtyBox">
-          <button class="qtyBtn" data-dec="${escapeHtml(key)}" type="button">−</button>
-          <div style="font-weight:900;font-size:18px;min-width:26px;text-align:center" data-qty="${escapeHtml(key)}">${draft.qty || 0}</div>
-          <button class="qtyBtn" data-inc="${escapeHtml(key)}" type="button">+</button>
+    <div class="edit-card" style="animation-delay:${animDelay}ms;">
+      <div class="edit-name">${escapeHtml(it.name)}</div>
+
+      <div class="edit-row">
+        <div class="qty-stepper">
+          <button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button>
+          <input class="qty-inp" type="text" data-qty="${escapeHtml(key)}" value="${escapeHtml(d.qty || 0)}" readonly />
+          <button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button>
         </div>
-        <div style="flex:1">${expiryUI}</div>
+
+        ${expiryUI}
       </div>
     </div>
   `;
 }
 
-function bindCategoryItemControls(items, cat) {
+function bindItemControls(items, cat) {
   const wrap = $("#itemsWrap");
   if (!wrap) return;
 
   for (const it of items) {
     const key = itemKey(it);
-    if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "" };
+    const d = ensureDraft(key);
 
-    const inc = $(`[data-inc="${cssEsc(key)}"]`, wrap);
-    const dec = $(`[data-dec="${cssEsc(key)}"]`, wrap);
-    const qtyEl = $(`[data-qty="${cssEsc(key)}"]`, wrap);
-    const sel = $(`[data-expsel="${cssEsc(key)}"]`, wrap);
-    const dateInp = $(`[data-expdate="${cssEsc(key)}"]`, wrap);
+    const inc = wrap.querySelector(`[data-inc="${CSS.escape(key)}"]`);
+    const dec = wrap.querySelector(`[data-dec="${CSS.escape(key)}"]`);
+    const qtyInp = wrap.querySelector(`[data-qty="${CSS.escape(key)}"]`);
+    const sel = wrap.querySelector(`[data-expsel="${CSS.escape(key)}"]`);
+    const dateInp = wrap.querySelector(`[data-expdate="${CSS.escape(key)}"]`);
 
     if (inc) inc.addEventListener("click", () => {
-      state.drafts[key].qty = (Number(state.drafts[key].qty) || 0) + 1;
-      if (qtyEl) qtyEl.textContent = String(state.drafts[key].qty);
+      d.qty = (Number(d.qty) || 0) + 1;
+      if (qtyInp) qtyInp.value = String(d.qty);
     });
 
     if (dec) dec.addEventListener("click", () => {
-      state.drafts[key].qty = Math.max(0, (Number(state.drafts[key].qty) || 0) - 1);
-      if (qtyEl) qtyEl.textContent = String(state.drafts[key].qty);
+      d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
+      if (qtyInp) qtyInp.value = String(d.qty);
     });
 
     if (sel) sel.addEventListener("change", () => {
       const v = String(sel.value || "");
-      state.drafts[key].expType = v;
-      if (v !== "PICK") state.drafts[key].expDateISO = "";
-      const pickWrap = $(`[data-pickwrap="${cssEsc(key)}"]`, wrap);
+      d.expType = v;
+
+      // show/hide pick date input
+      const pickWrap = wrap.querySelector(`[data-pickwrap="${CSS.escape(key)}"]`);
       if (pickWrap) pickWrap.classList.toggle("hidden", v !== "PICK");
+
+      if (v !== "PICK") d.expDateISO = "";
+      if (dateInp && v !== "PICK") dateInp.value = "";
     });
 
     if (dateInp) dateInp.addEventListener("change", () => {
-      state.drafts[key].expDateISO = String(dateInp.value || "");
-      if (FORCE_MANUAL_DATE_CATS.has(cat) && !state.drafts[key].expType) state.drafts[key].expType = "MANUAL";
+      d.expDateISO = String(dateInp.value || "");
+      if (!d.expType) d.expType = "MANUAL";
     });
+
+    // for CBC, force no expiry edits
+    if (isChickenBaconC(it.name)) {
+      d.expType = "EOD";
+      d.expDateISO = "";
+    }
+
+    // forced manual categories
+    if (FORCE_MANUAL_DATE_CATS.has(cat) && !isChickenBaconC(it.name)) {
+      d.expType = "MANUAL";
+    }
   }
 }
 
@@ -819,20 +821,22 @@ async function saveCategoryDrafts(items, cat) {
   const staff = state.session.staff;
   const shift = state.session.shift;
 
-  const rows = [];
   const today = todayISO();
   const tomorrow = addDaysISO(today, 1);
 
+  const rows = [];
+
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "" };
+    const d = ensureDraft(key);
+
     const qty = Number(d.qty) || 0;
     if (qty <= 0) continue;
 
     let expiry = null;
 
     if (isChickenBaconC(it.name)) {
-      expiry = today;
+      expiry = today; // end of day today
     } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
       expiry = d.expDateISO || null;
     } else {
@@ -848,7 +852,7 @@ async function saveCategoryDrafts(items, cat) {
       category: it.category,
       sub_category: it.sub_category || null,
       quantity: qty,
-      expiry: expiry,
+      expiry: expiry, // YYYY-MM-DD
       expiry_at: null,
     });
   }
@@ -858,71 +862,77 @@ async function saveCategoryDrafts(items, cat) {
   try {
     await apiPost("/api/log/batch", { store, staff, shift, rows });
     toast("Saved ✅");
-    state.data.expiry = await apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
   } catch (e) {
     console.error(e);
     toast("Save failed");
   }
 }
 
-/* ---------- ALERTS ---------- */
+/* =========================================================
+   ALERTS (simple now, no crash)
+   ========================================================= */
 function renderAlerts() {
   $("#main").innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">Alerts</div>
-      </div>
-      <div class="card">
-        <div style="font-weight:900">Coming soon</div>
-        <div class="muted">We’ll add expiry alerts list here.</div>
-      </div>
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">Alerts</div>
+    </div>
+
+    <div class="card">
+      <div class="h1">Coming soon</div>
+      <div class="muted" style="font-weight:900;">We’ll put expiry alerts here.</div>
     </div>
   `;
   $("#btnBack")?.addEventListener("click", goBack);
 }
 
 /* =========================================================
-   SUMMARY (staff store-only, manager can view BOTH)
+   SUMMARY
+   - Drawer Summary shows 3 big cards (available to STAFF too)
+   - Staff: only sees their store
+   - Manager: can choose PDD / SKH / BOTH
+   - Cards go to different pages (Today / Tomorrow / Safe)
+   - List grouped by category
    ========================================================= */
-async function loadExpiryFor(store) {
+async function fetchExpiryForStore(store) {
+  // server must return array with fields: name, category, sub_category, expiry_value
   return apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
 }
 
 function renderSummaryHome() {
   const main = $("#main");
-  const isMgr = state.session.isManager;
-  const store = state.session.store;
+  const isMgr = !!state.session.isManager;
 
   main.innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">Summary</div>
-      </div>
-
-      ${isMgr ? `
-      <div class="card">
-        <div style="font-weight:900;margin-bottom:8px">Store</div>
-        <div class="row">
-          <button id="sumPDD" class="btn" style="flex:1;background:#009A44;color:#fff">PDD</button>
-          <button id="sumSKH" class="btn" style="flex:1;background:#009A44;color:#fff;opacity:.75">SKH</button>
-          <button id="sumBOTH" class="btn btn-blue" style="flex:1">BOTH</button>
-        </div>
-        <div class="muted" style="margin-top:8px">Manager can view both stores. Staff only sees their store.</div>
-      </div>
-      ` : ""}
-
-      <div id="sumCards" class="col"></div>
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">Summary</div>
     </div>
+
+    ${isMgr ? `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="label" style="margin-bottom:8px;">Manager view</div>
+        <div style="display:flex; gap:10px;">
+          <button id="sumPDD" class="btn-yellow" style="flex:1; border-radius:14px;">PDD</button>
+          <button id="sumSKH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;">SKH</button>
+          <button id="sumBOTH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;">BOTH</button>
+        </div>
+        <div class="muted" style="font-weight:900; margin-top:8px;">
+          Staff can only view their store. Manager can view both.
+        </div>
+      </div>
+    ` : ""}
+
+    <div id="sumCardsWrap" class="summary-row"></div>
   `;
 
   $("#btnBack")?.addEventListener("click", goBack);
 
-  let mode = isMgr ? "PDD" : store;
+  let mode = isMgr ? (state.view.summaryMode || "PDD") : state.session.store;
 
   const setMode = async (m) => {
     mode = m;
+    state.view.summaryMode = mode;
 
     if (isMgr) {
       $("#sumPDD").style.opacity = m === "PDD" ? "1" : ".75";
@@ -930,20 +940,27 @@ function renderSummaryHome() {
       $("#sumBOTH").style.opacity = m === "BOTH" ? "1" : ".75";
     }
 
-    const wrap = $("#sumCards");
-    wrap.innerHTML = `<div class="card">Loading…</div>`;
+    const wrap = $("#sumCardsWrap");
+    wrap.innerHTML = `
+      <button class="sum-card sum-red" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Today</div></button>
+      <button class="sum-card sum-amber" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Tomorrow</div></button>
+      <button class="sum-card sum-green" type="button"><div class="sum-num">…</div><div class="sum-lbl">All Safe</div></button>
+    `;
 
     try {
-      let rows = [];
-      if (m === "BOTH") {
-        const [a, b] = await Promise.all([loadExpiryFor("PDD"), loadExpiryFor("SKH")]);
-        rows = a.map((x) => ({ ...x, _store: "PDD" })).concat(b.map((x) => ({ ...x, _store: "SKH" })));
-      } else {
-        rows = (await loadExpiryFor(m)).map((x) => ({ ...x, _store: m }));
-      }
-
       const today = todayISO();
       const tomorrow = addDaysISO(today, 1);
+
+      let rows = [];
+      if (mode === "BOTH") {
+        const [a, b] = await Promise.all([fetchExpiryForStore("PDD"), fetchExpiryForStore("SKH")]);
+        rows = []
+          .concat((a || []).map((x) => ({ ...x, _store: "PDD" })))
+          .concat((b || []).map((x) => ({ ...x, _store: "SKH" })));
+      } else {
+        const a = await fetchExpiryForStore(mode);
+        rows = (a || []).map((x) => ({ ...x, _store: mode }));
+      }
 
       const todayCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
       const tomorrowCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
@@ -953,75 +970,87 @@ function renderSummaryHome() {
       }).length;
 
       wrap.innerHTML = `
-        <button class="card fadeIn" id="goToday" style="background:linear-gradient(135deg,#C62828,#E53935);color:#fff;border:0;text-align:left">
-          <div style="font-size:18px;font-weight:900">Expiring Today</div>
-          <div style="font-size:40px;font-weight:1000;line-height:1;margin-top:6px">${todayCount}</div>
-          <div class="muted" style="color:rgba(255,255,255,.85);font-weight:800">Tap to view</div>
+        <button class="sum-card sum-red" id="sumToday" type="button">
+          <div class="sum-num">${todayCount}</div>
+          <div class="sum-lbl">Expiring<br/>Today</div>
         </button>
-
-        <button class="card fadeIn" id="goTomorrow" style="background:linear-gradient(135deg,#F57C00,#FB8C00);color:#fff;border:0;text-align:left">
-          <div style="font-size:18px;font-weight:900">Expiring Tomorrow</div>
-          <div style="font-size:40px;font-weight:1000;line-height:1;margin-top:6px">${tomorrowCount}</div>
-          <div class="muted" style="color:rgba(255,255,255,.85);font-weight:800">Tap to view</div>
+        <button class="sum-card sum-amber" id="sumTomorrow" type="button">
+          <div class="sum-num">${tomorrowCount}</div>
+          <div class="sum-lbl">Expiring<br/>Tomorrow</div>
         </button>
-
-        <button class="card fadeIn" id="goSafe" style="background:linear-gradient(135deg,#2E7D32,#4CAF50);color:#fff;border:0;text-align:left">
-          <div style="font-size:18px;font-weight:900">All Safe</div>
-          <div style="font-size:40px;font-weight:1000;line-height:1;margin-top:6px">${safeCount}</div>
-          <div class="muted" style="color:rgba(255,255,255,.85);font-weight:800">Tap to view</div>
+        <button class="sum-card sum-green" id="sumSafe" type="button">
+          <div class="sum-num">${safeCount}</div>
+          <div class="sum-lbl">All Safe</div>
         </button>
       `;
 
-      $("#goToday").addEventListener("click", () => setView({ page: "summaryList", summaryMode: mode, bucket: "TODAY" }, true));
-      $("#goTomorrow").addEventListener("click", () => setView({ page: "summaryList", summaryMode: mode, bucket: "TOMORROW" }, true));
-      $("#goSafe").addEventListener("click", () => setView({ page: "summaryList", summaryMode: mode, bucket: "SAFE" }, true));
+      $("#sumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: mode }, true));
+      $("#sumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: mode }, true));
+      $("#sumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: mode }, true));
     } catch (e) {
       console.error(e);
-      wrap.innerHTML = `<div class="card">Failed to load summary</div>`;
+      toast("Summary load failed");
     }
   };
 
   if (isMgr) {
-    $("#sumPDD").addEventListener("click", () => setMode("PDD"));
-    $("#sumSKH").addEventListener("click", () => setMode("SKH"));
-    $("#sumBOTH").addEventListener("click", () => setMode("BOTH"));
+    $("#sumPDD")?.addEventListener("click", () => setMode("PDD"));
+    $("#sumSKH")?.addEventListener("click", () => setMode("SKH"));
+    $("#sumBOTH")?.addEventListener("click", () => setMode("BOTH"));
   }
 
   setMode(mode);
 }
 
+function bucketTitle(bucket) {
+  if (bucket === "TODAY") return "Expiring Today";
+  if (bucket === "TOMORROW") return "Expiring Tomorrow";
+  return "All Safe";
+}
+
 async function renderSummaryList() {
   const main = $("#main");
-  const mode = state.view.summaryMode || state.session.store;
   const bucket = state.view.bucket || "TODAY";
 
+  const isMgr = !!state.session.isManager;
+  const mode = isMgr ? (state.view.summaryMode || "PDD") : state.session.store;
+
   main.innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">${bucketTitle(bucket)}</div>
-      </div>
-      <div id="sumList" class="col"></div>
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">${bucketTitle(bucket)}</div>
     </div>
+
+    <div class="card" id="sumInfo" style="margin-bottom:12px;">
+      <div style="font-weight:1200;">Store: ${escapeHtml(mode)}</div>
+      <div class="muted" style="font-weight:900;">Showing items for this card.</div>
+    </div>
+
+    <div id="sumListWrap"></div>
   `;
+
   $("#btnBack")?.addEventListener("click", goBack);
 
-  const wrap = $("#sumList");
+  const wrap = $("#sumListWrap");
   wrap.innerHTML = `<div class="card">Loading…</div>`;
 
   try {
-    let rows = [];
-    if (mode === "BOTH") {
-      const [a, b] = await Promise.all([loadExpiryFor("PDD"), loadExpiryFor("SKH")]);
-      rows = a.map((x) => ({ ...x, _store: "PDD" })).concat(b.map((x) => ({ ...x, _store: "SKH" })));
-    } else {
-      rows = (await loadExpiryFor(mode)).map((x) => ({ ...x, _store: mode }));
-    }
-
     const today = todayISO();
     const tomorrow = addDaysISO(today, 1);
 
-    rows = rows.filter((x) => {
+    let rows = [];
+    if (mode === "BOTH") {
+      const [a, b] = await Promise.all([fetchExpiryForStore("PDD"), fetchExpiryForStore("SKH")]);
+      rows = []
+        .concat((a || []).map((x) => ({ ...x, _store: "PDD" })))
+        .concat((b || []).map((x) => ({ ...x, _store: "SKH" })));
+    } else {
+      const a = await fetchExpiryForStore(mode);
+      rows = (a || []).map((x) => ({ ...x, _store: mode }));
+    }
+
+    // filter by bucket
+    rows = (rows || []).filter((x) => {
       const e = String(x.expiry_value || "").slice(0, 10);
       if (!e) return false;
       if (bucket === "TODAY") return e === today;
@@ -1029,42 +1058,49 @@ async function renderSummaryList() {
       return e !== today && e !== tomorrow;
     });
 
-    const byCat = new Map();
-    for (const r of rows) {
-      const c = r.category || "Other";
-      if (!byCat.has(c)) byCat.set(c, []);
-      byCat.get(c).push(r);
-    }
-
     if (!rows.length) {
       wrap.innerHTML = `<div class="card">No items</div>`;
       return;
     }
 
+    // group by category
+    const byCat = new Map();
+    for (const r of rows) {
+      const c = String(r.category || "Other");
+      if (!byCat.has(c)) byCat.set(c, []);
+      byCat.get(c).push(r);
+    }
+
     let html = "";
     for (const [cat, list] of byCat.entries()) {
       html += `
-        <div class="card">
-          <div style="font-weight:900;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div>
-          <div class="col" style="gap:8px">
-            ${list
-              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-              .map((r) => {
-                const dateText = formatDMY(String(r.expiry_value).slice(0, 10));
-                const qtyText = "—";
-                const storeTag = mode === "BOTH" ? `<span class="muted" style="font-weight:900">(${r._store})</span>` : "";
-                return `
-                  <div style="display:flex;justify-content:space-between;gap:10px;border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:10px 12px">
-                    <div style="font-weight:900">${escapeHtml(r.name)} ${storeTag}</div>
-                    <div style="font-weight:900">${qtyText} • ${escapeHtml(dateText)}</div>
+        <div class="card" style="margin-bottom:12px;">
+          <div class="h1" style="margin-bottom:10px;">${escapeHtml(cat)}</div>
+          ${list
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+            .map((r) => {
+              // qty: server may not return it; show — (you can add later if your endpoint returns quantity)
+              const qty = r.quantity != null ? r.quantity : "—";
+              const date = formatDMY(String(r.expiry_value || "").slice(0, 10));
+              const storeTag = mode === "BOTH" ? ` <span class="muted" style="font-weight:900;">(${r._store})</span>` : "";
+              return `
+                <div class="alert-row" style="border-top:1px dashed var(--line); padding:12px 0;">
+                  <div>
+                    <div class="alert-name" style="font-weight:1200;">${escapeHtml(r.name || "")}${storeTag}</div>
+                    <div class="alert-extra">${escapeHtml(String(r.sub_category || ""))}</div>
                   </div>
-                `;
-              })
-              .join("")}
-          </div>
+                  <div style="text-align:right; font-weight:1200;">
+                    <div>${escapeHtml(String(qty))}</div>
+                    <div class="muted" style="font-weight:900;">${escapeHtml(date)}</div>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
         </div>
       `;
     }
+
     wrap.innerHTML = html;
   } catch (e) {
     console.error(e);
@@ -1072,89 +1108,94 @@ async function renderSummaryList() {
   }
 }
 
-function bucketTitle(b) {
-  if (b === "TODAY") return "Expiring Today";
-  if (b === "TOMORROW") return "Expiring Tomorrow";
-  return "All Safe";
-}
-
 /* =========================================================
    MANAGER
+   - Manager login (PIN)
+   - Dashboard: summary cards + tools tiles (color, big)
+   - Download Log tile (tries common endpoints; if missing shows toast)
    ========================================================= */
 function renderManagerHome() {
-  const main = $("#main");
   if (!state.session.isManager) return openManagerLogin();
 
-  main.innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">Manager</div>
-      </div>
+  $("#main").innerHTML = `
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">Manager Dashboard</div>
+    </div>
 
-      <div class="grid3">
-        ${miniSummaryCard("Expiring Today", "#E53935", "today")}
-        ${miniSummaryCard("Expiring Tomorrow", "#FB8C00", "tomorrow")}
-        ${miniSummaryCard("All Safe", "#43A047", "safe")}
-      </div>
+    <div class="summary-row" style="margin-top:0;">
+      <button class="sum-card sum-red" id="mgrSumToday" type="button">
+        <div class="sum-num">›</div>
+        <div class="sum-lbl">Expiring<br/>Today</div>
+      </button>
+      <button class="sum-card sum-amber" id="mgrSumTomorrow" type="button">
+        <div class="sum-num">›</div>
+        <div class="sum-lbl">Expiring<br/>Tomorrow</div>
+      </button>
+      <button class="sum-card sum-green" id="mgrSumSafe" type="button">
+        <div class="sum-num">›</div>
+        <div class="sum-lbl">All Safe</div>
+      </button>
+    </div>
 
-      <div style="font-size:22px;font-weight:900;margin-top:4px">Tools</div>
+    <div class="h1" style="margin:10px 0 10px;">Tools</div>
 
-      <div class="grid2">
-        ${toolTile("➕", "Add Item", "Create a new item", "addItem", "#1E88E5")}
-        ${toolTile("📝", "Edit Items", "By category (compact)", "editItems", "#009688")}
-        ${toolTile("🗂️", "Categories", "Add / Edit / Delete", "cats", "#7E57C2")}
-        ${toolTile("⬇️", "Download Log", "Export logs (soon)", "dl", "#F57C00")}
-      </div>
+    <div class="tiles-2col">
+      <button class="tile t-blue" id="toolAdd" type="button">
+        <div class="ico"><div style="font-size:48px; line-height:1;">➕</div></div>
+        <div class="title" style="font-size:20px;">Add Item</div>
+        <div class="sub">Create a new item</div>
+      </button>
+
+      <button class="tile t-teal" id="toolEdit" type="button">
+        <div class="ico"><div style="font-size:48px; line-height:1;">📝</div></div>
+        <div class="title" style="font-size:20px;">Edit Items</div>
+        <div class="sub">By category (compact)</div>
+      </button>
+
+      <button class="tile t-purple" id="toolCats" type="button">
+        <div class="ico"><div style="font-size:48px; line-height:1;">🗂️</div></div>
+        <div class="title" style="font-size:20px;">Categories</div>
+        <div class="sub">Add / Edit / Delete</div>
+      </button>
+
+      <button class="tile t-orange" id="toolDL" type="button">
+        <div class="ico"><div style="font-size:48px; line-height:1;">⬇️</div></div>
+        <div class="title" style="font-size:20px;">Download Log</div>
+        <div class="sub">Export logs</div>
+      </button>
     </div>
   `;
 
   $("#btnBack")?.addEventListener("click", goBack);
 
-  $("#tool_addItem")?.addEventListener("click", () => openAddItemModal());
-  $("#tool_editItems")?.addEventListener("click", () => setView({ page: "managerEditItems" }, true));
-  $("#tool_cats")?.addEventListener("click", () => setView({ page: "managerCategories" }, true));
-  $("#tool_dl")?.addEventListener("click", () => toast("Download Log: add server endpoint later"));
+  // Manager summary cards -> go to list pages, manager can use BOTH mode
+  $("#mgrSumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: "BOTH" }, true));
+  $("#mgrSumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: "BOTH" }, true));
+  $("#mgrSumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: "BOTH" }, true));
 
-  $("#sum_today")?.addEventListener("click", () => setView({ page: "summaryList", summaryMode: "BOTH", bucket: "TODAY" }, true));
-  $("#sum_tomorrow")?.addEventListener("click", () => setView({ page: "summaryList", summaryMode: "BOTH", bucket: "TOMORROW" }, true));
-  $("#sum_safe")?.addEventListener("click", () => setView({ page: "summaryList", summaryMode: "BOTH", bucket: "SAFE" }, true));
+  $("#toolAdd")?.addEventListener("click", () => openAddItemModal());
+  $("#toolEdit")?.addEventListener("click", () => setView({ page: "managerEditItems" }, true));
+  $("#toolCats")?.addEventListener("click", () => setView({ page: "managerCategories" }, true));
+  $("#toolDL")?.addEventListener("click", () => downloadLogForStore(state.session.store));
 }
 
-function miniSummaryCard(label, color, key) {
-  const id = key === "today" ? "sum_today" : key === "tomorrow" ? "sum_tomorrow" : "sum_safe";
-  return `
-    <button id="${id}" class="card" style="border:0;background:${color};color:#fff;text-align:left">
-      <div style="font-weight:900">${label}</div>
-      <div style="font-size:30px;font-weight:1000;margin-top:8px">›</div>
-    </button>
-  `;
-}
-
-function toolTile(icon, title, sub, id, color) {
-  return `
-    <button id="tool_${id}" class="card" style="border:0;background:${color};color:#fff;text-align:left;min-height:120px">
-      <div style="font-size:34px">${icon}</div>
-      <div style="font-weight:1000;font-size:20px;margin-top:6px">${title}</div>
-      <div style="opacity:.9;font-weight:800">${sub}</div>
-    </button>
-  `;
-}
-
-/* ---------- Manager login ---------- */
 function openManagerLogin() {
   openModal(
     "Manager Login",
     `
-    <div class="card fadeIn">
-      <div class="col">
-        <div style="font-weight:900">PIN</div>
-        <input id="pinInp" class="select" type="password" inputmode="numeric" placeholder="Enter PIN" />
-        <div class="divider"></div>
-        <button id="pinBtn" class="btn btn-red" style="width:100%;font-size:16px">Login as Manager</button>
-        <button id="pinCancel" class="btn btn-yellow" style="width:100%;font-size:16px;margin-top:8px">Cancel</button>
+      <div class="card">
+        <div class="field">
+          <span class="label">PIN</span>
+          <input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN" />
+        </div>
+        <div class="field">
+          <button id="pinBtn" class="btn-yellow">Login</button>
+        </div>
+        <div class="field">
+          <button id="pinCancel" class="btn-yellow" style="opacity:.85;">Cancel</button>
+        </div>
       </div>
-    </div>
     `,
     { noBackdropClose: true }
   );
@@ -1169,7 +1210,7 @@ function openManagerLogin() {
       const r = await apiPost("/api/manager/login", { pin, store: state.session.store });
       state.session.isManager = true;
       state.session.managerToken = r.token || "";
-      saveSession();
+      saveJSON("session", state.session);
       closeModal();
       toast("Manager ✅");
       render();
@@ -1180,43 +1221,82 @@ function openManagerLogin() {
   });
 }
 
-/* ---------- Manager edit items (compact expand) ---------- */
+/* ---------- Download Log (tries common endpoints) ---------- */
+async function downloadLogForStore(store) {
+  const candidates = [
+    `/api/log/export?store=${encodeURIComponent(store)}`,
+    `/api/log/download?store=${encodeURIComponent(store)}`,
+    `/api/log/csv?store=${encodeURIComponent(store)}`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const blob = await r.blob();
+
+      const a = document.createElement("a");
+      const stamp = todayISO();
+      a.href = URL.createObjectURL(blob);
+      a.download = `PreCheck_Log_${store}_${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+
+      toast("Download started ✅");
+      return;
+    } catch {
+      // try next
+    }
+  }
+
+  toast("Download endpoint not ready yet");
+}
+
+/* =========================================================
+   MANAGER: Edit Items / Categories / Add Item
+   (uses your manager endpoints; won’t crash if endpoint missing)
+   ========================================================= */
 async function renderManagerEditItems() {
-  const main = $("#main");
   if (!state.session.isManager) return openManagerLogin();
 
-  main.innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">Edit Items</div>
-      </div>
-      <div class="card">
-        <div style="font-weight:900">Search (optional)</div>
-        <input id="mgrSearch" class="select" placeholder="Type item name..." />
-      </div>
-      <div id="mgrList" class="col"></div>
+  const token = state.session.managerToken;
+  $("#main").innerHTML = `
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">Edit Items</div>
     </div>
+
+    <div class="card">
+      <span class="label">Search</span>
+      <input id="mgrSearch" class="input" placeholder="Type item name..." />
+    </div>
+
+    <div id="mgrList" class="edit-list"></div>
   `;
+
   $("#btnBack")?.addEventListener("click", goBack);
 
-  const token = state.session.managerToken;
   let items = [];
   try {
+    // if your backend uses this endpoint
     items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token);
   } catch (e) {
     console.error(e);
-    toast("Failed loading items");
-    items = [];
+    toast("Manager items endpoint missing");
+    $("#mgrList").innerHTML = `<div class="card">Endpoint not ready: /api/manager/items</div>`;
+    return;
   }
 
   const renderList = (q) => {
     q = String(q || "").toLowerCase().trim();
-    const filtered = q ? items.filter((x) => String(x.name).toLowerCase().includes(q)) : items;
+    const filtered = q ? items.filter((x) => String(x.name || "").toLowerCase().includes(q)) : items;
 
+    // group by category
     const map = new Map();
     for (const it of filtered) {
-      const c = it.category || "Other";
+      const c = String(it.category || "Other");
       if (!map.has(c)) map.set(c, []);
       map.get(c).push(it);
     }
@@ -1225,45 +1305,37 @@ async function renderManagerEditItems() {
     for (const [cat, list] of map.entries()) {
       html += `
         <div class="card">
-          <div style="font-weight:1000;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div>
-          <div class="col" style="gap:10px">
-            ${list
-              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-              .map((it) => managerItemRow(it))
-              .join("")}
-          </div>
+          <div class="h1" style="margin-bottom:10px;">${escapeHtml(cat)}</div>
+          ${list
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+            .map((it) => mgrRow(it))
+            .join("")}
         </div>
       `;
     }
 
     $("#mgrList").innerHTML = html;
 
-    $$(".mgrRow").forEach((row) => {
-      const id = row.dataset.id;
-      const btn = $(`[data-edit="${cssEsc(id)}"]`, row);
-      const panel = $(`[data-panel="${cssEsc(id)}"]`, row);
-      const closeBtn = $(`[data-close="${cssEsc(id)}"]`, row);
-
+    $$(".mgrEditBtn").forEach((btn) => {
       btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        const panel = $(`#panel_${CSS.escape(id)}`);
+        if (!panel) return;
         panel.classList.toggle("hidden");
         btn.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
       });
-      closeBtn.addEventListener("click", () => {
-        panel.classList.add("hidden");
-        btn.textContent = "Edit";
-      });
+    });
 
-      const saveBtn = $(`[data-save="${cssEsc(id)}"]`, row);
-      const delBtn = $(`[data-del="${cssEsc(id)}"]`, row);
+    $$(".mgrSaveBtn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const catSel = $(`#cat_${CSS.escape(id)}`);
+        const subSel = $(`#sub_${CSS.escape(id)}`);
+        const lifeInp = $(`#life_${CSS.escape(id)}`);
 
-      saveBtn.addEventListener("click", async () => {
-        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
-        const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
-        const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
-
-        const category = String(catSel.value || "").trim();
-        const sub_category = String(subSel.value || "").trim() || null;
-        const shelf_life_days = Number(lifeInp.value || 0);
+        const category = String(catSel?.value || "").trim();
+        const sub_category = String(subSel?.value || "").trim() || null;
+        const shelf_life_days = Number(lifeInp?.value || 0);
 
         try {
           await apiPatch(`/api/manager/items/${id}`, { store: state.session.store, category, sub_category, shelf_life_days }, token);
@@ -1274,14 +1346,18 @@ async function renderManagerEditItems() {
           toast("Save failed");
         }
       });
+    });
 
-      delBtn.addEventListener("click", async () => {
+    $$(".mgrDelBtn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
         if (!confirm("Delete this item?")) return;
+
         try {
           await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token);
           toast("Deleted ✅");
           items = items.filter((x) => String(x.id) !== String(id));
-          renderList($("#mgrSearch").value);
+          renderList($("#mgrSearch")?.value || "");
           await loadAllForCurrentStore();
         } catch (e) {
           console.error(e);
@@ -1295,94 +1371,103 @@ async function renderManagerEditItems() {
   renderList("");
 }
 
-function managerItemRow(it) {
+function mgrRow(it) {
   const id = String(it.id);
-  const cats = state.data.categories.map((c) => c.name);
-  const catOpts = cats
-    .map((c) => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`)
+
+  const cats = (state.data.categories || []).map((c) => String(c.name));
+  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`).join("");
+
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(SAUCE_SUBS.map((s) => {
+      const sel = String(it.sub_category || "").toLowerCase() === s.name.toLowerCase() ? " selected" : "";
+      return `<option value="${escapeHtml(s.name)}"${sel}>${escapeHtml(s.name)}</option>`;
+    }))
     .join("");
 
-  const subOpts = [`<option value="">(none)</option>`].concat(
-    SAUCE_SUBS.map((s) =>
-      `<option value="${escapeHtml(s.name)}"${String(it.sub_category || "").toLowerCase() === s.name.toLowerCase() ? " selected" : ""}>${escapeHtml(s.name)}</option>`
-    )
-  ).join("");
-
   return `
-    <div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid rgba(0,0,0,.08);border-radius:16px;padding:12px">
-      <div class="row" style="justify-content:space-between">
-        <div style="font-weight:1000">${escapeHtml(it.name)}</div>
-        <button class="btn btn-ghost" data-edit="${escapeHtml(id)}" type="button" style="font-weight:900">Edit</button>
+    <div class="edit-card" style="margin-top:12px;">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
+        <div style="font-weight:1200;">${escapeHtml(it.name || "")}</div>
+        <button class="btn-ghost mgrEditBtn" type="button" data-id="${escapeHtml(id)}" style="padding:10px 12px;">Edit</button>
       </div>
 
-      <div class="muted" style="margin-top:8px;font-weight:800">
-        ${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day
+      <div class="muted" style="font-weight:900; margin-top:6px;">
+        ${escapeHtml(it.category || "")} • ${escapeHtml(String(it.shelf_life_days ?? 0))} day
       </div>
 
-      <div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px">
-        <div class="col">
-          <div style="font-weight:900">Category</div>
-          <select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select>
+      <div id="panel_${escapeHtml(id)}" class="hidden" style="margin-top:12px;">
+        <div class="field">
+          <span class="label">Category</span>
+          <select id="cat_${escapeHtml(id)}" class="input">${catOpts}</select>
+        </div>
 
-          <div style="font-weight:900;margin-top:8px">Sauce Sub-category (only if Category = Sauce)</div>
-          <select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select>
+        <div class="field">
+          <span class="label">Sauce Sub-category (only if Sauce)</span>
+          <select id="sub_${escapeHtml(id)}" class="input">${subOpts}</select>
+        </div>
 
-          <div style="font-weight:900;margin-top:8px">Shelf life (days)</div>
-          <input class="select" data-life="${escapeHtml(id)}" type="number" min="0" value="${escapeHtml(it.shelf_life_days)}" />
+        <div class="field">
+          <span class="label">Shelf life (days)</span>
+          <input id="life_${escapeHtml(id)}" class="input" type="number" min="0" value="${escapeHtml(String(it.shelf_life_days ?? 0))}" />
+        </div>
 
-          <div class="row" style="margin-top:12px">
-            <button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button>
-            <button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button>
-          </div>
-
-          <button class="btn btn-ghost" data-close="${escapeHtml(id)}" type="button" style="width:100%">Close</button>
+        <div style="display:flex; gap:10px; margin-top:12px;">
+          <button class="btn-yellow mgrSaveBtn" type="button" data-id="${escapeHtml(id)}" style="flex:1;">Save</button>
+          <button class="btn-yellow mgrDelBtn" type="button" data-id="${escapeHtml(id)}" style="flex:1; background:#E53935; color:#fff;">Delete</button>
         </div>
       </div>
     </div>
   `;
 }
 
-/* ---------- Manager categories ---------- */
 async function renderManagerCategories() {
-  const main = $("#main");
   if (!state.session.isManager) return openManagerLogin();
+
+  const token = state.session.managerToken;
 
   let cats = [];
   try {
-    cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+    cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, token);
   } catch (e) {
     console.error(e);
-    toast("Failed loading categories");
+    toast("Categories endpoint missing");
+    $("#main").innerHTML = `<div class="card">Endpoint not ready: /api/manager/categories</div>`;
+    return;
   }
 
-  const tiles = cats
+  const tiles = (cats || [])
     .filter((c) => c.is_active !== false)
+    .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999))
     .map((c, idx) => {
-      const color = tileColorFor(c.name);
-      return `<button class="tileBig" style="${color};min-height:90px;animation-delay:${idx * 40}ms" type="button" data-cid="${c.id}" data-cname="${escapeHtml(c.name)}">
-        <div class="name" style="font-size:24px">${escapeHtml(c.name)}</div>
-        <div class="sub">Tap to edit</div>
-      </button>`;
+      const tone = tileToneForCategory(String(c.name || ""));
+      const delay = idx * 55;
+      return `
+        <button class="tile ${tone}" type="button" data-cid="${escapeHtml(String(c.id))}" data-cname="${escapeHtml(String(c.name || ""))}" style="min-height:100px; animation-delay:${delay}ms;">
+          <div class="title" style="font-size:20px;">${escapeHtml(String(c.name || ""))}</div>
+          <div class="sub">Tap to edit</div>
+        </button>
+      `;
     })
     .join("");
 
-  main.innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">Categories</div>
-      </div>
+  $("#main").innerHTML = `
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">Categories</div>
+    </div>
 
-      <div class="grid2">${tiles}</div>
+    <div class="tiles-2col">${tiles}</div>
 
-      <button id="addCat" class="btn btn-blue" style="width:100%;font-size:18px;padding:16px;border-radius:18px">➕ Add Category</button>
+    <div style="margin-top:14px;">
+      <button id="addCat" class="btn-yellow" style="background:#1E88E5; color:#fff;">➕ Add Category</button>
     </div>
   `;
+
   $("#btnBack")?.addEventListener("click", goBack);
 
-  $$(".tileBig", main).forEach((b) => {
-    b.addEventListener("click", () => {
-      openEditCategoryModal(b.dataset.cid, b.dataset.cname);
+  $$(".tile", $("#main")).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openEditCategoryModal(btn.dataset.cid, btn.dataset.cname);
     });
   });
 
@@ -1393,16 +1478,19 @@ function openAddCategoryModal() {
   openModal(
     "Add Category",
     `
-    <div class="card fadeIn">
-      <div class="col">
-        <div style="font-weight:900">Name</div>
-        <input id="catName" class="select" placeholder="Category name" />
-        <div style="font-weight:900;margin-top:10px">Sort order</div>
-        <input id="catSort" class="select" type="number" value="100" />
-        <div class="divider"></div>
-        <button id="catSave" class="btn btn-yellow" style="width:100%;font-size:16px">Save</button>
+      <div class="card">
+        <div class="field">
+          <span class="label">Name</span>
+          <input id="catName" class="input" placeholder="Category name" />
+        </div>
+        <div class="field">
+          <span class="label">Sort order</span>
+          <input id="catSort" class="input" type="number" value="100" />
+        </div>
+        <div class="field">
+          <button id="catSave" class="btn-yellow">Save</button>
+        </div>
       </div>
-    </div>
     `,
     { noBackdropClose: true }
   );
@@ -1429,32 +1517,37 @@ function openEditCategoryModal(id, currentName) {
   openModal(
     "Edit Category",
     `
-    <div class="card fadeIn">
-      <div class="col">
-        <div style="font-weight:900">Name</div>
-        <input id="catName" class="select" value="${escapeHtml(currentName)}" />
-        <div style="font-weight:900;margin-top:10px">Active</div>
-        <select id="catActive" class="select">
-          <option value="true">Active</option>
-          <option value="false">Inactive</option>
-        </select>
+      <div class="card">
+        <div class="field">
+          <span class="label">Name</span>
+          <input id="catName" class="input" value="${escapeHtml(currentName)}" />
+        </div>
+        <div class="field">
+          <span class="label">Active</span>
+          <select id="catActive" class="input">
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+        </div>
 
-        <div class="divider"></div>
-        <button id="catSave" class="btn btn-yellow" style="width:100%;font-size:16px">Save</button>
-        <button id="catDelete" class="btn btn-red" style="width:100%;font-size:16px;margin-top:10px">Delete</button>
+        <div class="field">
+          <button id="catSave" class="btn-yellow">Save</button>
+        </div>
+        <div class="field">
+          <button id="catDelete" class="btn-yellow" style="background:#E53935; color:#fff;">Delete</button>
+        </div>
       </div>
-    </div>
     `,
     { noBackdropClose: true }
   );
 
   $("#catSave")?.addEventListener("click", async () => {
     const name = String($("#catName")?.value || "").trim();
-    const is_active = $("#catActive")?.value === "true";
+    const is_active = ($("#catActive")?.value || "true") === "true";
     if (!name) return toast("Name required");
 
     try {
-      await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken);
+      await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active }, state.session.managerToken);
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -1481,34 +1574,40 @@ function openEditCategoryModal(id, currentName) {
 }
 
 function openAddItemModal() {
-  const cats = state.data.categories.map((c) => c.name);
+  const cats = (state.data.categories || []).map((c) => String(c.name));
   const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-
-  const subOpts = [`<option value="">(none)</option>`].concat(
-    SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`)
-  ).join("");
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`))
+    .join("");
 
   openModal(
     "Add Item",
     `
-    <div class="card fadeIn">
-      <div class="col">
-        <div style="font-weight:900">Item name</div>
-        <input id="itName" class="select" placeholder="e.g. Beef Brisket" />
+      <div class="card">
+        <div class="field">
+          <span class="label">Item name</span>
+          <input id="itName" class="input" placeholder="e.g. Beef Brisket Packet" />
+        </div>
 
-        <div style="font-weight:900;margin-top:10px">Category</div>
-        <select id="itCat" class="select">${catOpts}</select>
+        <div class="field">
+          <span class="label">Category</span>
+          <select id="itCat" class="input">${catOpts}</select>
+        </div>
 
-        <div style="font-weight:900;margin-top:10px">Sauce Sub-category (only if Sauce)</div>
-        <select id="itSub" class="select">${subOpts}</select>
+        <div class="field">
+          <span class="label">Sauce Sub-category (only if Sauce)</span>
+          <select id="itSub" class="input">${subOpts}</select>
+        </div>
 
-        <div style="font-weight:900;margin-top:10px">Shelf life (days)</div>
-        <input id="itLife" class="select" type="number" min="0" value="0" />
+        <div class="field">
+          <span class="label">Shelf life (days)</span>
+          <input id="itLife" class="input" type="number" min="0" value="0" />
+        </div>
 
-        <div class="divider"></div>
-        <button id="itSave" class="btn btn-yellow" style="width:100%;font-size:16px">Save</button>
+        <div class="field">
+          <button id="itSave" class="btn-yellow">Save</button>
+        </div>
       </div>
-    </div>
     `,
     { noBackdropClose: true }
   );
@@ -1534,24 +1633,40 @@ function openAddItemModal() {
   });
 }
 
-/* ---------- WISR ---------- */
+/* =========================================================
+   WISR (per store — YES)
+   For now blank UI, but saved per store key for future.
+   ========================================================= */
+function wisrKey(store) { return `wisr_${store}`; }
+
 function renderWISR() {
+  const store = state.session.store;
+
+  // per-store storage ready (blank now)
+  const saved = loadJSON(wisrKey(store), {});
+
   $("#main").innerHTML = `
-    <div class="col fadeIn">
-      <div class="topBack">
-        <button class="btn btn-yellow" id="btnBack" type="button">← Back</button>
-        <div style="font-size:28px;font-weight:900;color:#0B7A38">WISR Count</div>
-      </div>
-      <div class="card">
-        <div style="font-weight:900">Blank for now</div>
-        <div class="muted">You’ll give the data later.</div>
-      </div>
+    <div class="page-head">
+      <button class="btn-ghost" id="btnBack">← Back</button>
+      <div class="page-title">WISR Count</div>
+    </div>
+
+    <div class="card">
+      <div class="h1">Blank for now</div>
+      <div class="muted" style="font-weight:900;">Store: ${escapeHtml(store)} (saved per store)</div>
+      <div class="muted" style="font-weight:900; margin-top:8px;">You will give the data later.</div>
     </div>
   `;
+
   $("#btnBack")?.addEventListener("click", goBack);
+
+  // keep saved value for future (not used now)
+  void saved;
 }
 
-/* ---------- logout ---------- */
+/* =========================================================
+   LOGOUT
+   ========================================================= */
 function doLogout() {
   state.session.store = "";
   state.session.staff = "";
@@ -1559,27 +1674,26 @@ function doLogout() {
   state.session.isManager = false;
   state.session.managerToken = "";
   state.session.sessionDayKey = dayKeyNow();
-  saveSession();
+  saveJSON("session", state.session);
 
   state.data.categories = [];
   state.data.items = [];
-  state.data.expiry = [];
   state.drafts = {};
   state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null };
+  state.view = { page: "home", category: null, sauceSub: null, bucket: null, summaryMode: null };
 
+  renderShell();
   openSessionSetup();
 }
 
-/* ---------- utils ---------- */
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-function cssEsc(s) {
-  return String(s).replaceAll('"', '\\"');
-         }
+/* =========================================================
+   FINAL: Prevent blank screen if something throws later
+   ========================================================= */
+window.addEventListener("error", (e) => {
+  console.error("Window error:", e.error || e.message);
+  toast("Error — open console");
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("Unhandled:", e.reason);
+  toast("Error — open console");
+});
