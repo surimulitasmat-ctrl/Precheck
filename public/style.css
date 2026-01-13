@@ -488,3 +488,58 @@ input,select{
 .t-red{background:linear-gradient(135deg,#ef5350,#b71c1c)}
 .t-teal{background:linear-gradient(135deg,#26a69a,#00695c)}
 .t-purple{background:linear-gradient(135deg,#7e57c2,#4527a0)}
+/* ===== OVERRIDES: keep original tile gradients & drawer ===== */
+
+/* Hamburger button */
+.menu-btn{
+  border:0; background:transparent; color:#fff;
+  width:44px; height:44px;
+  border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
+}
+.menu-btn:active{transform:scale(.98); opacity:.95}
+
+/* Drawer look back to full list (not tiny chips) */
+.drawer{
+  width:82%; max-width:360px;
+  background:#fff;
+  border-top-right-radius:22px;
+  border-bottom-right-radius:22px;
+  box-shadow:0 22px 70px rgba(0,0,0,.22);
+  overflow:hidden;
+}
+.drawer-body{ padding:10px; }
+
+/* Drawer items full-width */
+.drawer-item{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  border:0;
+  background:#fff;
+  text-align:left;
+  border-radius:16px;
+  padding:14px 14px;
+  font-weight:1100;
+  cursor:pointer;
+}
+.drawer-item:hover{background:rgba(0,0,0,.04)}
+.drawer-item:active{transform:scale(.99)}
+.drawer-item.danger{background:#ffe6e6; color:#b71c1c}
+
+/* Keep your gradient tiles */
+.tile{ color:#fff; text-align:left; }
+.tile .title{ color:#fff; }
+.tile .sub{ color:rgba(255,255,255,.92); }
+
+/* Your gradients (make sure these exist) */
+.t-green{background:linear-gradient(135deg,#1f8a4a,#0f5f33)}
+.t-blue{background:linear-gradient(135deg,#2b89ff,#1762c7)}
+.t-cyan{background:linear-gradient(135deg,#26c6da,#0b7a86)}
+.t-green2{background:linear-gradient(135deg,#4caf50,#2e7d32)}
+.t-orange{background:linear-gradient(135deg,#ff9800,#e65100)}
+.t-red{background:linear-gradient(135deg,#ef5350,#b71c1c)}
+.t-teal{background:linear-gradient(135deg,#26a69a,#00695c)}
+.t-purple{background:linear-gradient(135deg,#7e57c2,#4527a0)}
