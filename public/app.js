@@ -231,15 +231,29 @@ function renderRolePill() {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-  // 🔧 FIX: class names unchanged, CSS will make staff yellow, manager red
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
+
+  // ✅ force solid color by inline style (won’t depend on css)
+  if (state.session.isManager) {
+    btn.style.background = "var(--red)";
+    btn.style.color = "#fff";
+  } else {
+    btn.style.background = "var(--yellow)";
+    btn.style.color = "#111";
+  }
+
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
-    <span>${state.session.isManager ? "Manager" : "Staff"}</span>
+    <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
   `;
-  btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
+
+  btn.addEventListener("click", () => {
+    toast(state.session.isManager ? "Manager mode" : "Staff mode");
+  });
+
   host.appendChild(btn);
 }
+
 function updateSessionLine() {
   const el = $("#sessionLine");
   if (!el) return;
@@ -435,12 +449,18 @@ function renderLoginPage() {
     saveSession();
 
     try {
-      await loadAllForCurrentStore();
-      renderRolePill();
-      updateSessionLine();
-      render(); // go to home
-      // 🔧 FIX: popup after login
-      maybeShowExpiryPopup(false);
+     await loadAllForCurrentStore();
+renderRolePill();
+updateSessionLine();
+
+// ✅ force home right after login (prevents "Unknown page")
+state.navStack = [];
+state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
+render();
+
+// ✅ popup AFTER home shows (so it always appears)
+setTimeout(() => maybeShowExpiryPopup(false), 150);
+
     } catch (e) {
       console.error(e);
       toast("Failed to load data");
