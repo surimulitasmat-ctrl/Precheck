@@ -23,7 +23,11 @@ const POPUP_ITEMS = [
   "Avocado",
 ];
 
-const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]); // one date bar only
+// RULES you requested:
+// - Unopened chiller => manual date always
+// - > 7 days => manual date
+// - <= 7 days => preset dropdown dates (includes Today), format "24 January 2026"
+const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]); // manual date only
 
 const CAT_EMOJI = {
   "Prepared items": "🥪",
@@ -63,19 +67,22 @@ const state = {
 bindTopbar();
 bindDrawer();
 bindModal();
+bindAppBackGuard(); // 🔧 FIX: prevent swipe/back from closing app
 startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
   ensureSessionDayKey();
-  maybeShowExpiryPopup(false);
 
+  // 🔧 FIX: login page (not modal) when session missing
   if (!state.session.store || !state.session.staff) {
-    openSessionSetup();
+    state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
+    render();
     return;
   }
 
   await loadAllForCurrentStore();
+  maybeShowExpiryPopup(false);
   render();
 }
 
@@ -120,10 +127,18 @@ function addDaysISO(baseISO, n) {
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
 function formatDMY(iso) {
-  // "23 May 2026"
+  // "23 May 2026" (kept for other pages if needed)
   const dt = new Date(String(iso).slice(0,10) + "T00:00:00");
   const day = dt.getDate();
   const mon = dt.toLocaleString("en-GB", { month: "short" });
+  const year = dt.getFullYear();
+  return `${day} ${mon} ${year}`;
+}
+function formatLongDMY(iso) {
+  // 🔧 FIX: "24 January 2026"
+  const dt = new Date(String(iso).slice(0,10) + "T00:00:00");
+  const day = dt.getDate();
+  const mon = dt.toLocaleString("en-GB", { month: "long" });
   const year = dt.getFullYear();
   return `${day} ${mon} ${year}`;
 }
@@ -207,7 +222,6 @@ function normalizeSub(s) {
    TOPBAR
    ========================================================= */
 function bindTopbar() {
-  // Role pill goes inside #roleHost
   renderRolePill();
 }
 function renderRolePill() {
@@ -217,14 +231,13 @@ function renderRolePill() {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
+  // 🔧 FIX: class names unchanged, CSS will make staff yellow, manager red
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
     <span>${state.session.isManager ? "Manager" : "Staff"}</span>
   `;
-  btn.addEventListener("click", () => {
-    toast(state.session.isManager ? "Manager mode" : "Staff mode");
-  });
+  btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
   host.appendChild(btn);
 }
 function updateSessionLine() {
@@ -265,14 +278,6 @@ function bindDrawer() {
   bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
   bind("#drawerWISR", () => setView({ page: "wisr" }, true));
   bind("#drawerLogout", () => doLogout());
-
-  // make logout BIG RED always (even if CSS exists)
-  const logout = $("#drawerLogout");
-  if (logout) {
-    logout.style.background = "var(--red)";
-    logout.style.color = "#fff";
-    logout.style.fontWeight = "1200";
-  }
 }
 function openDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.remove("hidden"); }
 function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
@@ -336,10 +341,7 @@ function startMidnightWatcher() {
       state.session.sessionDayKey = nowKey;
       saveSession();
 
-      // show popup again after midnight even without logout
       maybeShowExpiryPopup(true);
-
-      // refresh UI (doesn't wipe staff/store)
       render();
     }
   }, 30000);
@@ -370,47 +372,51 @@ function maybeShowExpiryPopup(force) {
   if (ok) ok.addEventListener("click", closeModal);
 }
 
-function openSessionSetup() {
+/* =========================================================
+   LOGIN PAGE (replaces old session modal)
+   ========================================================= */
+function renderLoginPage() {
+  const main = $("#main");
   const s = state.session;
-  openModal(
-    "Start Session",
-    `
-      <div class="card">
-        <div class="col">
-          <div style="font-weight:1200">Select Store</div>
-          <div class="row">
-            <button id="pickPDD" class="btn" style="flex:1;background:var(--green);color:#fff">PDD</button>
-            <button id="pickSKH" class="btn" style="flex:1;background:var(--green);color:#fff;opacity:.8">SKH</button>
-          </div>
 
-          <div style="font-weight:1200">Shift</div>
-          <select id="shiftSel" class="select">
-            <option value="AM">AM</option>
-            <option value="PM">PM</option>
-          </select>
+  const storePick = s.store || "PDD";
 
-          <div style="font-weight:1200">Staff Name / ID</div>
-          <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
+  main.innerHTML = `
+    <div class="card" style="max-width:560px;margin:14px auto">
+      <div style="font-weight:1200;font-size:20px;margin-bottom:10px">Start Session</div>
 
-          <button id="startBtn" class="btn btn-yellow" style="width:100%">Start</button>
-          <div class="muted" style="font-size:12px">
-            Session resets after midnight automatically.
-          </div>
-        </div>
+      <div style="font-weight:1200">Select Store</div>
+      <div class="row" style="gap:12px;margin-top:10px">
+        <button id="pickPDD" class="btn" style="flex:1;background:var(--pdd);color:#fff">PDD</button>
+        <button id="pickSKH" class="btn" style="flex:1;background:var(--skh);color:#fff">SKH</button>
       </div>
-    `,
-    { noBackdropClose: true }
-  );
 
-  let storePick = s.store || "PDD";
-  const setPick = (val) => {
-    storePick = val;
+      <div style="margin-top:14px;font-weight:1200">Shift</div>
+      <select id="shiftSel" class="select">
+        <option value="AM"${(s.shift||"AM")==="AM"?" selected":""}>AM</option>
+        <option value="PM"${(s.shift||"AM")==="PM"?" selected":""}>PM</option>
+      </select>
+
+      <div style="margin-top:14px;font-weight:1200">Staff Name / ID</div>
+      <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
+
+      <button id="startBtn" class="btn btn-yellow" style="width:100%;margin-top:14px;padding:16px 16px;font-size:18px;font-weight:1200">Start</button>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;font-weight:900">
+        Session auto resets after midnight.
+      </div>
+    </div>
+  `;
+
+  let pick = storePick;
+  const setPick = (v) => {
+    pick = v;
     const a = $("#pickPDD");
     const b = $("#pickSKH");
-    if (a) a.style.opacity = val === "PDD" ? "1" : ".75";
-    if (b) b.style.opacity = val === "SKH" ? "1" : ".75";
+    if (a) a.style.opacity = v === "PDD" ? "1" : ".65";
+    if (b) b.style.opacity = v === "SKH" ? "1" : ".65";
   };
-  setPick(storePick);
+  setPick(pick);
 
   $("#pickPDD").addEventListener("click", () => setPick("PDD"));
   $("#pickSKH").addEventListener("click", () => setPick("SKH"));
@@ -420,7 +426,7 @@ function openSessionSetup() {
     const shift = String($("#shiftSel").value || "AM");
     if (!staff) return toast("Please enter staff name/ID");
 
-    state.session.store = storePick;
+    state.session.store = pick;
     state.session.shift = shift;
     state.session.staff = staff;
     state.session.isManager = false;
@@ -428,12 +434,13 @@ function openSessionSetup() {
     state.session.sessionDayKey = dayKeyNow();
     saveSession();
 
-    closeModal();
     try {
       await loadAllForCurrentStore();
       renderRolePill();
+      updateSessionLine();
+      render(); // go to home
+      // 🔧 FIX: popup after login
       maybeShowExpiryPopup(false);
-      render();
     } catch (e) {
       console.error(e);
       toast("Failed to load data");
@@ -445,19 +452,92 @@ function openSessionSetup() {
    NAVIGATION
    ========================================================= */
 function setView(next, push) {
-  if (push) state.navStack.push({ ...state.view });
+  if (push) {
+    state.navStack.push({ ...state.view });
+    safePushHistory();
+  }
   state.view = { ...state.view, ...next };
   render();
 }
 function goBack() {
   const prev = state.navStack.pop();
-  state.view = prev ? prev : { page: "home", category: null, sauceSub: null };
+  state.view = prev ? prev : { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
   render();
 }
 function goHome() {
   state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null };
+  state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
   render();
+}
+
+/* =========================================================
+   BACK / SWIPE GUARD (prevents accidental close)
+   ========================================================= */
+let backGuardArmed = false;
+function bindAppBackGuard() {
+  // Create one state so swipe/back triggers popstate instead of leaving immediately
+  try {
+    history.replaceState({ pc: 1 }, "");
+    history.pushState({ pc: 1 }, "");
+    backGuardArmed = true;
+  } catch {}
+
+  window.addEventListener("popstate", () => {
+    if (!backGuardArmed) return;
+
+    // If modal is open, close modal first
+    const modalOpen = !$("#modalBackdrop")?.classList.contains("hidden");
+    if (modalOpen) {
+      closeModal();
+      safePushHistory();
+      return;
+    }
+
+    // If not logged in, don't exit
+    if (!state.session.store || !state.session.staff) {
+      safePushHistory();
+      return;
+    }
+
+    // If inside pages, go back
+    if (state.navStack.length > 0) {
+      goBack();
+      safePushHistory();
+      return;
+    }
+
+    // Home: confirm exit
+    openConfirmExit();
+    safePushHistory();
+  });
+}
+
+function safePushHistory() {
+  try { history.pushState({ pc: 1 }, ""); } catch {}
+}
+
+function openConfirmExit() {
+  openModal(
+    "Exit PreCheck?",
+    `
+      <div class="card">
+        <div style="font-weight:1200;margin-bottom:10px">Do you want to exit?</div>
+        <div class="muted" style="font-weight:900;margin-bottom:14px">This prevents accidental closing.</div>
+        <div class="row" style="gap:12px">
+          <button id="exitNo" class="btn btn-yellow" style="flex:1">No</button>
+          <button id="exitYes" class="btn btn-red" style="flex:1">Yes</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#exitNo").addEventListener("click", closeModal);
+  $("#exitYes").addEventListener("click", () => {
+    // Best-effort exit (PWA may ignore)
+    closeModal();
+    try { backGuardArmed = false; history.back(); } catch {}
+  });
 }
 
 /* =========================================================
@@ -470,9 +550,9 @@ function render() {
   const main = $("#main");
   if (!main) return;
 
+  // Login page
   if (!state.session.store || !state.session.staff) {
-    main.innerHTML = `<div class="card">Session not started.</div>`;
-    openSessionSetup();
+    renderLoginPage();
     return;
   }
 
@@ -592,7 +672,6 @@ function renderCategory() {
       <div style="font-weight:1200">No items found</div>
       <div class="muted" style="margin-top:6px">
         This means your Sauce sub-category names in DB don’t match exactly.
-        (We normalize Standby / Open Inner / Sandwich Unit.)
       </div>
     </div>
   `;
@@ -608,7 +687,7 @@ function renderCategory() {
     <div class="edit-list" id="editList">${list}</div>
 
     <div class="save-bar">
-      <button id="saveBtn" class="btn-yellow" type="button">Save</button>
+      <button id="saveBtn" class="btn-yellow big-save" type="button">Save</button>
     </div>
   `;
 
@@ -624,37 +703,55 @@ function itemKey(it) {
   return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`;
 }
 
+function shelfLifeModeFor(it, cat) {
+  const life = Number(it.shelf_life_days || 0);
+
+  if (isChickenBaconC(it.name)) return { mode: "EOD_AUTO", life };
+  if (FORCE_MANUAL_DATE_CATS.has(cat)) return { mode: "MANUAL", life };
+  if (!Number.isFinite(life) || life <= 0) return { mode: "MANUAL", life };
+  if (life > 7) return { mode: "MANUAL", life };
+
+  return { mode: "PRESET", life };
+}
+
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
   if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "" };
   const d = state.drafts[key];
 
+  const rule = shelfLifeModeFor(it, cat);
   let expiryUI = "";
 
-  if (isChickenBaconC(it.name)) {
+  if (rule.mode === "EOD_AUTO") {
     expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
-  } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
-    // ONE bar only: date input
+  } else if (rule.mode === "MANUAL") {
+    // 🔧 FIX: manual date only (Unopened chiller + >7 days)
     expiryUI = `
       <label class="label">Expiry date</label>
       <input class="select" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}">
-      <div class="edit-helper">Manual date (one bar only).</div>
+      <div class="edit-helper">Manual date</div>
     `;
   } else {
+    // 🔧 FIX: preset dates based on shelf life days (<=7), includes Today
     const today = todayISO();
-    const tomorrow = addDaysISO(today, 1);
+    const n = Math.max(1, Math.min(7, Number(rule.life) || 1)); // 1..7
+
+    const opts = Array.from({ length: n }, (_, i) => {
+      const iso = addDaysISO(today, i);
+      return `<option value="${escapeHtml(iso)}"${d.expDateISO===iso?" selected":""}>${escapeHtml(formatLongDMY(iso))}</option>`;
+    }).join("");
+
     expiryUI = `
       <label class="label">Expiry</label>
-      <select class="select" data-expsel="${escapeHtml(key)}">
+      <select class="select" data-exppreset="${escapeHtml(key)}">
         <option value="">Select</option>
-        <option value="TODAY"${d.expType==="TODAY"?" selected":""}>Today — ${formatDMY(today)}</option>
-        <option value="TOMORROW"${d.expType==="TOMORROW"?" selected":""}>Tomorrow — ${formatDMY(tomorrow)}</option>
-        <option value="PICK"${d.expType==="PICK"?" selected":""}>Pick date</option>
+        ${opts}
+        <option value="MANUAL"${d.expType==="MANUAL"?" selected":""}>Manual (pick date)</option>
       </select>
-      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType==="PICK"?"":"hidden"}">
+      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType==="MANUAL" ? "" : "hidden"}">
         <input class="select" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}">
       </div>
-      <div class="edit-helper">Today / Tomorrow / Pick date</div>
+      <div class="edit-helper">Preset dates (from shelf life)</div>
     `;
   }
 
@@ -688,7 +785,8 @@ function bindItemEditors(items, cat) {
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
     const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
     const qty = $(`[data-qty="${cssEsc(key)}"]`, root);
-    const sel = $(`[data-expsel="${cssEsc(key)}"]`, root);
+
+    const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root);
     const date = $(`[data-expdate="${cssEsc(key)}"]`, root);
 
     if (inc) inc.addEventListener("click", () => {
@@ -706,17 +804,23 @@ function bindItemEditors(items, cat) {
       d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
     });
 
-    if (sel) sel.addEventListener("change", () => {
-      d.expType = String(sel.value || "");
-      if (d.expType !== "PICK") d.expDateISO = "";
+    if (presetSel) presetSel.addEventListener("change", () => {
+      const v = String(presetSel.value || "");
       const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
-      if (wrap) wrap.classList.toggle("hidden", d.expType !== "PICK");
+
+      if (v === "MANUAL") {
+        d.expType = "MANUAL";
+        if (wrap) wrap.classList.remove("hidden");
+      } else {
+        d.expType = "PRESET";
+        d.expDateISO = v || "";
+        if (wrap) wrap.classList.add("hidden");
+      }
     });
 
     if (date) date.addEventListener("change", () => {
       d.expDateISO = String(date.value || "");
-      if (FORCE_MANUAL_DATE_CATS.has(cat)) d.expType = "MANUAL";
-      if (d.expType === "") d.expType = "PICK";
+      if (!d.expType) d.expType = "MANUAL";
     });
   }
 }
@@ -727,7 +831,6 @@ async function saveCategory(items, cat) {
   const shift = state.session.shift;
 
   const today = todayISO();
-  const tomorrow = addDaysISO(today, 1);
 
   const rows = [];
   for (const it of items) {
@@ -738,15 +841,12 @@ async function saveCategory(items, cat) {
 
     let expiry = null;
 
-    if (isChickenBaconC(it.name)) {
+    const rule = shelfLifeModeFor(it, cat);
+
+    if (rule.mode === "EOD_AUTO") {
       expiry = today;
-    } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
-      expiry = d.expDateISO || null;
     } else {
-      if (d.expType === "TODAY") expiry = today;
-      else if (d.expType === "TOMORROW") expiry = tomorrow;
-      else if (d.expType === "PICK") expiry = d.expDateISO || null;
-      else expiry = null;
+      expiry = d.expDateISO || null;
     }
 
     rows.push({
@@ -791,16 +891,16 @@ function renderAlerts() {
 
 /* =========================================================
    SUMMARY
-   - Staff sees their store only
-   - Manager can select PDD / SKH / BOTH
-   - Summary cards go to different pages (today/tomorrow/safe)
+   - Staff: their store only
+   - Manager: PDD / SKH ONLY (no BOTH) + colors match login buttons
+   - Layout matches your mockup: stacked dashboard cards
    ========================================================= */
 function renderSummaryHome() {
   const main = $("#main");
 
   const isMgr = !!state.session.isManager;
-  const defaultMode = isMgr ? "PDD" : state.session.store;
-  state.view.summaryMode = state.view.summaryMode || defaultMode;
+  const defaultMode = isMgr ? (state.view.summaryMode || "PDD") : state.session.store;
+  state.view.summaryMode = defaultMode;
 
   main.innerHTML = `
     <div class="page-head">
@@ -811,10 +911,9 @@ function renderSummaryHome() {
     ${isMgr ? `
       <div class="card">
         <div style="font-weight:1200;margin-bottom:8px">Store view</div>
-        <div class="row">
-          <button id="mPDD" class="btn" style="flex:1;background:var(--green);color:#fff">PDD</button>
-          <button id="mSKH" class="btn" style="flex:1;background:var(--green);color:#fff;opacity:.8">SKH</button>
-          <button id="mBOTH" class="btn btn-blue" style="flex:1">BOTH</button>
+        <div class="row" style="gap:12px">
+          <button id="mPDD" class="btn" style="flex:1;background:var(--pdd);color:#fff">PDD</button>
+          <button id="mSKH" class="btn" style="flex:1;background:var(--skh);color:#fff">SKH</button>
         </div>
         <div class="muted" style="margin-top:8px">Staff sees only their store.</div>
       </div>
@@ -828,7 +927,6 @@ function renderSummaryHome() {
   if (isMgr) {
     $("#mPDD").addEventListener("click", () => setSummaryMode("PDD"));
     $("#mSKH").addEventListener("click", () => setSummaryMode("SKH"));
-    $("#mBOTH").addEventListener("click", () => setSummaryMode("BOTH"));
   }
 
   updateSummaryModeButtons();
@@ -844,10 +942,9 @@ function setSummaryMode(mode) {
 function updateSummaryModeButtons() {
   if (!state.session.isManager) return;
   const m = state.view.summaryMode;
-  const a = $("#mPDD"), b = $("#mSKH"), c = $("#mBOTH");
-  if (a) a.style.opacity = m === "PDD" ? "1" : ".75";
-  if (b) b.style.opacity = m === "SKH" ? "1" : ".75";
-  if (c) c.style.opacity = m === "BOTH" ? "1" : ".75";
+  const a = $("#mPDD"), b = $("#mSKH");
+  if (a) a.style.opacity = m === "PDD" ? "1" : ".65";
+  if (b) b.style.opacity = m === "SKH" ? "1" : ".65";
 }
 
 async function drawSummaryCards() {
@@ -855,22 +952,13 @@ async function drawSummaryCards() {
   if (!wrap) return;
   wrap.innerHTML = `<div class="card">Loading…</div>`;
 
-  const mode = state.view.summaryMode || state.session.store;
+  const mode = state.session.isManager ? (state.view.summaryMode || "PDD") : state.session.store;
 
   const today = todayISO();
   const tomorrow = addDaysISO(today, 1);
 
-  let rows = [];
-  if (mode === "BOTH") {
-    const [a, b] = await Promise.all([
-      apiGet(`/api/expiry?store=PDD`),
-      apiGet(`/api/expiry?store=SKH`),
-    ]);
-    rows = a.map(x => ({...x, _store:"PDD"})).concat(b.map(x => ({...x, _store:"SKH"})));
-  } else {
-    const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-    rows = r.map(x => ({...x, _store: mode}));
-  }
+  const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
+  const rows = r.map(x => ({...x, _store: mode}));
 
   const todayCount = rows.filter(x => String(x.expiry_value || "").slice(0,10) === today).length;
   const tomCount = rows.filter(x => String(x.expiry_value || "").slice(0,10) === tomorrow).length;
@@ -880,27 +968,38 @@ async function drawSummaryCards() {
   }).length;
 
   wrap.innerHTML = `
-    <div class="summary-row">
-      <button class="sum-card sum-red" id="sToday" type="button">
-        <div class="sum-num">${todayCount}</div>
-        <div class="sum-lbl">Expiring<br/>Today</div>
-      </button>
+    <button class="dash-card dash-red" id="sToday" type="button">
+      <div class="dash-left">
+        <div class="dash-title">Expiring Today</div>
+        <div class="dash-sub">Use immediately</div>
+      </div>
+      <div class="dash-right">
+        <div class="dash-num">${todayCount}</div>
+        <div class="dash-go">›</div>
+      </div>
+    </button>
 
-      <button class="sum-card sum-amber" id="sTomorrow" type="button">
-        <div class="sum-num">${tomCount}</div>
-        <div class="sum-lbl">Expiring<br/>Tomorrow</div>
-      </button>
+    <button class="dash-card dash-amber" id="sTomorrow" type="button">
+      <div class="dash-left">
+        <div class="dash-title">Expiring Tomorrow</div>
+        <div class="dash-sub">Plan usage</div>
+      </div>
+      <div class="dash-right">
+        <div class="dash-num">${tomCount}</div>
+        <div class="dash-go">›</div>
+      </div>
+    </button>
 
-      <button class="sum-card sum-green" id="sSafe" type="button">
-        <div class="sum-num">${safeCount}</div>
-        <div class="sum-lbl">All<br/>Safe</div>
-      </button>
-    </div>
-
-    <div class="card">
-      <div style="font-weight:1200">Tip</div>
-      <div class="muted">Tap a card to view items by category.</div>
-    </div>
+    <button class="dash-card dash-green" id="sSafe" type="button">
+      <div class="dash-left">
+        <div class="dash-title">All Safe & Fresh</div>
+        <div class="dash-sub">Good to go!</div>
+      </div>
+      <div class="dash-right">
+        <div class="dash-num">${safeCount}</div>
+        <div class="dash-go">›</div>
+      </div>
+    </button>
   `;
 
   $("#sToday").addEventListener("click", () => setView({ page:"summaryList", bucket:"TODAY" }, true));
@@ -910,7 +1009,7 @@ async function drawSummaryCards() {
 
 async function renderSummaryList() {
   const main = $("#main");
-  const mode = state.view.summaryMode || state.session.store;
+  const mode = state.session.isManager ? (state.view.summaryMode || "PDD") : state.session.store;
   const bucket = state.view.bucket || "TODAY";
 
   main.innerHTML = `
@@ -929,16 +1028,8 @@ async function renderSummaryList() {
   const tomorrow = addDaysISO(today, 1);
 
   let rows = [];
-  if (mode === "BOTH") {
-    const [a, b] = await Promise.all([
-      apiGet(`/api/expiry?store=PDD`),
-      apiGet(`/api/expiry?store=SKH`),
-    ]);
-    rows = a.map(x => ({...x, _store:"PDD"})).concat(b.map(x => ({...x, _store:"SKH"})));
-  } else {
-    const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-    rows = r.map(x => ({...x, _store: mode}));
-  }
+  const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
+  rows = r.map(x => ({...x, _store: mode}));
 
   rows = rows.filter((x) => {
     const e = String(x.expiry_value || "").slice(0,10);
@@ -955,10 +1046,10 @@ async function renderSummaryList() {
 
   // group by category
   const map = new Map();
-  for (const r of rows) {
-    const c = r.category || "Other";
+  for (const rr of rows) {
+    const c = rr.category || "Other";
     if (!map.has(c)) map.set(c, []);
-    map.get(c).push(r);
+    map.get(c).push(rr);
   }
 
   let html = "";
@@ -967,12 +1058,11 @@ async function renderSummaryList() {
       <div class="card">
         <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
         <div class="col" style="gap:8px">
-          ${list.sort((a,b) => String(a.name).localeCompare(String(b.name))).map((r) => {
-            const dt = formatDMY(String(r.expiry_value).slice(0,10));
-            const storeTag = mode === "BOTH" ? ` <span class="muted" style="font-weight:1200">(${r._store})</span>` : "";
+          ${list.sort((a,b) => String(a.name).localeCompare(String(b.name))).map((rr) => {
+            const dt = formatLongDMY(String(rr.expiry_value).slice(0,10));
             return `
               <div style="display:flex;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 12px">
-                <div style="font-weight:1200">${escapeHtml(r.name)}${storeTag}</div>
+                <div style="font-weight:1200">${escapeHtml(rr.name)}</div>
                 <div style="font-weight:1200">${escapeHtml(dt)}</div>
               </div>
             `;
@@ -992,7 +1082,7 @@ function bucketTitle(b) {
 }
 
 /* =========================================================
-   WISR (blank page)
+   WISR
    ========================================================= */
 function renderWISR() {
   const main = $("#main");
@@ -1025,21 +1115,6 @@ function renderManagerHome() {
       <div class="page-title">Manager</div>
     </div>
 
-    <div class="summary-row">
-      <button class="sum-card sum-red" id="mToday" type="button">
-        <div class="sum-num">›</div>
-        <div class="sum-lbl">Expiring<br/>Today</div>
-      </button>
-      <button class="sum-card sum-amber" id="mTomorrow" type="button">
-        <div class="sum-num">›</div>
-        <div class="sum-lbl">Expiring<br/>Tomorrow</div>
-      </button>
-      <button class="sum-card sum-green" id="mSafe" type="button">
-        <div class="sum-num">›</div>
-        <div class="sum-lbl">All<br/>Safe</div>
-      </button>
-    </div>
-
     <div class="tiles-2col">
       <button class="tile t-blue" style="animation-delay:0ms" id="tAdd" type="button">
         <div class="emoji">➕</div>
@@ -1068,12 +1143,6 @@ function renderManagerHome() {
   `;
 
   $("#btnBack").addEventListener("click", goBack);
-
-  // manager quick summary -> uses BOTH
-  $("#mToday").addEventListener("click", () => { state.view.summaryMode="BOTH"; setView({ page:"summaryList", bucket:"TODAY" }, true); });
-  $("#mTomorrow").addEventListener("click", () => { state.view.summaryMode="BOTH"; setView({ page:"summaryList", bucket:"TOMORROW" }, true); });
-  $("#mSafe").addEventListener("click", () => { state.view.summaryMode="BOTH"; setView({ page:"summaryList", bucket:"SAFE" }, true); });
-
   $("#tAdd").addEventListener("click", () => openAddItemModal());
   $("#tEdit").addEventListener("click", () => setView({ page:"managerEditItems" }, true));
   $("#tCats").addEventListener("click", () => setView({ page:"managerCategories" }, true));
@@ -1262,7 +1331,7 @@ function managerItemRow(it) {
   `;
 }
 
-/* ---------- manager: categories (tiles without icon, tap to edit) ---------- */
+/* ---------- manager: categories ---------- */
 async function renderManagerCategories() {
   if (!state.session.isManager) return openManagerLogin();
 
@@ -1465,10 +1534,10 @@ function doLogout() {
   state.data.items = [];
   state.drafts = {};
   state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null };
+  state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
 
   renderRolePill();
-  openSessionSetup();
+  render();
 }
 
 /* =========================================================
