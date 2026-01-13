@@ -355,17 +355,37 @@ function maybeShowExpiryPopup(force = false) {
    ========================================================= */
 async function loadAllForCurrentStore() {
   const store = state.session.store;
-  state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
-  state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
 
-  // normalize sub_category to avoid standby/open inner empty due to casing/spaces
-  state.data.items = (state.data.items || []).map((it) => ({
-    ...it,
-    category: it.category ? String(it.category).trim() : it.category,
-    sub_category: it.sub_category != null ? String(it.sub_category).trim() : null,
-    name: it.name != null ? String(it.name).trim() : "",
-  }));
+  const cats = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+  const items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
+
+  state.data.categories = Array.isArray(cats) ? cats : [];
+
+  // Build canonical map from categories list (UI truth)
+  const canon = new Map();
+  for (const c of state.data.categories) {
+    const name = String(c?.name || "").trim();
+    if (!name) continue;
+    canon.set(normText(name), name);
+  }
+
+  state.data.items = (Array.isArray(items) ? items : []).map((it) => {
+    const rawCat = it?.category != null ? String(it.category).trim() : "";
+    const rawSub = it?.sub_category != null ? String(it.sub_category).trim() : null;
+    const rawName = it?.name != null ? String(it.name).trim() : "";
+
+    // Canonicalize category using categories table
+    const fixedCat = canon.get(normText(rawCat)) || rawCat;
+
+    return {
+      ...it,
+      category: fixedCat,
+      sub_category: rawSub,
+      name: rawName,
+    };
+  });
 }
+
 
 /* =========================================================
    ROLE BADGE (Red Manager, Blue Staff)
@@ -718,10 +738,12 @@ function renderCategory() {
   const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
 
   // filter items by category (+ sauce sub)
-  let items = (state.data.items || []).filter((x) => String(x.category || "") === String(cat));
+ let items = (state.data.items || []).filter((x) => normText(x.category) === normText(cat));
+
   if (cat === "Sauce" && sauceSub) {
     const target = String(sauceSub).toLowerCase();
-    items = items.filter((x) => String(x.sub_category || "").toLowerCase() === target);
+    items = items.filter((x) => normText(x.sub_category) === normText(sauceSub));
+
   }
 
   const emptyMsg = items.length
