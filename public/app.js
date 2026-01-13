@@ -971,7 +971,7 @@ async function drawSummaryCards() {
   const tomorrow = addDaysISO(today, 1);
 
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-  const rows = (Array.isArray(r) ? r : []).map(x => ({ ...x, _store: mode }));
+  const rows = r enforceArray().map(x => ({...x, _store: mode}));
 
   const todayCount = rows.filter(x => String(x.expiry_value || "").slice(0,10) === today).length;
   const tomCount = rows.filter(x => String(x.expiry_value || "").slice(0,10) === tomorrow).length;
@@ -1041,7 +1041,7 @@ async function renderSummaryList() {
   const tomorrow = addDaysISO(today, 1);
 
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-  let rows = (Array.isArray(r) ? r : []).map(x => ({ ...x, _store: mode }));
+  let rows = r enforceArray().map(x => ({...x, _store: mode}));
 
   rows = rows.filter((x) => {
     const e = String(x.expiry_value || "").slice(0,10);
@@ -1241,4 +1241,330 @@ async function renderManagerEditItems() {
     let html = "";
     for (const [cat, list] of map.entries()) {
       html += `
-        <div
+        <div class="card">
+          <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
+          <div class="col" style="gap:10px">
+            ${list.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(managerItemRow).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    const wrap = $("#mgrList");
+    wrap.innerHTML = html;
+
+    $$(".mgrRow", wrap).forEach((row) => {
+      const id = row.dataset.id;
+      const toggle = $(`[data-toggle="${cssEsc(id)}"]`, row);
+      const panel = $(`[data-panel="${cssEsc(id)}"]`, row);
+      const save = $(`[data-save="${cssEsc(id)}"]`, row);
+      const del = $(`[data-del="${cssEsc(id)}"]`, row);
+
+      toggle.addEventListener("click", () => {
+        panel.classList.toggle("hidden");
+        toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
+      });
+
+      save.addEventListener("click", async () => {
+        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
+        const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
+        const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
+
+        const category = String(catSel.value || "").trim();
+        const sub_category = String(subSel.value || "").trim() || null;
+        const shelf_life_days = Number(lifeInp.value || 0);
+
+        try {
+          await apiPatch(`/api/manager/items/${id}`, { store: state.session.store, category, sub_category, shelf_life_days }, token);
+          toast("Saved ✅");
+          await loadAllForCurrentStore();
+        } catch (e) {
+          console.error(e);
+          toast("Save failed");
+        }
+      });
+
+      del.addEventListener("click", async () => {
+        if (!confirm("Delete this item?")) return;
+        try {
+          await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token);
+          toast("Deleted ✅");
+          items = items.filter((x) => String(x.id) !== String(id));
+          renderList($("#mgrSearch").value);
+          await loadAllForCurrentStore();
+        } catch (e) {
+          console.error(e);
+          toast("Delete failed");
+        }
+      });
+    });
+  };
+
+  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
+  renderList("");
+}
+
+function managerItemRow(it) {
+  const id = String(it.id);
+  const cats = state.data.categories.map((c) => c.name);
+  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}"${c===it.category?" selected":""}>${escapeHtml(c)}</option>`).join("");
+
+  const subOpts = [`<option value="">(none)</option>`].concat(
+    SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}"${normalizeSub(it.sub_category||"")===s.name?" selected":""}>${escapeHtml(s.name)}</option>`)
+  ).join("");
+
+  return `
+    <div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px">
+      <div class="row" style="justify-content:space-between">
+        <div style="font-weight:1200">${escapeHtml(it.name)}</div>
+        <button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button>
+      </div>
+      <div class="muted" style="margin-top:8px;font-weight:1000">${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day</div>
+
+      <div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px">
+        <div class="col">
+          <div style="font-weight:1200">Category</div>
+          <select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select>
+
+          <div style="font-weight:1200">Sauce Sub-category</div>
+          <select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select>
+
+          <div style="font-weight:1200">Shelf life (days)</div>
+          <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(it.shelf_life_days)}">
+
+          <div class="row">
+            <button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button>
+            <button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- manager: categories ---------- */
+async function renderManagerCategories() {
+  if (!state.session.isManager) return openManagerLogin();
+
+  const main = $("#main");
+  let cats = [];
+  try {
+    cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+  } catch (e) {
+    console.error(e);
+    toast("Failed loading categories");
+  }
+
+  const tiles = cats
+    .filter((c) => c.is_active !== false)
+    .map((c, idx) => {
+      const tone = tileToneFor(c.name);
+      return `
+        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx*45}ms" data-cid="${c.id}" data-cname="${escapeHtml(c.name)}" type="button">
+          <div class="title" style="font-size:20px">${escapeHtml(c.name)}</div>
+          <div class="sub">Tap to edit</div>
+        </button>
+      `;
+    }).join("");
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Categories</div>
+    </div>
+
+    <div class="tiles-2col">${tiles}</div>
+
+    <button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>
+  `;
+
+  $("#btnBack").addEventListener("click", goBack);
+
+  $$(".tile", main).forEach((b) => {
+    b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname));
+  });
+
+  $("#addCat").addEventListener("click", openAddCategoryModal);
+}
+
+function openAddCategoryModal() {
+  openModal(
+    "Add Category",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Name</div>
+          <input id="catName" class="input" placeholder="Category name">
+          <div style="font-weight:1200">Sort order</div>
+          <input id="catSort" class="input" type="number" value="100">
+          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const sort_order = Number($("#catSort").value || 100);
+    if (!name) return toast("Name required");
+
+    try {
+      await apiPost("/api/manager/categories", { store: state.session.store, name, sort_order }, state.session.managerToken);
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    }
+  });
+}
+
+function openEditCategoryModal(id, currentName) {
+  openModal(
+    "Edit Category",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Name</div>
+          <input id="catName" class="input" value="${escapeHtml(currentName)}">
+          <div style="font-weight:1200">Active</div>
+          <select id="catActive" class="select">
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+
+          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
+          <button id="catDelete" class="btn btn-red" style="width:100%">Delete</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const is_active = $("#catActive").value === "true";
+    if (!name) return toast("Name required");
+
+    try {
+      await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken);
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    }
+  });
+
+  $("#catDelete").addEventListener("click", async () => {
+    if (!confirm("Delete this category?")) return;
+    try {
+      await apiDel(`/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+      toast("Deleted ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Delete failed");
+    }
+  });
+}
+
+/* ---------- manager: add item modal ---------- */
+function openAddItemModal() {
+  const cats = state.data.categories.map((c) => c.name);
+  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  const subOpts = [`<option value="">(none)</option>`].concat(
+    SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`)
+  ).join("");
+
+  openModal(
+    "Add Item",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Item name</div>
+          <input id="itName" class="input" placeholder="e.g. Beef Brisket">
+
+          <div style="font-weight:1200">Category</div>
+          <select id="itCat" class="select">${catOpts}</select>
+
+          <div style="font-weight:1200">Sauce Sub-category</div>
+          <select id="itSub" class="select">${subOpts}</select>
+
+          <div style="font-weight:1200">Shelf life (days)</div>
+          <input id="itLife" class="input" type="number" min="0" value="0">
+
+          <button id="itSave" class="btn btn-yellow" style="width:100%">Save</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#itSave").addEventListener("click", async () => {
+    const name = String($("#itName").value || "").trim();
+    const category = String($("#itCat").value || "").trim();
+    const sub_category = String($("#itSub").value || "").trim() || null;
+    const shelf_life_days = Number($("#itLife").value || 0);
+
+    if (!name || !category) return toast("Missing name/category");
+
+    try {
+      await apiPost("/api/manager/items", { store: state.session.store, name, category, sub_category, shelf_life_days }, state.session.managerToken);
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    }
+  });
+}
+
+/* =========================================================
+   LOGOUT
+   ========================================================= */
+function doLogout() {
+  state.session.store = "";
+  state.session.staff = "";
+  state.session.shift = "AM";
+  state.session.isManager = false;
+  state.session.managerToken = "";
+  state.session.sessionDayKey = dayKeyNow();
+  saveSession();
+
+  state.data.categories = [];
+  state.data.items = [];
+  state.drafts = {};
+  state.navStack = [];
+  state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
+
+  renderRolePill();
+  render();
+}
+
+/* =========================================================
+   UTILS
+   ========================================================= */
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+function cssEsc(s) {
+  return String(s).replaceAll('"', '\\"');
+}
+function enforceArray() {
+  return Array.isArray(this) ? this : [];
+}
