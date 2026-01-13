@@ -117,7 +117,9 @@ function saveSession() {
 /* =========================================================
    DATE HELPERS
    ========================================================= */
-function pad2(n) { return String(n).padStart(2, "0"); }
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
 function dayKeyNow() {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -140,14 +142,17 @@ function addDaysISO(baseISO, n) {
 }
 function formatLongDMY(iso) {
   // "24 January 2026"
-  const dt = new Date(String(iso).slice(0,10) + "T00:00:00");
+  const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
   const day = dt.getDate();
   const mon = dt.toLocaleString("en-GB", { month: "long" });
   const year = dt.getFullYear();
   return `${day} ${mon} ${year}`;
 }
 function isChickenBaconC(name) {
-  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const t = String(name || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
   return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
 }
 
@@ -595,23 +600,25 @@ function render() {
 function renderHome() {
   const main = $("#main");
 
-  const cats = state.data.categories.map((c) => c.name);
+  const cats = (state.data.categories || []).map((c) => c.name);
   const counts = {};
-  for (const it of state.data.items) {
+  for (const it of state.data.items || []) {
     counts[it.category] = (counts[it.category] || 0) + 1;
   }
 
-  const tiles = cats.map((name, idx) => {
-    const emoji = CAT_EMOJI[name] || "✅";
-    const tone = tileToneFor(name);
-    return `
+  const tiles = cats
+    .map((name, idx) => {
+      const emoji = CAT_EMOJI[name] || "✅";
+      const tone = tileToneFor(name);
+      return `
       <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(name)}" type="button">
         <div class="emoji">${emoji}</div>
         <div class="title">${escapeHtml(name)}</div>
         <div class="sub">${counts[name] || 0} items</div>
       </button>
     `;
-  }).join("");
+    })
+    .join("");
 
   main.innerHTML = `
     <div class="col">
@@ -651,16 +658,18 @@ function renderCategory() {
 
   // Sauce -> sub tiles first
   if (cat === "Sauce" && !state.view.sauceSub) {
-    const tiles = SAUCE_SUBS.map((s, idx) => {
-      const tone = s.tone === "teal" ? "t-teal" : s.tone === "purple" ? "t-purple" : "t-orange";
-      return `
+    const tiles = SAUCE_SUBS
+      .map((s, idx) => {
+        const tone = s.tone === "teal" ? "t-teal" : s.tone === "purple" ? "t-purple" : "t-orange";
+        return `
         <button class="tile ${tone}" style="min-height:120px;animation-delay:${idx * 60}ms" data-sub="${escapeHtml(s.name)}" type="button">
           <div class="emoji" style="font-size:56px">${s.emoji}</div>
           <div class="title" style="font-size:20px">${escapeHtml(s.name)}</div>
           <div class="sub">Tap to open</div>
         </button>
       `;
-    }).join("");
+      })
+      .join("");
 
     main.innerHTML = `
       <div class="page-head">
@@ -679,13 +688,15 @@ function renderCategory() {
   const sauceSub = state.view.sauceSub;
   const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
 
-  let items = state.data.items.filter((x) => x.category === cat);
+  let items = (state.data.items || []).filter((x) => x.category === cat);
   if (cat === "Sauce" && sauceSub) {
     items = items.filter((x) => normalizeSub(x.sub_category || "") === normalizeSub(sauceSub));
   }
 
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
-  const emptyHint = items.length ? "" : `
+  const emptyHint = items.length
+    ? ""
+    : `
     <div class="card" style="border-left:6px solid var(--yellow)">
       <div style="font-weight:1200">No items found</div>
       <div class="muted" style="margin-top:6px">
@@ -758,7 +769,8 @@ function renderItemEditor(it, cat) {
     const n = Math.max(1, Math.min(7, Number(rule.life) || 1)); // 1..7
     const opts = Array.from({ length: n }, (_, i) => {
       const iso = addDaysISO(today, i);
-      return `<option value="${escapeHtml(iso)}"${d.expDateISO===iso?" selected":""}>${escapeHtml(formatLongDMY(iso))}</option>`;
+      const sel = d.expDateISO === iso ? " selected" : "";
+      return `<option value="${escapeHtml(iso)}"${sel}>${escapeHtml(formatLongDMY(iso))}</option>`;
     }).join("");
 
     expiryUI = `
@@ -906,7 +918,7 @@ function renderAlerts() {
 }
 
 /* =========================================================
-   SUMMARY (kept from your latest version)
+   SUMMARY
    ========================================================= */
 function renderSummaryHome() {
   const main = $("#main");
@@ -971,12 +983,12 @@ async function drawSummaryCards() {
   const tomorrow = addDaysISO(today, 1);
 
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-  const rows = r enforceArray().map(x => ({...x, _store: mode}));
+  const rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
-  const todayCount = rows.filter(x => String(x.expiry_value || "").slice(0,10) === today).length;
-  const tomCount = rows.filter(x => String(x.expiry_value || "").slice(0,10) === tomorrow).length;
-  const safeCount = rows.filter(x => {
-    const e = String(x.expiry_value || "").slice(0,10);
+  const todayCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
+  const tomCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
+  const safeCount = rows.filter((x) => {
+    const e = String(x.expiry_value || "").slice(0, 10);
     return e && e !== today && e !== tomorrow;
   }).length;
 
@@ -1015,9 +1027,9 @@ async function drawSummaryCards() {
     </button>
   `;
 
-  $("#sToday").addEventListener("click", () => setView({ page:"summaryList", bucket:"TODAY" }, true));
-  $("#sTomorrow").addEventListener("click", () => setView({ page:"summaryList", bucket:"TOMORROW" }, true));
-  $("#sSafe").addEventListener("click", () => setView({ page:"summaryList", bucket:"SAFE" }, true));
+  $("#sToday").addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY" }, true));
+  $("#sTomorrow").addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW" }, true));
+  $("#sSafe").addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE" }, true));
 }
 
 async function renderSummaryList() {
@@ -1041,10 +1053,10 @@ async function renderSummaryList() {
   const tomorrow = addDaysISO(today, 1);
 
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-  let rows = r enforceArray().map(x => ({...x, _store: mode}));
+  let rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
   rows = rows.filter((x) => {
-    const e = String(x.expiry_value || "").slice(0,10);
+    const e = String(x.expiry_value || "").slice(0, 10);
     if (!e) return false;
     if (bucket === "TODAY") return e === today;
     if (bucket === "TOMORROW") return e === tomorrow;
@@ -1069,15 +1081,18 @@ async function renderSummaryList() {
       <div class="card">
         <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
         <div class="col" style="gap:8px">
-          ${list.sort((a,b) => String(a.name).localeCompare(String(b.name))).map((rr) => {
-            const dt = formatLongDMY(String(rr.expiry_value).slice(0,10));
-            return `
+          ${list
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+            .map((rr) => {
+              const dt = formatLongDMY(String(rr.expiry_value).slice(0, 10));
+              return `
               <div style="display:flex;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 12px">
                 <div style="font-weight:1200">${escapeHtml(rr.name)}</div>
                 <div style="font-weight:1200">${escapeHtml(dt)}</div>
               </div>
             `;
-          }).join("")}
+            })
+            .join("")}
         </div>
       </div>
     `;
@@ -1155,8 +1170,8 @@ function renderManagerHome() {
 
   $("#btnBack").addEventListener("click", goBack);
   $("#tAdd").addEventListener("click", () => openAddItemModal());
-  $("#tEdit").addEventListener("click", () => setView({ page:"managerEditItems" }, true));
-  $("#tCats").addEventListener("click", () => setView({ page:"managerCategories" }, true));
+  $("#tEdit").addEventListener("click", () => setView({ page: "managerEditItems" }, true));
+  $("#tCats").addEventListener("click", () => setView({ page: "managerCategories" }, true));
   $("#tLog").addEventListener("click", () => toast("Download Log: add server endpoint later"));
 }
 
@@ -1275,7 +1290,11 @@ async function renderManagerEditItems() {
         const shelf_life_days = Number(lifeInp.value || 0);
 
         try {
-          await apiPatch(`/api/manager/items/${id}`, { store: state.session.store, category, sub_category, shelf_life_days }, token);
+          await apiPatch(
+            `/api/manager/items/${id}`,
+            { store: state.session.store, category, sub_category, shelf_life_days },
+            token
+          );
           toast("Saved ✅");
           await loadAllForCurrentStore();
         } catch (e) {
@@ -1306,12 +1325,21 @@ async function renderManagerEditItems() {
 
 function managerItemRow(it) {
   const id = String(it.id);
-  const cats = state.data.categories.map((c) => c.name);
-  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}"${c===it.category?" selected":""}>${escapeHtml(c)}</option>`).join("");
+  const cats = (state.data.categories || []).map((c) => c.name);
+  const catOpts = cats
+    .map((c) => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`)
+    .join("");
 
-  const subOpts = [`<option value="">(none)</option>`].concat(
-    SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}"${normalizeSub(it.sub_category||"")===s.name?" selected":""}>${escapeHtml(s.name)}</option>`)
-  ).join("");
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(
+      SAUCE_SUBS.map(
+        (s) =>
+          `<option value="${escapeHtml(s.name)}"${
+            normalizeSub(it.sub_category || "") === s.name ? " selected" : ""
+          }>${escapeHtml(s.name)}</option>`
+      )
+    )
+    .join("");
 
   return `
     <div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px">
@@ -1349,7 +1377,10 @@ async function renderManagerCategories() {
   const main = $("#main");
   let cats = [];
   try {
-    cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+    cats = await apiGet(
+      `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`,
+      state.session.managerToken
+    );
   } catch (e) {
     console.error(e);
     toast("Failed loading categories");
@@ -1365,7 +1396,8 @@ async function renderManagerCategories() {
           <div class="sub">Tap to edit</div>
         </button>
       `;
-    }).join("");
+    })
+    .join("");
 
   main.innerHTML = `
     <div class="page-head">
@@ -1410,7 +1442,11 @@ function openAddCategoryModal() {
     if (!name) return toast("Name required");
 
     try {
-      await apiPost("/api/manager/categories", { store: state.session.store, name, sort_order }, state.session.managerToken);
+      await apiPost(
+        "/api/manager/categories",
+        { store: state.session.store, name, sort_order },
+        state.session.managerToken
+      );
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -1450,7 +1486,11 @@ function openEditCategoryModal(id, currentName) {
     if (!name) return toast("Name required");
 
     try {
-      await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken);
+      await apiPatch(
+        `/api/manager/categories/${id}`,
+        { store: state.session.store, name, is_active, sort_order: 100 },
+        state.session.managerToken
+      );
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -1464,7 +1504,10 @@ function openEditCategoryModal(id, currentName) {
   $("#catDelete").addEventListener("click", async () => {
     if (!confirm("Delete this category?")) return;
     try {
-      await apiDel(`/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+      await apiDel(
+        `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`,
+        state.session.managerToken
+      );
       toast("Deleted ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -1478,7 +1521,7 @@ function openEditCategoryModal(id, currentName) {
 
 /* ---------- manager: add item modal ---------- */
 function openAddItemModal() {
-  const cats = state.data.categories.map((c) => c.name);
+  const cats = (state.data.categories || []).map((c) => c.name);
   const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const subOpts = [`<option value="">(none)</option>`].concat(
     SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`)
@@ -1517,7 +1560,11 @@ function openAddItemModal() {
     if (!name || !category) return toast("Missing name/category");
 
     try {
-      await apiPost("/api/manager/items", { store: state.session.store, name, category, sub_category, shelf_life_days }, state.session.managerToken);
+      await apiPost(
+        "/api/manager/items",
+        { store: state.session.store, name, category, sub_category, shelf_life_days },
+        state.session.managerToken
+      );
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -1565,6 +1612,6 @@ function escapeHtml(s) {
 function cssEsc(s) {
   return String(s).replaceAll('"', '\\"');
 }
-function enforceArray() {
-  return Array.isArray(this) ? this : [];
+function enforceArray(v) {
+  return Array.isArray(v) ? v : [];
 }
