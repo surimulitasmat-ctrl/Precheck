@@ -12,17 +12,6 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-/* ---------- Polyfills ---------- */
-// Some Android WebViews can miss CSS.escape -> crash when using querySelector with dynamic keys
-if (!window.CSS) window.CSS = {};
-if (typeof window.CSS.escape !== "function") {
-  window.CSS.escape = (value) => {
-    const str = String(value ?? "");
-    // Minimal safe escape for attribute selectors
-    return str.replace(/["\\#.:;\[\](),=<>+~*^$|!?/\s]/g, "\\$&");
-  };
-}
-
 /* ---------- safe small helpers ---------- */
 function escapeHtml(s) {
   return String(s ?? "")
@@ -56,10 +45,7 @@ function formatDMY(iso) {
   return `${day} ${mon} ${year}`;
 }
 function normText(s) {
-  return String(s ?? "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(s ?? "").trim().toLowerCase();
 }
 
 /* ---------- localStorage ---------- */
@@ -209,7 +195,6 @@ const CAT_EMOJI = {
   "Thawing": "💧",
   "Vegetables": "🥕",
   "Backroom": "📦",
-  "Back counter": "🍞",
   "Front counter": "🥪",
   "Back counter chiller": "❄️",
   "Fountain Drinks": "🥤",
@@ -257,7 +242,6 @@ const state = {
    ========================================================= */
 bindModal();
 bindDrawer();
-bindRoleBadge();
 startMidnightWatcher();
 
 boot().catch((e) => {
@@ -268,9 +252,10 @@ boot().catch((e) => {
 async function boot() {
   ensureSessionDayKey();
 
+  renderShell();
+
   // If session missing -> session setup
   if (!state.session.store || !state.session.staff) {
-    renderShell();
     openSessionSetup();
     return;
   }
@@ -278,26 +263,7 @@ async function boot() {
   // Popup once per day, and resets after midnight even without logout
   maybeShowExpiryPopup();
 
-  try {
-    await loadAllForCurrentStore();
-  } catch (e) {
-    console.error("loadAllForCurrentStore failed:", e);
-    renderShell();
-    $("#main").innerHTML = `
-      <div class="card">
-        <div class="h1">Failed to load data</div>
-        <div class="muted" style="font-weight:900; margin-top:6px;">
-          Please check server and database connection.
-        </div>
-        <div style="margin-top:12px;">
-          <button id="retryBtn" class="btn-yellow">Retry</button>
-        </div>
-      </div>
-    `;
-    $("#retryBtn")?.addEventListener("click", () => boot());
-    return;
-  }
-
+  await loadAllForCurrentStore();
   render();
 }
 
@@ -368,47 +334,30 @@ function maybeShowExpiryPopup(force = false) {
 async function loadAllForCurrentStore() {
   const store = state.session.store;
 
-  const cats = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
-  const items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
+  state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+  state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
 
-  state.data.categories = Array.isArray(cats) ? cats : [];
-  const rawItems = Array.isArray(items) ? items : [];
+  // Normalize fields to avoid missing due to spacing/case
+  state.data.items = (state.data.items || []).map((it) => ({
+    ...it,
+    category: it.category != null ? String(it.category).trim() : "",
+    sub_category: it.sub_category != null ? String(it.sub_category).trim() : null,
+    name: it.name != null ? String(it.name).trim() : "",
+    shelf_life_days: Number(it.shelf_life_days ?? 0),
+  }));
 
-  // Build canonical category map from categories list (UI truth)
-  const canon = new Map();
-  for (const c of state.data.categories) {
-    const name = String(c?.name || "").trim();
-    if (!name) continue;
-    canon.set(normText(name), name);
-  }
-
-  // normalize category + sub_category + name
-  state.data.items = rawItems.map((it) => {
-    const rawCat = it?.category != null ? String(it.category).trim() : "";
-    const rawSub = it?.sub_category != null ? String(it.sub_category).trim() : null;
-    const rawName = it?.name != null ? String(it.name).trim() : "";
-
-    const fixedCat = canon.get(normText(rawCat)) || rawCat;
-
-    return {
-      ...it,
-      category: fixedCat,
-      sub_category: rawSub,
-      name: rawName,
-    };
-  });
+  state.data.categories = (state.data.categories || []).map((c) => ({
+    ...c,
+    name: c.name != null ? String(c.name).trim() : "",
+  }));
 }
 
 /* =========================================================
-   ROLE BADGE (Red Manager, Blue Staff)
+   ROLE BADGE (Solid color via your CSS)
    ========================================================= */
-function bindRoleBadge() {
-  // rendered by updateTopbar()
-}
 function updateTopbar() {
-  const s = state.session;
-
   // session line
+  const s = state.session;
   const line = $("#sessionLine");
   if (line) {
     const show = s.store && s.staff;
@@ -455,7 +404,8 @@ function goHome() {
    ========================================================= */
 function renderShell() {
   updateTopbar();
-  $("#main").innerHTML = `<div class="card">Loading…</div>`;
+  const main = $("#main");
+  if (main) main.innerHTML = `<div class="card">Loading…</div>`;
 }
 
 function render() {
@@ -464,6 +414,7 @@ function render() {
   const main = $("#main");
   if (!main) return;
 
+  // session missing -> force setup
   if (!state.session.store || !state.session.staff) {
     main.innerHTML = `<div class="card">Session not started.</div>`;
     openSessionSetup();
@@ -486,7 +437,7 @@ function render() {
 }
 
 /* =========================================================
-   SESSION SETUP MODAL
+   SESSION SETUP MODAL (PDD/SKH different colors via CSS)
    ========================================================= */
 function openSessionSetup() {
   const s = state.session;
@@ -498,8 +449,8 @@ function openSessionSetup() {
         <div class="field">
           <span class="label">Select Store</span>
           <div style="display:flex; gap:10px;">
-            <button id="pickPDD" class="btn-yellow" style="flex:1; border-radius:14px;">PDD</button>
-            <button id="pickSKH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;">SKH</button>
+            <button id="pickPDD" class="btn-store btn-pdd" style="flex:1;" type="button">PDD</button>
+            <button id="pickSKH" class="btn-store btn-skh dim" style="flex:1;" type="button">SKH</button>
           </div>
         </div>
 
@@ -517,7 +468,7 @@ function openSessionSetup() {
         </div>
 
         <div class="field">
-          <button id="startBtn" class="btn-yellow">Start</button>
+          <button id="startBtn" class="btn-yellow" type="button">Start</button>
         </div>
 
         <div class="muted" style="font-size:12px; font-weight:900;">
@@ -529,16 +480,20 @@ function openSessionSetup() {
   );
 
   let storePick = s.store || "PDD";
+
   const setPick = (val) => {
     storePick = val;
     const pdd = $("#pickPDD");
     const skh = $("#pickSKH");
-    if (pdd) pdd.style.opacity = val === "PDD" ? "1" : ".75";
-    if (skh) skh.style.opacity = val === "SKH" ? "1" : ".75";
+    if (!pdd || !skh) return;
+    pdd.classList.toggle("dim", val !== "PDD");
+    skh.classList.toggle("dim", val !== "SKH");
   };
   setPick(storePick);
 
-  $("#shiftSel").value = s.shift || "AM";
+  const shiftSel = $("#shiftSel");
+  if (shiftSel) shiftSel.value = s.shift || "AM";
+
   $("#pickPDD")?.addEventListener("click", () => setPick("PDD"));
   $("#pickSKH")?.addEventListener("click", () => setPick("SKH"));
 
@@ -576,7 +531,7 @@ function openSessionSetup() {
 }
 
 /* =========================================================
-   HOME (summary cards + category tiles)
+   HOME (emoji-only tiles)
    ========================================================= */
 function tileToneForCategory(name) {
   const map = {
@@ -585,17 +540,12 @@ function tileToneForCategory(name) {
     "Thawing": "t-cyan",
     "Vegetables": "t-green2",
     "Backroom": "t-orange",
-    "Back counter": "t-orange",
     "Front counter": "t-red",
     "Back counter chiller": "t-teal",
     "Fountain Drinks": "t-green2",
     "Sauce": "t-purple",
   };
   return map[name] || "t-green";
-}
-
-async function fetchExpiryForStore(store) {
-  return apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
 }
 
 function renderHome() {
@@ -605,10 +555,10 @@ function renderHome() {
     .filter((c) => c && (c.is_active !== false))
     .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999));
 
-  // item count per category (match categories with normalization)
+  // item count per category (case-insensitive)
   const counts = {};
   for (const it of (state.data.items || [])) {
-    const c = String(it.category || "").trim();
+    const c = normText(it.category);
     if (!c) continue;
     counts[c] = (counts[c] || 0) + 1;
   }
@@ -617,7 +567,7 @@ function renderHome() {
     const name = String(c.name || "");
     const emoji = CAT_EMOJI[name] || "✅";
     const tone = tileToneForCategory(name);
-    const count = counts[name] || 0;
+    const count = counts[normText(name)] || 0;
     const delay = idx * 55;
 
     return `
@@ -632,67 +582,17 @@ function renderHome() {
   }).join("");
 
   main.innerHTML = `
-    <div id="homeSumWrap" class="summary-row"></div>
     <div class="tiles-2col">
       ${tiles}
     </div>
   `;
 
-  // bind category tiles
   $$(".tile", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const cat = btn.dataset.cat;
       setView({ page: "category", category: cat, sauceSub: null }, true);
     });
   });
-
-  // summary cards (current store only)
-  const wrap = $("#homeSumWrap");
-  if (wrap) {
-    wrap.innerHTML = `
-      <button class="sum-card sum-red" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Today</div></button>
-      <button class="sum-card sum-amber" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Tomorrow</div></button>
-      <button class="sum-card sum-green" type="button"><div class="sum-num">…</div><div class="sum-lbl">All Safe</div></button>
-    `;
-
-    const store = state.session.store;
-    const today = todayISO();
-    const tomorrow = addDaysISO(today, 1);
-
-    fetchExpiryForStore(store)
-      .then((rows) => {
-        rows = Array.isArray(rows) ? rows : [];
-        const todayCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
-        const tomorrowCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
-        const safeCount = rows.filter((x) => {
-          const e = String(x.expiry_value || "").slice(0, 10);
-          return e && e !== today && e !== tomorrow;
-        }).length;
-
-        wrap.innerHTML = `
-          <button class="sum-card sum-red" id="homeSumToday" type="button">
-            <div class="sum-num">${todayCount}</div>
-            <div class="sum-lbl">Expiring<br/>Today</div>
-          </button>
-          <button class="sum-card sum-amber" id="homeSumTomorrow" type="button">
-            <div class="sum-num">${tomorrowCount}</div>
-            <div class="sum-lbl">Expiring<br/>Tomorrow</div>
-          </button>
-          <button class="sum-card sum-green" id="homeSumSafe" type="button">
-            <div class="sum-num">${safeCount}</div>
-            <div class="sum-lbl">All Safe</div>
-          </button>
-        `;
-
-        $("#homeSumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: store }, true));
-        $("#homeSumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: store }, true));
-        $("#homeSumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: store }, true));
-      })
-      .catch((e) => {
-        console.error(e);
-        // keep the placeholder cards if summary fails
-      });
-  }
 }
 
 /* =========================================================
@@ -701,7 +601,6 @@ function renderHome() {
 function itemKey(it) {
   return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`;
 }
-
 function ensureDraft(key) {
   if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "" };
   return state.drafts[key];
@@ -723,7 +622,7 @@ function renderSauceSubTiles() {
 
   $("#main").innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">Sauce</div>
     </div>
     <div class="tiles-2col">${tiles}</div>
@@ -742,7 +641,6 @@ function renderSauceSubTiles() {
 function renderCategory() {
   const main = $("#main");
   const cat = state.view.category;
-
   if (!cat) return goHome();
 
   // Sauce entry -> show sub tiles first
@@ -753,11 +651,13 @@ function renderCategory() {
   const sauceSub = state.view.sauceSub || null;
   const title = normText(cat) === "sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
 
-  // filter items by category (+ sauce sub) using tolerant matching
+  // filter items by category (case-insensitive + trim)
   let items = (state.data.items || []).filter((x) => normText(x.category) === normText(cat));
 
+  // Sauce sub filter
   if (normText(cat) === "sauce" && sauceSub) {
-    items = items.filter((x) => normText(x.sub_category) === normText(sauceSub));
+    const target = normText(sauceSub);
+    items = items.filter((x) => normText(x.sub_category || "") === target);
   }
 
   const emptyMsg = items.length
@@ -766,7 +666,7 @@ function renderCategory() {
       <div class="card" style="border-left:6px solid var(--yellow); margin-bottom:12px;">
         <div style="font-weight:1200;">No items found</div>
         <div class="muted" style="font-weight:900; margin-top:6px;">
-          If this is Sauce subcategory: item sub_category must match the tile name.
+          Check item category/sub_category casing/spaces in DB.
         </div>
       </div>
     `;
@@ -775,7 +675,7 @@ function renderCategory() {
 
   main.innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">${escapeHtml(title)}</div>
     </div>
 
@@ -786,7 +686,7 @@ function renderCategory() {
     </div>
 
     <div class="save-bar">
-      <button id="saveBtn" class="btn-yellow">Save ${escapeHtml(cat)}</button>
+      <button id="saveBtn" class="btn-yellow" type="button">Save ${escapeHtml(cat)}</button>
     </div>
   `;
 
@@ -819,35 +719,35 @@ function renderItemRow(it, cat, idx) {
         <div class="edit-helper">Expiry: Pick a date (manual).</div>
       </div>
     `;
-} else {
-  const selVal = d.expType || "";
-  const today = todayISO();
-  const tomorrow = addDaysISO(today, 1);
+  } else {
+    const today = todayISO();
+    const life = Math.max(0, Number(it.shelf_life_days ?? 0));
+    const daysToShow = life >= 1 ? life : 2; // fallback if 0
 
-  expiryUI = `
-    <div class="exp-wrap">
-      <select class="input" data-expsel="${escapeHtml(key)}">
-        <option value="">Select</option>
-        <option value="TODAY"${selVal === "TODAY" ? " selected" : ""}>
-          ${formatDMY(today)}
-        </option>
-        <option value="TOMORROW"${selVal === "TOMORROW" ? " selected" : ""}>
-          ${formatDMY(tomorrow)}
-        </option>
-        <option value="PICK"${selVal === "PICK" ? " selected" : ""}>
-          Pick date…
-        </option>
-      </select>
+    const dateOptions = Array.from({ length: daysToShow }, (_, i) => {
+      const iso = addDaysISO(today, i);
+      const selected = d.expType === "AUTO" && d.expDateISO === iso ? " selected" : "";
+      return `<option value="${escapeHtml(iso)}"${selected}>${escapeHtml(formatDMY(iso))}</option>`;
+    }).join("");
 
-      <div data-pickwrap="${escapeHtml(key)}" class="${selVal === "PICK" ? "" : "hidden"}">
-        <input class="input" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}" />
+    const pickSelected = d.expType === "PICK" ? " selected" : "";
+
+    expiryUI = `
+      <div class="exp-wrap">
+        <select class="input" data-expsel="${escapeHtml(key)}">
+          <option value="">Select</option>
+          ${dateOptions}
+          <option value="PICK"${pickSelected}>Pick date…</option>
+        </select>
+
+        <div data-pickwrap="${escapeHtml(key)}" class="${d.expType === "PICK" ? "" : "hidden"}">
+          <input class="input" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}" />
+        </div>
+
+        <div class="edit-helper">Expiry based on shelf life (${daysToShow} day${daysToShow > 1 ? "s" : ""}).</div>
       </div>
-
-      <div class="edit-helper">Expiry: Today / Tomorrow / Pick Date.</div>
-    </div>
-  `;
-}
-
+    `;
+  }
 
   return `
     <div class="edit-card" style="animation-delay:${animDelay}ms;">
@@ -890,38 +790,41 @@ function bindItemControls(items, cat) {
       if (qtyInp) qtyInp.value = String(d.qty);
     });
 
-   if (sel) sel.addEventListener("change", () => {
-  const v = String(sel.value || "");
+    if (sel) sel.addEventListener("change", () => {
+      const v = String(sel.value || "");
+      const pickWrap = wrap.querySelector(`[data-pickwrap="${CSS.escape(key)}"]`);
+      const isPick = v === "PICK";
+      if (pickWrap) pickWrap.classList.toggle("hidden", !isPick);
 
-  const pickWrap = wrap.querySelector(`[data-pickwrap="${CSS.escape(key)}"]`);
-  const isPick = v === "PICK";
-  if (pickWrap) pickWrap.classList.toggle("hidden", !isPick);
-
-  if (isPick) {
-    d.expType = "PICK";
-    // keep expDateISO from date input
-  } else if (v) {
-    // v is an ISO date like 2026-01-13
-    d.expType = "AUTO";
-    d.expDateISO = v;
-    if (dateInp) dateInp.value = "";
-  } else {
-    d.expType = "";
-    d.expDateISO = "";
-    if (dateInp) dateInp.value = "";
-  }
-});
+      if (isPick) {
+        d.expType = "PICK";
+        // keep expDateISO from date input
+      } else if (v) {
+        // v is ISO date (YYYY-MM-DD)
+        d.expType = "AUTO";
+        d.expDateISO = v;
+        if (dateInp) dateInp.value = "";
+      } else {
+        d.expType = "";
+        d.expDateISO = "";
+        if (dateInp) dateInp.value = "";
+      }
+    });
 
     if (dateInp) dateInp.addEventListener("change", () => {
       d.expDateISO = String(dateInp.value || "");
-      if (!d.expType) d.expType = "MANUAL";
+      // manual categories or pick-date mode
+      if (FORCE_MANUAL_DATE_CATS.has(cat)) d.expType = "MANUAL";
+      else d.expType = "PICK";
     });
 
+    // CBC rule
     if (isChickenBaconC(it.name)) {
       d.expType = "EOD";
       d.expDateISO = "";
     }
 
+    // forced manual categories
     if (FORCE_MANUAL_DATE_CATS.has(cat) && !isChickenBaconC(it.name)) {
       d.expType = "MANUAL";
     }
@@ -934,7 +837,6 @@ async function saveCategoryDrafts(items, cat) {
   const shift = state.session.shift;
 
   const today = todayISO();
-  const tomorrow = addDaysISO(today, 1);
 
   const rows = [];
 
@@ -952,13 +854,11 @@ async function saveCategoryDrafts(items, cat) {
     } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
       expiry = d.expDateISO || null;
     } else {
-     if (d.expType === "AUTO") expiry = d.expDateISO || null;
-else if (d.expType === "PICK") expiry = d.expDateISO || null;
-// backward compatibility (if old drafts exist)
-else if (d.expType === "TODAY") expiry = today;
-else if (d.expType === "TOMORROW") expiry = tomorrow;
-else expiry = null;
-
+      if (d.expType === "AUTO") expiry = d.expDateISO || null;  // selected from shelf-life dropdown
+      else if (d.expType === "PICK") expiry = d.expDateISO || null;
+      // backward compatibility if any old drafts exist
+      else if (d.expType === "TODAY") expiry = today;
+      else expiry = null;
     }
 
     rows.push({
@@ -989,7 +889,7 @@ else expiry = null;
 function renderAlerts() {
   $("#main").innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">Alerts</div>
     </div>
 
@@ -1004,13 +904,17 @@ function renderAlerts() {
 /* =========================================================
    SUMMARY
    ========================================================= */
+async function fetchExpiryForStore(store) {
+  return apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
+}
+
 function renderSummaryHome() {
   const main = $("#main");
   const isMgr = !!state.session.isManager;
 
   main.innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">Summary</div>
     </div>
 
@@ -1018,9 +922,9 @@ function renderSummaryHome() {
       <div class="card" style="margin-bottom:12px;">
         <div class="label" style="margin-bottom:8px;">Manager view</div>
         <div style="display:flex; gap:10px;">
-          <button id="sumPDD" class="btn-yellow" style="flex:1; border-radius:14px;">PDD</button>
-          <button id="sumSKH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;">SKH</button>
-          <button id="sumBOTH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;">BOTH</button>
+          <button id="sumPDD" class="btn-yellow" style="flex:1; border-radius:14px;" type="button">PDD</button>
+          <button id="sumSKH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;" type="button">SKH</button>
+          <button id="sumBOTH" class="btn-yellow" style="flex:1; border-radius:14px; opacity:.85;" type="button">BOTH</button>
         </div>
         <div class="muted" style="font-weight:900; margin-top:8px;">
           Staff can only view their store. Manager can view both.
@@ -1040,12 +944,14 @@ function renderSummaryHome() {
     state.view.summaryMode = mode;
 
     if (isMgr) {
-      $("#sumPDD").style.opacity = m === "PDD" ? "1" : ".75";
-      $("#sumSKH").style.opacity = m === "SKH" ? "1" : ".75";
-      $("#sumBOTH").style.opacity = m === "BOTH" ? "1" : ".75";
+      $("#sumPDD")?.style && ($("#sumPDD").style.opacity = m === "PDD" ? "1" : ".75");
+      $("#sumSKH")?.style && ($("#sumSKH").style.opacity = m === "SKH" ? "1" : ".75");
+      $("#sumBOTH")?.style && ($("#sumBOTH").style.opacity = m === "BOTH" ? "1" : ".75");
     }
 
     const wrap = $("#sumCardsWrap");
+    if (!wrap) return;
+
     wrap.innerHTML = `
       <button class="sum-card sum-red" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Today</div></button>
       <button class="sum-card sum-amber" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Tomorrow</div></button>
@@ -1122,7 +1028,7 @@ async function renderSummaryList() {
 
   main.innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">${bucketTitle(bucket)}</div>
     </div>
 
@@ -1137,6 +1043,7 @@ async function renderSummaryList() {
   $("#btnBack")?.addEventListener("click", goBack);
 
   const wrap = $("#sumListWrap");
+  if (!wrap) return;
   wrap.innerHTML = `<div class="card">Loading…</div>`;
 
   try {
@@ -1218,7 +1125,7 @@ function renderManagerHome() {
 
   $("#main").innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">Manager Dashboard</div>
     </div>
 
@@ -1288,10 +1195,10 @@ function openManagerLogin() {
           <input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN" />
         </div>
         <div class="field">
-          <button id="pinBtn" class="btn-yellow">Login</button>
+          <button id="pinBtn" class="btn-yellow" type="button">Login</button>
         </div>
         <div class="field">
-          <button id="pinCancel" class="btn-yellow" style="opacity:.85;">Cancel</button>
+          <button id="pinCancel" class="btn-yellow" style="opacity:.85;" type="button">Cancel</button>
         </div>
       </div>
     `,
@@ -1361,7 +1268,7 @@ async function renderManagerEditItems() {
   const token = state.session.managerToken;
   $("#main").innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">Edit Items</div>
     </div>
 
@@ -1381,13 +1288,13 @@ async function renderManagerEditItems() {
   } catch (e) {
     console.error(e);
     toast("Manager items endpoint missing");
-    $("#mgrList").innerHTML = `<div class="card">Endpoint not ready: /api/manager/items</div>`;
+    $("#mgrList") && ($("#mgrList").innerHTML = `<div class="card">Endpoint not ready: /api/manager/items</div>`);
     return;
   }
 
   const renderList = (q) => {
-    q = normText(q);
-    const filtered = q ? items.filter((x) => normText(x.name).includes(q)) : items;
+    q = String(q || "").toLowerCase().trim();
+    const filtered = q ? items.filter((x) => String(x.name || "").toLowerCase().includes(q)) : items;
 
     const map = new Map();
     for (const it of filtered) {
@@ -1409,12 +1316,13 @@ async function renderManagerEditItems() {
       `;
     }
 
-    $("#mgrList").innerHTML = html;
+    const listHost = $("#mgrList");
+    if (listHost) listHost.innerHTML = html;
 
     $$(".mgrEditBtn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.id;
-        const panel = $(`#panel_${CSS.escape(id)}`);
+        const panel = document.getElementById(`panel_${id}`);
         if (!panel) return;
         panel.classList.toggle("hidden");
         btn.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
@@ -1424,9 +1332,9 @@ async function renderManagerEditItems() {
     $$(".mgrSaveBtn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.id;
-        const catSel = $(`#cat_${CSS.escape(id)}`);
-        const subSel = $(`#sub_${CSS.escape(id)}`);
-        const lifeInp = $(`#life_${CSS.escape(id)}`);
+        const catSel = document.getElementById(`cat_${id}`);
+        const subSel = document.getElementById(`sub_${id}`);
+        const lifeInp = document.getElementById(`life_${id}`);
 
         const category = String(catSel?.value || "").trim();
         const sub_category = String(subSel?.value || "").trim() || null;
@@ -1474,7 +1382,7 @@ function mgrRow(it) {
 
   const subOpts = [`<option value="">(none)</option>`]
     .concat(SAUCE_SUBS.map((s) => {
-      const sel = normText(it.sub_category) === normText(s.name) ? " selected" : "";
+      const sel = normText(it.sub_category || "") === normText(s.name) ? " selected" : "";
       return `<option value="${escapeHtml(s.name)}"${sel}>${escapeHtml(s.name)}</option>`;
     }))
     .join("");
@@ -1547,14 +1455,14 @@ async function renderManagerCategories() {
 
   $("#main").innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">Categories</div>
     </div>
 
     <div class="tiles-2col">${tiles}</div>
 
     <div style="margin-top:14px;">
-      <button id="addCat" class="btn-yellow" style="background:#1E88E5; color:#fff;">➕ Add Category</button>
+      <button id="addCat" class="btn-yellow" style="background:#1E88E5; color:#fff;" type="button">➕ Add Category</button>
     </div>
   `;
 
@@ -1583,7 +1491,7 @@ function openAddCategoryModal() {
           <input id="catSort" class="input" type="number" value="100" />
         </div>
         <div class="field">
-          <button id="catSave" class="btn-yellow">Save</button>
+          <button id="catSave" class="btn-yellow" type="button">Save</button>
         </div>
       </div>
     `,
@@ -1626,10 +1534,10 @@ function openEditCategoryModal(id, currentName) {
         </div>
 
         <div class="field">
-          <button id="catSave" class="btn-yellow">Save</button>
+          <button id="catSave" class="btn-yellow" type="button">Save</button>
         </div>
         <div class="field">
-          <button id="catDelete" class="btn-yellow" style="background:#E53935; color:#fff;">Delete</button>
+          <button id="catDelete" class="btn-yellow" style="background:#E53935; color:#fff;" type="button">Delete</button>
         </div>
       </div>
     `,
@@ -1700,7 +1608,7 @@ function openAddItemModal() {
         </div>
 
         <div class="field">
-          <button id="itSave" class="btn-yellow">Save</button>
+          <button id="itSave" class="btn-yellow" type="button">Save</button>
         </div>
       </div>
     `,
@@ -1739,7 +1647,7 @@ function renderWISR() {
 
   $("#main").innerHTML = `
     <div class="page-head">
-      <button class="btn-ghost" id="btnBack">← Back</button>
+      <button class="btn-ghost" id="btnBack" type="button">← Back</button>
       <div class="page-title">WISR Count</div>
     </div>
 
@@ -1751,7 +1659,6 @@ function renderWISR() {
   `;
 
   $("#btnBack")?.addEventListener("click", goBack);
-
   void saved;
 }
 
