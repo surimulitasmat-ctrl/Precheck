@@ -8,20 +8,20 @@
    - #toast
    ========================= */
 
-/* ---------- Polyfill: CSS.escape (prevents blank screen on older browsers) ---------- */
-(function ensureCssEscape() {
-  if (window.CSS && typeof window.CSS.escape === "function") return;
-  window.CSS = window.CSS || {};
-  window.CSS.escape = function (value) {
-    const str = String(value);
-    // minimal safe escape for attribute selectors
-    return str.replace(/[^a-zA-Z0-9_\-]/g, (ch) => `\\${ch}`);
-  };
-})();
-
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+/* ---------- Polyfills ---------- */
+// Some Android WebViews can miss CSS.escape -> crash when using querySelector with dynamic keys
+if (!window.CSS) window.CSS = {};
+if (typeof window.CSS.escape !== "function") {
+  window.CSS.escape = (value) => {
+    const str = String(value ?? "");
+    // Minimal safe escape for attribute selectors
+    return str.replace(/["\\#.:;\[\](),=<>+~*^$|!?/\s]/g, "\\$&");
+  };
+}
 
 /* ---------- safe small helpers ---------- */
 function escapeHtml(s) {
@@ -54,6 +54,12 @@ function formatDMY(iso) {
   const mon = dt.toLocaleString("en-GB", { month: "short" });
   const year = dt.getFullYear();
   return `${day} ${mon} ${year}`;
+}
+function normText(s) {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /* ---------- localStorage ---------- */
@@ -91,18 +97,7 @@ function openModal(title, html, opts = {}) {
   b.classList.remove("hidden");
 
   // block closing when required
-  if (opts.noBackdropClose) {
-    b.dataset.lock = "1";
-  } else {
-    b.dataset.lock = "0";
-  }
-
-  // hide/show close button when required
-  const closeBtn = $("#modalClose");
-  if (closeBtn) {
-    const hide = !!opts.hideClose;
-    closeBtn.style.display = hide ? "none" : "";
-  }
+  b.dataset.lock = opts.noBackdropClose ? "1" : "0";
 }
 function closeModal() {
   const b = $("#modalBackdrop");
@@ -110,8 +105,6 @@ function closeModal() {
   b.classList.add("hidden");
   $("#modalBody").innerHTML = "";
   b.dataset.lock = "0";
-  const closeBtn = $("#modalClose");
-  if (closeBtn) closeBtn.style.display = "";
 }
 function bindModal() {
   const b = $("#modalBackdrop");
@@ -234,7 +227,7 @@ const SAUCE_SUBS = [
 const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
 
 function isChickenBaconC(name) {
-  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const t = normText(name).replace(/\s+/g, " ");
   return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
 }
 
@@ -285,7 +278,26 @@ async function boot() {
   // Popup once per day, and resets after midnight even without logout
   maybeShowExpiryPopup();
 
-  await loadAllForCurrentStore();
+  try {
+    await loadAllForCurrentStore();
+  } catch (e) {
+    console.error("loadAllForCurrentStore failed:", e);
+    renderShell();
+    $("#main").innerHTML = `
+      <div class="card">
+        <div class="h1">Failed to load data</div>
+        <div class="muted" style="font-weight:900; margin-top:6px;">
+          Please check server and database connection.
+        </div>
+        <div style="margin-top:12px;">
+          <button id="retryBtn" class="btn-yellow">Retry</button>
+        </div>
+      </div>
+    `;
+    $("#retryBtn")?.addEventListener("click", () => boot());
+    return;
+  }
+
   render();
 }
 
@@ -345,7 +357,7 @@ function maybeShowExpiryPopup(force = false) {
         <button id="popupOk" class="btn-yellow">OK</button>
       </div>
     `,
-    { noBackdropClose: true, hideClose: true }
+    { noBackdropClose: true }
   );
   $("#popupOk")?.addEventListener("click", () => closeModal());
 }
@@ -360,8 +372,9 @@ async function loadAllForCurrentStore() {
   const items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
 
   state.data.categories = Array.isArray(cats) ? cats : [];
+  const rawItems = Array.isArray(items) ? items : [];
 
-  // Build canonical map from categories list (UI truth)
+  // Build canonical category map from categories list (UI truth)
   const canon = new Map();
   for (const c of state.data.categories) {
     const name = String(c?.name || "").trim();
@@ -369,12 +382,12 @@ async function loadAllForCurrentStore() {
     canon.set(normText(name), name);
   }
 
-  state.data.items = (Array.isArray(items) ? items : []).map((it) => {
+  // normalize category + sub_category + name
+  state.data.items = rawItems.map((it) => {
     const rawCat = it?.category != null ? String(it.category).trim() : "";
     const rawSub = it?.sub_category != null ? String(it.sub_category).trim() : null;
     const rawName = it?.name != null ? String(it.name).trim() : "";
 
-    // Canonicalize category using categories table
     const fixedCat = canon.get(normText(rawCat)) || rawCat;
 
     return {
@@ -386,16 +399,16 @@ async function loadAllForCurrentStore() {
   });
 }
 
-
 /* =========================================================
    ROLE BADGE (Red Manager, Blue Staff)
    ========================================================= */
 function bindRoleBadge() {
-  // will be rendered by updateTopbar()
+  // rendered by updateTopbar()
 }
 function updateTopbar() {
-  // session line
   const s = state.session;
+
+  // session line
   const line = $("#sessionLine");
   if (line) {
     const show = s.store && s.staff;
@@ -403,7 +416,7 @@ function updateTopbar() {
     line.textContent = show ? `${s.store} • ${s.shift} • ${s.staff}` : "";
   }
 
-  // role button into #roleHost (blue staff, red manager)
+  // role button into #roleHost
   const host = $("#roleHost");
   if (!host) return;
   host.innerHTML = `
@@ -451,7 +464,6 @@ function render() {
   const main = $("#main");
   if (!main) return;
 
-  // session missing -> force setup
   if (!state.session.store || !state.session.staff) {
     main.innerHTML = `<div class="card">Session not started.</div>`;
     openSessionSetup();
@@ -513,7 +525,7 @@ function openSessionSetup() {
         </div>
       </div>
     `,
-    { noBackdropClose: true, hideClose: true }
+    { noBackdropClose: true }
   );
 
   let storePick = s.store || "PDD";
@@ -564,7 +576,7 @@ function openSessionSetup() {
 }
 
 /* =========================================================
-   HOME (Summary cards TOP + emoji tiles)
+   HOME (summary cards + category tiles)
    ========================================================= */
 function tileToneForCategory(name) {
   const map = {
@@ -593,10 +605,11 @@ function renderHome() {
     .filter((c) => c && (c.is_active !== false))
     .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999));
 
-  // item count per category
+  // item count per category (match categories with normalization)
   const counts = {};
   for (const it of (state.data.items || [])) {
-    const c = it.category || "";
+    const c = String(it.category || "").trim();
+    if (!c) continue;
     counts[c] = (counts[c] || 0) + 1;
   }
 
@@ -618,65 +631,68 @@ function renderHome() {
     `;
   }).join("");
 
-  // Summary cards top (required)
   main.innerHTML = `
-    <div class="summary-row" id="homeSumRow">
-      <button class="sum-card sum-red" id="homeSumToday" type="button">
-        <div class="sum-num" id="homeTodayNum">…</div>
-        <div class="sum-lbl">Expiring<br/>Today</div>
-      </button>
-      <button class="sum-card sum-amber" id="homeSumTomorrow" type="button">
-        <div class="sum-num" id="homeTomorrowNum">…</div>
-        <div class="sum-lbl">Expiring<br/>Tomorrow</div>
-      </button>
-      <button class="sum-card sum-green" id="homeSumSafe" type="button">
-        <div class="sum-num" id="homeSafeNum">…</div>
-        <div class="sum-lbl">All Safe</div>
-      </button>
-    </div>
-
+    <div id="homeSumWrap" class="summary-row"></div>
     <div class="tiles-2col">
       ${tiles}
     </div>
   `;
 
-  // Home summary card clicks
-  const mode = state.session.store; // Staff = their store; Manager home still uses current store here
-  $("#homeSumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: mode }, true));
-  $("#homeSumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: mode }, true));
-  $("#homeSumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: mode }, true));
-
-  // Load numbers (no redesign; just fills counts)
-  (async () => {
-    try {
-      const rows = await fetchExpiryForStore(mode);
-      const today = todayISO();
-      const tomorrow = addDaysISO(today, 1);
-
-      const todayCount = (rows || []).filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
-      const tomorrowCount = (rows || []).filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
-      const safeCount = (rows || []).filter((x) => {
-        const e = String(x.expiry_value || "").slice(0, 10);
-        return e && e !== today && e !== tomorrow;
-      }).length;
-
-      const a = $("#homeTodayNum"); if (a) a.textContent = String(todayCount);
-      const b = $("#homeTomorrowNum"); if (b) b.textContent = String(tomorrowCount);
-      const c = $("#homeSafeNum"); if (c) c.textContent = String(safeCount);
-    } catch (e) {
-      console.error(e);
-      const a = $("#homeTodayNum"); if (a) a.textContent = "0";
-      const b = $("#homeTomorrowNum"); if (b) b.textContent = "0";
-      const c = $("#homeSafeNum"); if (c) c.textContent = "0";
-    }
-  })();
-
+  // bind category tiles
   $$(".tile", main).forEach((btn) => {
     btn.addEventListener("click", () => {
       const cat = btn.dataset.cat;
       setView({ page: "category", category: cat, sauceSub: null }, true);
     });
   });
+
+  // summary cards (current store only)
+  const wrap = $("#homeSumWrap");
+  if (wrap) {
+    wrap.innerHTML = `
+      <button class="sum-card sum-red" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Today</div></button>
+      <button class="sum-card sum-amber" type="button"><div class="sum-num">…</div><div class="sum-lbl">Expiring<br/>Tomorrow</div></button>
+      <button class="sum-card sum-green" type="button"><div class="sum-num">…</div><div class="sum-lbl">All Safe</div></button>
+    `;
+
+    const store = state.session.store;
+    const today = todayISO();
+    const tomorrow = addDaysISO(today, 1);
+
+    fetchExpiryForStore(store)
+      .then((rows) => {
+        rows = Array.isArray(rows) ? rows : [];
+        const todayCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
+        const tomorrowCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
+        const safeCount = rows.filter((x) => {
+          const e = String(x.expiry_value || "").slice(0, 10);
+          return e && e !== today && e !== tomorrow;
+        }).length;
+
+        wrap.innerHTML = `
+          <button class="sum-card sum-red" id="homeSumToday" type="button">
+            <div class="sum-num">${todayCount}</div>
+            <div class="sum-lbl">Expiring<br/>Today</div>
+          </button>
+          <button class="sum-card sum-amber" id="homeSumTomorrow" type="button">
+            <div class="sum-num">${tomorrowCount}</div>
+            <div class="sum-lbl">Expiring<br/>Tomorrow</div>
+          </button>
+          <button class="sum-card sum-green" id="homeSumSafe" type="button">
+            <div class="sum-num">${safeCount}</div>
+            <div class="sum-lbl">All Safe</div>
+          </button>
+        `;
+
+        $("#homeSumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: store }, true));
+        $("#homeSumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: store }, true));
+        $("#homeSumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: store }, true));
+      })
+      .catch((e) => {
+        console.error(e);
+        // keep the placeholder cards if summary fails
+      });
+  }
 }
 
 /* =========================================================
@@ -730,20 +746,18 @@ function renderCategory() {
   if (!cat) return goHome();
 
   // Sauce entry -> show sub tiles first
-  if (cat === "Sauce" && !state.view.sauceSub) {
+  if (normText(cat) === "sauce" && !state.view.sauceSub) {
     return renderSauceSubTiles();
   }
 
   const sauceSub = state.view.sauceSub || null;
-  const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
+  const title = normText(cat) === "sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
 
-  // filter items by category (+ sauce sub)
- let items = (state.data.items || []).filter((x) => normText(x.category) === normText(cat));
+  // filter items by category (+ sauce sub) using tolerant matching
+  let items = (state.data.items || []).filter((x) => normText(x.category) === normText(cat));
 
-  if (cat === "Sauce" && sauceSub) {
-    const target = String(sauceSub).toLowerCase();
+  if (normText(cat) === "sauce" && sauceSub) {
     items = items.filter((x) => normText(x.sub_category) === normText(sauceSub));
-
   }
 
   const emptyMsg = items.length
@@ -752,7 +766,7 @@ function renderCategory() {
       <div class="card" style="border-left:6px solid var(--yellow); margin-bottom:12px;">
         <div style="font-weight:1200;">No items found</div>
         <div class="muted" style="font-weight:900; margin-top:6px;">
-          If this is Sauce subcategory: make sure item sub_category is exactly "${escapeHtml(sauceSub || "")}" in DB.
+          If this is Sauce subcategory: item sub_category must match the tile name.
         </div>
       </div>
     `;
@@ -916,7 +930,7 @@ async function saveCategoryDrafts(items, cat) {
     let expiry = null;
 
     if (isChickenBaconC(it.name)) {
-      expiry = today;
+      expiry = today; // end of day today
     } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
       expiry = d.expDateISO || null;
     } else {
@@ -932,7 +946,7 @@ async function saveCategoryDrafts(items, cat) {
       category: it.category,
       sub_category: it.sub_category || null,
       quantity: qty,
-      expiry: expiry,
+      expiry: expiry, // YYYY-MM-DD
       expiry_at: null,
     });
   }
@@ -1260,7 +1274,7 @@ function openManagerLogin() {
         </div>
       </div>
     `,
-    { noBackdropClose: true, hideClose: true }
+    { noBackdropClose: true }
   );
 
   $("#pinCancel")?.addEventListener("click", () => { closeModal(); goBack(); });
@@ -1351,8 +1365,8 @@ async function renderManagerEditItems() {
   }
 
   const renderList = (q) => {
-    q = String(q || "").toLowerCase().trim();
-    const filtered = q ? items.filter((x) => String(x.name || "").toLowerCase().includes(q)) : items;
+    q = normText(q);
+    const filtered = q ? items.filter((x) => normText(x.name).includes(q)) : items;
 
     const map = new Map();
     for (const it of filtered) {
@@ -1439,7 +1453,7 @@ function mgrRow(it) {
 
   const subOpts = [`<option value="">(none)</option>`]
     .concat(SAUCE_SUBS.map((s) => {
-      const sel = String(it.sub_category || "").toLowerCase() === s.name.toLowerCase() ? " selected" : "";
+      const sel = normText(it.sub_category) === normText(s.name) ? " selected" : "";
       return `<option value="${escapeHtml(s.name)}"${sel}>${escapeHtml(s.name)}</option>`;
     }))
     .join("");
@@ -1552,7 +1566,7 @@ function openAddCategoryModal() {
         </div>
       </div>
     `,
-    { noBackdropClose: true, hideClose: true }
+    { noBackdropClose: true }
   );
 
   $("#catSave")?.addEventListener("click", async () => {
@@ -1598,7 +1612,7 @@ function openEditCategoryModal(id, currentName) {
         </div>
       </div>
     `,
-    { noBackdropClose: true, hideClose: true }
+    { noBackdropClose: true }
   );
 
   $("#catSave")?.addEventListener("click", async () => {
@@ -1669,7 +1683,7 @@ function openAddItemModal() {
         </div>
       </div>
     `,
-    { noBackdropClose: true, hideClose: true }
+    { noBackdropClose: true }
   );
 
   $("#itSave")?.addEventListener("click", async () => {
@@ -1694,7 +1708,7 @@ function openAddItemModal() {
 }
 
 /* =========================================================
-   WISR (per store)
+   WISR
    ========================================================= */
 function wisrKey(store) { return `wisr_${store}`; }
 
@@ -1716,6 +1730,7 @@ function renderWISR() {
   `;
 
   $("#btnBack")?.addEventListener("click", goBack);
+
   void saved;
 }
 
