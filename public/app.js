@@ -8,6 +8,17 @@
    - #toast
    ========================= */
 
+/* ---------- Polyfill: CSS.escape (prevents blank screen on older browsers) ---------- */
+(function ensureCssEscape() {
+  if (window.CSS && typeof window.CSS.escape === "function") return;
+  window.CSS = window.CSS || {};
+  window.CSS.escape = function (value) {
+    const str = String(value);
+    // minimal safe escape for attribute selectors
+    return str.replace(/[^a-zA-Z0-9_\-]/g, (ch) => `\\${ch}`);
+  };
+})();
+
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -85,6 +96,13 @@ function openModal(title, html, opts = {}) {
   } else {
     b.dataset.lock = "0";
   }
+
+  // hide/show close button when required
+  const closeBtn = $("#modalClose");
+  if (closeBtn) {
+    const hide = !!opts.hideClose;
+    closeBtn.style.display = hide ? "none" : "";
+  }
 }
 function closeModal() {
   const b = $("#modalBackdrop");
@@ -92,6 +110,8 @@ function closeModal() {
   b.classList.add("hidden");
   $("#modalBody").innerHTML = "";
   b.dataset.lock = "0";
+  const closeBtn = $("#modalClose");
+  if (closeBtn) closeBtn.style.display = "";
 }
 function bindModal() {
   const b = $("#modalBackdrop");
@@ -325,7 +345,7 @@ function maybeShowExpiryPopup(force = false) {
         <button id="popupOk" class="btn-yellow">OK</button>
       </div>
     `,
-    { noBackdropClose: true }
+    { noBackdropClose: true, hideClose: true }
   );
   $("#popupOk")?.addEventListener("click", () => closeModal());
 }
@@ -373,7 +393,6 @@ function updateTopbar() {
     </button>
   `;
   $("#roleBtn")?.addEventListener("click", () => {
-    // simple info tap
     toast(s.isManager ? "Manager mode" : "Staff mode");
   });
 }
@@ -474,7 +493,7 @@ function openSessionSetup() {
         </div>
       </div>
     `,
-    { noBackdropClose: true }
+    { noBackdropClose: true, hideClose: true }
   );
 
   let storePick = s.store || "PDD";
@@ -525,7 +544,7 @@ function openSessionSetup() {
 }
 
 /* =========================================================
-   HOME (emoji-only, BIG emoji + BIG name, animated one by one)
+   HOME (Summary cards TOP + emoji tiles)
    ========================================================= */
 function tileToneForCategory(name) {
   const map = {
@@ -541,6 +560,10 @@ function tileToneForCategory(name) {
     "Sauce": "t-purple",
   };
   return map[name] || "t-green";
+}
+
+async function fetchExpiryForStore(store) {
+  return apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
 }
 
 function renderHome() {
@@ -575,11 +598,58 @@ function renderHome() {
     `;
   }).join("");
 
+  // Summary cards top (required)
   main.innerHTML = `
+    <div class="summary-row" id="homeSumRow">
+      <button class="sum-card sum-red" id="homeSumToday" type="button">
+        <div class="sum-num" id="homeTodayNum">…</div>
+        <div class="sum-lbl">Expiring<br/>Today</div>
+      </button>
+      <button class="sum-card sum-amber" id="homeSumTomorrow" type="button">
+        <div class="sum-num" id="homeTomorrowNum">…</div>
+        <div class="sum-lbl">Expiring<br/>Tomorrow</div>
+      </button>
+      <button class="sum-card sum-green" id="homeSumSafe" type="button">
+        <div class="sum-num" id="homeSafeNum">…</div>
+        <div class="sum-lbl">All Safe</div>
+      </button>
+    </div>
+
     <div class="tiles-2col">
       ${tiles}
     </div>
   `;
+
+  // Home summary card clicks
+  const mode = state.session.store; // Staff = their store; Manager home still uses current store here
+  $("#homeSumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: mode }, true));
+  $("#homeSumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: mode }, true));
+  $("#homeSumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: mode }, true));
+
+  // Load numbers (no redesign; just fills counts)
+  (async () => {
+    try {
+      const rows = await fetchExpiryForStore(mode);
+      const today = todayISO();
+      const tomorrow = addDaysISO(today, 1);
+
+      const todayCount = (rows || []).filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
+      const tomorrowCount = (rows || []).filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
+      const safeCount = (rows || []).filter((x) => {
+        const e = String(x.expiry_value || "").slice(0, 10);
+        return e && e !== today && e !== tomorrow;
+      }).length;
+
+      const a = $("#homeTodayNum"); if (a) a.textContent = String(todayCount);
+      const b = $("#homeTomorrowNum"); if (b) b.textContent = String(tomorrowCount);
+      const c = $("#homeSafeNum"); if (c) c.textContent = String(safeCount);
+    } catch (e) {
+      console.error(e);
+      const a = $("#homeTodayNum"); if (a) a.textContent = "0";
+      const b = $("#homeTomorrowNum"); if (b) b.textContent = "0";
+      const c = $("#homeSafeNum"); if (c) c.textContent = "0";
+    }
+  })();
 
   $$(".tile", main).forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -591,11 +661,6 @@ function renderHome() {
 
 /* =========================================================
    CATEGORY
-   - Sauce -> subcategory tiles (3 colors, big emoji, no frame)
-   - Items list with stepper + expiry input
-   - Floating appearance animation (one by one)
-   - Save button (yellow)
-   - Back button (yellow)
    ========================================================= */
 function itemKey(it) {
   return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`;
@@ -704,10 +769,6 @@ function renderItemRow(it, cat, idx) {
 
   const animDelay = idx * 45;
 
-  // Expiry rules:
-  // - Unopened chiller + Fountain Drinks = manual date only (ONE bar)
-  // - Chicken Bacon (c) = End-of-day auto (no input)
-  // - Others = dropdown (Today/Tomorrow/Pick Date) + date input only when Pick Date
   const forceManual = FORCE_MANUAL_DATE_CATS.has(cat);
   const isCBC = isChickenBaconC(it.name);
 
@@ -790,7 +851,6 @@ function bindItemControls(items, cat) {
       const v = String(sel.value || "");
       d.expType = v;
 
-      // show/hide pick date input
       const pickWrap = wrap.querySelector(`[data-pickwrap="${CSS.escape(key)}"]`);
       if (pickWrap) pickWrap.classList.toggle("hidden", v !== "PICK");
 
@@ -803,13 +863,11 @@ function bindItemControls(items, cat) {
       if (!d.expType) d.expType = "MANUAL";
     });
 
-    // for CBC, force no expiry edits
     if (isChickenBaconC(it.name)) {
       d.expType = "EOD";
       d.expDateISO = "";
     }
 
-    // forced manual categories
     if (FORCE_MANUAL_DATE_CATS.has(cat) && !isChickenBaconC(it.name)) {
       d.expType = "MANUAL";
     }
@@ -836,7 +894,7 @@ async function saveCategoryDrafts(items, cat) {
     let expiry = null;
 
     if (isChickenBaconC(it.name)) {
-      expiry = today; // end of day today
+      expiry = today;
     } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
       expiry = d.expDateISO || null;
     } else {
@@ -852,7 +910,7 @@ async function saveCategoryDrafts(items, cat) {
       category: it.category,
       sub_category: it.sub_category || null,
       quantity: qty,
-      expiry: expiry, // YYYY-MM-DD
+      expiry: expiry,
       expiry_at: null,
     });
   }
@@ -869,7 +927,7 @@ async function saveCategoryDrafts(items, cat) {
 }
 
 /* =========================================================
-   ALERTS (simple now, no crash)
+   ALERTS
    ========================================================= */
 function renderAlerts() {
   $("#main").innerHTML = `
@@ -888,17 +946,7 @@ function renderAlerts() {
 
 /* =========================================================
    SUMMARY
-   - Drawer Summary shows 3 big cards (available to STAFF too)
-   - Staff: only sees their store
-   - Manager: can choose PDD / SKH / BOTH
-   - Cards go to different pages (Today / Tomorrow / Safe)
-   - List grouped by category
    ========================================================= */
-async function fetchExpiryForStore(store) {
-  // server must return array with fields: name, category, sub_category, expiry_value
-  return apiGet(`/api/expiry?store=${encodeURIComponent(store)}`);
-}
-
 function renderSummaryHome() {
   const main = $("#main");
   const isMgr = !!state.session.isManager;
@@ -1049,7 +1097,6 @@ async function renderSummaryList() {
       rows = (a || []).map((x) => ({ ...x, _store: mode }));
     }
 
-    // filter by bucket
     rows = (rows || []).filter((x) => {
       const e = String(x.expiry_value || "").slice(0, 10);
       if (!e) return false;
@@ -1063,7 +1110,6 @@ async function renderSummaryList() {
       return;
     }
 
-    // group by category
     const byCat = new Map();
     for (const r of rows) {
       const c = String(r.category || "Other");
@@ -1079,7 +1125,6 @@ async function renderSummaryList() {
           ${list
             .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
             .map((r) => {
-              // qty: server may not return it; show — (you can add later if your endpoint returns quantity)
               const qty = r.quantity != null ? r.quantity : "—";
               const date = formatDMY(String(r.expiry_value || "").slice(0, 10));
               const storeTag = mode === "BOTH" ? ` <span class="muted" style="font-weight:900;">(${r._store})</span>` : "";
@@ -1110,9 +1155,6 @@ async function renderSummaryList() {
 
 /* =========================================================
    MANAGER
-   - Manager login (PIN)
-   - Dashboard: summary cards + tools tiles (color, big)
-   - Download Log tile (tries common endpoints; if missing shows toast)
    ========================================================= */
 function renderManagerHome() {
   if (!state.session.isManager) return openManagerLogin();
@@ -1169,7 +1211,6 @@ function renderManagerHome() {
 
   $("#btnBack")?.addEventListener("click", goBack);
 
-  // Manager summary cards -> go to list pages, manager can use BOTH mode
   $("#mgrSumToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY", summaryMode: "BOTH" }, true));
   $("#mgrSumTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW", summaryMode: "BOTH" }, true));
   $("#mgrSumSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE", summaryMode: "BOTH" }, true));
@@ -1197,7 +1238,7 @@ function openManagerLogin() {
         </div>
       </div>
     `,
-    { noBackdropClose: true }
+    { noBackdropClose: true, hideClose: true }
   );
 
   $("#pinCancel")?.addEventListener("click", () => { closeModal(); goBack(); });
@@ -1256,7 +1297,6 @@ async function downloadLogForStore(store) {
 
 /* =========================================================
    MANAGER: Edit Items / Categories / Add Item
-   (uses your manager endpoints; won’t crash if endpoint missing)
    ========================================================= */
 async function renderManagerEditItems() {
   if (!state.session.isManager) return openManagerLogin();
@@ -1280,7 +1320,6 @@ async function renderManagerEditItems() {
 
   let items = [];
   try {
-    // if your backend uses this endpoint
     items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token);
   } catch (e) {
     console.error(e);
@@ -1293,7 +1332,6 @@ async function renderManagerEditItems() {
     q = String(q || "").toLowerCase().trim();
     const filtered = q ? items.filter((x) => String(x.name || "").toLowerCase().includes(q)) : items;
 
-    // group by category
     const map = new Map();
     for (const it of filtered) {
       const c = String(it.category || "Other");
@@ -1492,7 +1530,7 @@ function openAddCategoryModal() {
         </div>
       </div>
     `,
-    { noBackdropClose: true }
+    { noBackdropClose: true, hideClose: true }
   );
 
   $("#catSave")?.addEventListener("click", async () => {
@@ -1538,7 +1576,7 @@ function openEditCategoryModal(id, currentName) {
         </div>
       </div>
     `,
-    { noBackdropClose: true }
+    { noBackdropClose: true, hideClose: true }
   );
 
   $("#catSave")?.addEventListener("click", async () => {
@@ -1609,7 +1647,7 @@ function openAddItemModal() {
         </div>
       </div>
     `,
-    { noBackdropClose: true }
+    { noBackdropClose: true, hideClose: true }
   );
 
   $("#itSave")?.addEventListener("click", async () => {
@@ -1634,15 +1672,12 @@ function openAddItemModal() {
 }
 
 /* =========================================================
-   WISR (per store — YES)
-   For now blank UI, but saved per store key for future.
+   WISR (per store)
    ========================================================= */
 function wisrKey(store) { return `wisr_${store}`; }
 
 function renderWISR() {
   const store = state.session.store;
-
-  // per-store storage ready (blank now)
   const saved = loadJSON(wisrKey(store), {});
 
   $("#main").innerHTML = `
@@ -1659,8 +1694,6 @@ function renderWISR() {
   `;
 
   $("#btnBack")?.addEventListener("click", goBack);
-
-  // keep saved value for future (not used now)
   void saved;
 }
 
