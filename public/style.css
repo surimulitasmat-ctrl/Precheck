@@ -427,3 +427,62 @@ body{
 /* Summary store buttons (match login colors) */
 .sum-store-row{ display:flex; gap:12px; margin-top:8px; }
 .sum-store-row button{ width:100%; }
+/* ===== PreCheck PATCH (requested fixes only) ===== */
+:root{
+  --red:#d32f2f;
+  --pdd:#d32f2f;   /* PDD = red */
+  --skh:#1565c0;   /* SKH = blue */
+}
+
+/* small layout helpers used in app.js */
+.row{display:flex; gap:10px; align-items:center}
+.col{display:flex; flex-direction:column; gap:12px}
+.btn{
+  border:0; border-radius:999px;
+  padding:12px 14px;
+  font-weight:1100;
+  cursor:pointer;
+}
+.select{
+  width:100%;
+  padding:12px 12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#fff;
+  font-weight:900;
+  outline:none;
+}
+.btn-yellow{background:var(--yellow); color:#1b1b1b}
+.btn-red{background:var(--red); color:#fff}
+.btn-blue{background:var(--skh); color:#fff}
+
+/* 🔧 FIX: role badge colors */
+.role-btn.staff{background:var(--yellow); color:#1b1b1b}
+.role-btn.manager{background:rgba(211,47,47,.18); color:var(--red); border:1px solid rgba(211,47,47,.25)}
+
+/* 🔧 FIX: bigger bottom save button */
+.big-save{padding:16px 18px; font-size:18px}
+
+/* 🔧 FIX: summary mockup stacked cards */
+.dash-card{
+  border:0;
+  width:100%;
+  text-align:left;
+  border-radius:18px;
+  padding:16px 14px;
+  box-shadow:var(--shadow);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  cursor:pointer;
+}
+.dash-left{display:flex; flex-direction:column; gap:4px}
+.dash-title{font-weight:1200; font-size:18px}
+.dash-sub{font-weight:1000; opacity:.85}
+.dash-right{display:flex; align-items:center; gap:12px}
+.dash-num{font-weight:1200; font-size:26px; line-height:1}
+.dash-go{font-weight:1200; font-size:26px; opacity:.8}
+
+.dash-red{background:#ffe6e6; color:#b71c1c}
+.dash-amber{background:#fff2dd; color:#6a3d00}
+.dash-green{background:#e7f7ea; color:#0b5a2a}
