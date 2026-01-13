@@ -351,3 +351,79 @@ body{
   .tile .emoji{font-size:48px}
   .tile .title{font-size:17px}
 }
+/* =========================
+   PATCH: Lock UI + Requested fixes only
+   ========================= */
+
+/* Role badge colors */
+.role-btn.staff{
+  background: rgba(255,199,44,.22) !important;
+  color: #1b1b1b !important;
+  border: 1px solid rgba(0,0,0,.10);
+}
+.role-btn.manager{
+  background: rgba(229,57,53,.18) !important;
+  color: #b71c1c !important;
+  border: 1px solid rgba(183,28,28,.18);
+}
+
+/* Login store buttons */
+.store-btn{
+  flex:1;
+  border:0;
+  border-radius:16px;
+  padding:16px 14px;
+  font-weight:1200;
+  color:#fff;
+  box-shadow:0 14px 26px rgba(0,0,0,.12);
+  cursor:pointer;
+}
+.store-btn.pdd{ background: linear-gradient(135deg,#E53935,#B71C1C); }
+.store-btn.skh{ background: linear-gradient(135deg,#1E88E5,#0D47A1); }
+.store-btn.dim{ opacity:.60; }
+
+/* Sticky save button (category pages) */
+.save-footer{
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0 10px;
+  margin-top: 14px;
+  background: linear-gradient(180deg, rgba(246,247,248,0), rgba(246,247,248,.85) 30%, rgba(246,247,248,1));
+}
+.save-footer .btn-yellow{
+  border-radius: 18px !important;
+  padding: 18px 16px !important;
+  font-size: 18px !important;
+  font-weight: 1200 !important;
+}
+
+/* Summary big cards like mockup */
+.sum-big{
+  border:0;
+  border-radius:18px;
+  padding:16px 16px;
+  box-shadow:0 14px 26px rgba(0,0,0,.12);
+  color:#fff;
+  text-align:left;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  min-height:86px;
+}
+.sum-big:active{ transform:scale(.99); }
+.sum-big .left{
+  display:flex; flex-direction:column; gap:4px;
+}
+.sum-big .title{ font-weight:1200; font-size:16px; }
+.sum-big .count{ font-weight:1300; font-size:34px; line-height:1; }
+.sum-big .sub{ font-weight:1000; opacity:.9; font-size:12px; }
+.sum-big .arrow{ font-size:22px; font-weight:1200; opacity:.95; }
+
+.sum-red{ background:linear-gradient(135deg,#E53935,#B71C1C); }
+.sum-amber{ background:linear-gradient(135deg,#FB8C00,#E65100); }
+.sum-green{ background:linear-gradient(135deg,#43A047,#1B5E20); }
+
+/* Summary store buttons (match login colors) */
+.sum-store-row{ display:flex; gap:12px; margin-top:8px; }
+.sum-store-row button{ width:100%; }
