@@ -148,9 +148,22 @@ body{
   transition:transform .08s ease;
 }
 .role-btn:active{transform:scale(.99)}
-.role-btn.staff{background:rgba(30,136,229,.18); color:#0d47a1}
-.role-btn.manager{background:rgba(229,57,53,.18); color:#b71c1c}
-.role-ico{font-size:18px}
+
+/* FIX: solid color badges (no silhouette tint) */
+.role-btn.staff{
+  background:#1E88E5;
+  color:#fff;
+}
+.role-btn.manager{
+  background:#E53935;
+  color:#fff;
+}
+
+/* Optional nice touch */
+.role-ico{
+  font-size:18px;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.18));
+}
 
 /* Home summary */
 .summary-row{
@@ -255,6 +268,21 @@ body{
   cursor:pointer;
 }
 .btn-yellow:active{transform:scale(.99)}
+
+/* FIX: Start Session PDD/SKH different colors */
+.btn-store{
+  width:100%;
+  border:0;
+  border-radius:14px;
+  padding:14px 16px;
+  font-weight:1200;
+  cursor:pointer;
+  box-shadow:0 12px 22px rgba(0,0,0,.10);
+}
+.btn-store:active{transform:scale(.99)}
+.btn-pdd{ background:#009A44; color:#fff; }
+.btn-skh{ background:#1E88E5; color:#fff; }
+.btn-store.dim{ opacity:.65; }
 
 /* Alerts list */
 .alert-row{
