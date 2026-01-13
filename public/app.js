@@ -819,28 +819,35 @@ function renderItemRow(it, cat, idx) {
         <div class="edit-helper">Expiry: Pick a date (manual).</div>
       </div>
     `;
-  } else {
-    const selVal = d.expType || "";
-    const today = todayISO();
-    const tomorrow = addDaysISO(today, 1);
+} else {
+  const selVal = d.expType || "";
+  const today = todayISO();
+  const tomorrow = addDaysISO(today, 1);
 
-    expiryUI = `
-      <div class="exp-wrap">
-        <select class="input" data-expsel="${escapeHtml(key)}">
-          <option value="">Select</option>
-          <option value="TODAY"${selVal === "TODAY" ? " selected" : ""}>Today — ${formatDMY(today)}</option>
-          <option value="TOMORROW"${selVal === "TOMORROW" ? " selected" : ""}>Tomorrow — ${formatDMY(tomorrow)}</option>
-          <option value="PICK"${selVal === "PICK" ? " selected" : ""}>Pick a date</option>
-        </select>
+  expiryUI = `
+    <div class="exp-wrap">
+      <select class="input" data-expsel="${escapeHtml(key)}">
+        <option value="">Select</option>
+        <option value="TODAY"${selVal === "TODAY" ? " selected" : ""}>
+          ${formatDMY(today)}
+        </option>
+        <option value="TOMORROW"${selVal === "TOMORROW" ? " selected" : ""}>
+          ${formatDMY(tomorrow)}
+        </option>
+        <option value="PICK"${selVal === "PICK" ? " selected" : ""}>
+          Pick date…
+        </option>
+      </select>
 
-        <div data-pickwrap="${escapeHtml(key)}" class="${selVal === "PICK" ? "" : "hidden"}">
-          <input class="input" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}" />
-        </div>
-
-        <div class="edit-helper">Expiry: Today / Tomorrow / Pick Date.</div>
+      <div data-pickwrap="${escapeHtml(key)}" class="${selVal === "PICK" ? "" : "hidden"}">
+        <input class="input" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}" />
       </div>
-    `;
-  }
+
+      <div class="edit-helper">Expiry: Today / Tomorrow / Pick Date.</div>
+    </div>
+  `;
+}
+
 
   return `
     <div class="edit-card" style="animation-delay:${animDelay}ms;">
@@ -883,16 +890,27 @@ function bindItemControls(items, cat) {
       if (qtyInp) qtyInp.value = String(d.qty);
     });
 
-    if (sel) sel.addEventListener("change", () => {
-      const v = String(sel.value || "");
-      d.expType = v;
+   if (sel) sel.addEventListener("change", () => {
+  const v = String(sel.value || "");
 
-      const pickWrap = wrap.querySelector(`[data-pickwrap="${CSS.escape(key)}"]`);
-      if (pickWrap) pickWrap.classList.toggle("hidden", v !== "PICK");
+  const pickWrap = wrap.querySelector(`[data-pickwrap="${CSS.escape(key)}"]`);
+  const isPick = v === "PICK";
+  if (pickWrap) pickWrap.classList.toggle("hidden", !isPick);
 
-      if (v !== "PICK") d.expDateISO = "";
-      if (dateInp && v !== "PICK") dateInp.value = "";
-    });
+  if (isPick) {
+    d.expType = "PICK";
+    // keep expDateISO from date input
+  } else if (v) {
+    // v is an ISO date like 2026-01-13
+    d.expType = "AUTO";
+    d.expDateISO = v;
+    if (dateInp) dateInp.value = "";
+  } else {
+    d.expType = "";
+    d.expDateISO = "";
+    if (dateInp) dateInp.value = "";
+  }
+});
 
     if (dateInp) dateInp.addEventListener("change", () => {
       d.expDateISO = String(dateInp.value || "");
@@ -934,10 +952,13 @@ async function saveCategoryDrafts(items, cat) {
     } else if (FORCE_MANUAL_DATE_CATS.has(cat)) {
       expiry = d.expDateISO || null;
     } else {
-      if (d.expType === "TODAY") expiry = today;
-      else if (d.expType === "TOMORROW") expiry = tomorrow;
-      else if (d.expType === "PICK") expiry = d.expDateISO || null;
-      else expiry = null;
+     if (d.expType === "AUTO") expiry = d.expDateISO || null;
+else if (d.expType === "PICK") expiry = d.expDateISO || null;
+// backward compatibility (if old drafts exist)
+else if (d.expType === "TODAY") expiry = today;
+else if (d.expType === "TOMORROW") expiry = tomorrow;
+else expiry = null;
+
     }
 
     rows.push({
