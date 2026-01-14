@@ -1,6 +1,6 @@
 /* =========================
    PreCheck — public/app.js (FULL)
-   MERGED FIXES (only what you requested):
+   MERGED FIXES + NEW REQUESTS:
    ✅ Popup ALWAYS after login (forced)
    ✅ Role pill solid colors (Manager red + white text, Staff yellow + black text)
    ✅ Save button smaller but still bottom + long + oval
@@ -11,6 +11,12 @@
       - shelf_life_days > 7 => manual date only
       - shelf_life_days <= 7 => preset dropdown dates (Today..N-1) in "24 January 2026" format
       - Chicken Bacon (c) => auto today (EOD)
+
+   ✅ NEW:
+      - 4-hour expiry dropdown (7am/11am/3pm/7pm) for HOURLY items
+      - Two expiry dates per item: earliest + latest (Add date)
+      - Summary shows quantity + earliest/latest when API provides it (backward compatible)
+
    Matches your index.html IDs:
    - #btnMenu, #drawerBackdrop, #btnDrawerClose
    - #drawerHome, #drawerAlerts, #drawerManager, #drawerSummary, #drawerWISR, #drawerLogout
@@ -39,6 +45,14 @@ const POPUP_ITEMS = [
 // - > 7 days => manual date
 // - <= 7 days => preset dropdown dates (includes Today), format "24 January 2026"
 const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]); // manual date only
+
+// ✅ NEW: 4-hour time slots
+const FOUR_HOUR_SLOTS = [
+  { label: "7:00 AM", value: "07:00" },
+  { label: "11:00 AM", value: "11:00" },
+  { label: "3:00 PM", value: "15:00" },
+  { label: "7:00 PM", value: "19:00" },
+];
 
 const CAT_EMOJI = {
   "Prepared items": "🥪",
@@ -71,7 +85,9 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
-  drafts: {}, // per item key: { qty, expType, expDateISO }
+  // per item key:
+  // { qty, expType, expDateISO, expTime, extraDates: [] }
+  drafts: {},
 };
 
 /* ---------- boot ---------- */
@@ -748,10 +764,27 @@ function shelfLifeModeFor(it, cat) {
   return { mode: "PRESET", life };
 }
 
+/* ✅ NEW: decide if item uses 4-hour time expiry
+   You can drive this from Supabase by adding one of these fields in items:
+   - expiry_type = "HOURLY"
+   - expiry_rule = "FOUR_HOUR"
+   - has_expiry_time = true
+*/
+function usesHourlyExpiry(it) {
+  const a = String(it.expiry_type || "").toUpperCase();
+  const b = String(it.expiry_rule || "").toUpperCase();
+  const c = it.has_expiry_time === true;
+  return a === "HOURLY" || b === "FOUR_HOUR" || c;
+}
+
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
-  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "" };
+  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime: "", extraDates: [] };
   const d = state.drafts[key];
+
+  // normalize defaults
+  if (!Array.isArray(d.extraDates)) d.extraDates = [];
+  if (typeof d.expTime !== "string") d.expTime = "";
 
   const rule = shelfLifeModeFor(it, cat);
   let expiryUI = "";
@@ -787,6 +820,34 @@ function renderItemEditor(it, cat) {
     `;
   }
 
+  // ✅ NEW: time selector for HOURLY items
+  if (usesHourlyExpiry(it)) {
+    const timeOpts = FOUR_HOUR_SLOTS.map((t) => {
+      const sel = d.expTime === t.value ? " selected" : "";
+      return `<option value="${t.value}"${sel}>${escapeHtml(t.label)}</option>`;
+    }).join("");
+
+    expiryUI += `
+      <label class="label" style="margin-top:8px">Expiry time</label>
+      <select class="select" data-exptime="${escapeHtml(key)}">
+        <option value="">Select time</option>
+        ${timeOpts}
+      </select>
+      <div class="edit-helper">4-hour checks</div>
+    `;
+  }
+
+  // ✅ NEW: add extra expiry date (latest)
+  expiryUI += `
+    <div style="margin-top:10px">
+      <button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}">➕ Add date</button>
+      <div class="col" style="gap:8px;margin-top:8px" data-extradates="${escapeHtml(key)}"></div>
+      <div class="muted" style="font-size:12px;font-weight:900;margin-top:6px">
+        Earliest = main date. Latest = added date.
+      </div>
+    </div>
+  `;
+
   return `
     <div class="edit-card" data-key="${escapeHtml(key)}">
       <div class="edit-name">${escapeHtml(it.name)}</div>
@@ -812,7 +873,12 @@ function bindItemEditors(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || (state.drafts[key] = { qty: 0, expType: "", expDateISO: "" });
+    const d =
+      state.drafts[key] ||
+      (state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime: "", extraDates: [] });
+
+    if (!Array.isArray(d.extraDates)) d.extraDates = [];
+    if (typeof d.expTime !== "string") d.expTime = "";
 
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
     const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
@@ -821,27 +887,35 @@ function bindItemEditors(items, cat) {
     const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root);
     const date = $(`[data-expdate="${cssEsc(key)}"]`, root);
 
+    // ✅ NEW: time selector
+    const timeSel = $(`[data-exptime="${cssEsc(key)}"]`, root);
+
+    // ✅ NEW: extra dates UI
+    const addBtn = $(`[data-adddate="${cssEsc(key)}"]`, root);
+    const extraWrap = $(`[data-extradates="${cssEsc(key)}"]`, root);
+    if (extraWrap) renderExtraDates(extraWrap, d);
+
     // ✅ set initial disabled state
     updateQtyUI(root, key);
 
     if (inc) inc.addEventListener("click", () => {
       d.qty = (Number(d.qty) || 0) + 1;
       updateQtyUI(root, key);
-      pulseBtn(inc);      // ✅ press animation
-      haptic(12);         // ✅ haptic
+      pulseBtn(inc);
+      haptic(12);
     });
 
     if (dec) dec.addEventListener("click", () => {
       d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
       updateQtyUI(root, key);
-      pulseBtn(dec);      // ✅ press animation
-      haptic(10);         // ✅ haptic
+      pulseBtn(dec);
+      haptic(10);
     });
 
     if (qty) qty.addEventListener("input", () => {
       const n = Number(qty.value || 0);
       d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
-      updateQtyUI(root, key); // ✅ keeps minus disabled correctly
+      updateQtyUI(root, key);
     });
 
     if (presetSel) presetSel.addEventListener("change", () => {
@@ -862,9 +936,56 @@ function bindItemEditors(items, cat) {
       d.expDateISO = String(date.value || "");
       if (!d.expType) d.expType = "MANUAL";
     });
+
+    if (timeSel) timeSel.addEventListener("change", () => {
+      d.expTime = String(timeSel.value || "");
+    });
+
+    if (addBtn && extraWrap) {
+      addBtn.addEventListener("click", () => {
+        // allow 1 extra date (latest). If you want more later, change this.
+        if (d.extraDates.length >= 1) {
+          toast("Only 2 dates per item");
+          return;
+        }
+        d.extraDates.push("");
+        renderExtraDates(extraWrap, d);
+      });
+    }
   }
 }
 
+// ✅ NEW helper: render extra date inputs
+function renderExtraDates(wrap, d) {
+  if (!wrap) return;
+  const vals = Array.isArray(d.extraDates) ? d.extraDates : [];
+
+  wrap.innerHTML = vals.map((v, i) => {
+    return `
+      <div class="col" style="gap:6px">
+        <div style="font-weight:1100">Latest expiry</div>
+        <input type="date" class="select" data-extra="${i}" value="${escapeHtml(v || "")}">
+        <button class="btn btn-ghost" type="button" data-rmextra="${i}">Remove</button>
+      </div>
+    `;
+  }).join("");
+
+  const inputs = $$("input[data-extra]", wrap);
+  inputs.forEach((inp, idx) => {
+    inp.addEventListener("change", () => {
+      d.extraDates[idx] = String(inp.value || "");
+    });
+  });
+
+  const rmBtns = $$("button[data-rmextra]", wrap);
+  rmBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.getAttribute("data-rmextra") || 0);
+      d.extraDates.splice(idx, 1);
+      renderExtraDates(wrap, d);
+    });
+  });
+}
 
 async function saveCategory(items, cat) {
   const store = state.session.store;
@@ -876,7 +997,7 @@ async function saveCategory(items, cat) {
   const rows = [];
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "" };
+    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "", expTime: "", extraDates: [] };
     const qty = Number(d.qty) || 0;
     if (qty <= 0) continue;
 
@@ -886,13 +1007,31 @@ async function saveCategory(items, cat) {
     if (rule.mode === "EOD_AUTO") expiry = today;
     else expiry = d.expDateISO || null;
 
+    const more = Array.isArray(d.extraDates) ? d.extraDates : [];
+    const allDates = [expiry, ...more].filter(Boolean).map((x) => String(x).slice(0, 10));
+    allDates.sort();
+
+    const expiry_earliest = allDates.length ? allDates[0] : null;
+    const expiry_latest = allDates.length ? allDates[allDates.length - 1] : null;
+
     rows.push({
       item_id: it.id ?? null,
       item_name: it.name,
       category: it.category,
       sub_category: it.sub_category || null,
       quantity: qty,
+
+      // backward compat
       expiry: expiry,
+
+      // ✅ NEW: extra fields for your server to store
+      expiry_earliest,
+      expiry_latest,
+      expiry_dates: allDates,
+
+      // ✅ NEW: time field for HOURLY items
+      expiry_time: d.expTime || null,
+
       expiry_at: null,
     });
   }
@@ -929,6 +1068,34 @@ function renderAlerts() {
 /* =========================================================
    SUMMARY
    ========================================================= */
+
+// ✅ NEW: read earliest/latest from API row if exists, else fallback
+function rowEarliestISO(rr) {
+  const v =
+    rr.expiry_earliest ||
+    rr.earliest_expiry ||
+    rr.earliest ||
+    rr.expiry_value ||
+    rr.expiry ||
+    "";
+  return String(v || "").slice(0, 10);
+}
+function rowLatestISO(rr) {
+  const v =
+    rr.expiry_latest ||
+    rr.latest_expiry ||
+    rr.latest ||
+    rr.expiry_value ||
+    rr.expiry ||
+    "";
+  return String(v || "").slice(0, 10);
+}
+function rowQty(rr) {
+  const q = rr.quantity ?? rr.qty ?? rr.count ?? rr.total_qty ?? null;
+  const n = Number(q);
+  return Number.isFinite(n) ? n : null;
+}
+
 function renderSummaryHome() {
   const main = $("#main");
 
@@ -994,10 +1161,10 @@ async function drawSummaryCards() {
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
   const rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
-  const todayCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === today).length;
-  const tomCount = rows.filter((x) => String(x.expiry_value || "").slice(0, 10) === tomorrow).length;
+  const todayCount = rows.filter((x) => rowEarliestISO(x) === today).length;
+  const tomCount = rows.filter((x) => rowEarliestISO(x) === tomorrow).length;
   const safeCount = rows.filter((x) => {
-    const e = String(x.expiry_value || "").slice(0, 10);
+    const e = rowEarliestISO(x);
     return e && e !== today && e !== tomorrow;
   }).length;
 
@@ -1065,7 +1232,7 @@ async function renderSummaryList() {
   let rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
   rows = rows.filter((x) => {
-    const e = String(x.expiry_value || "").slice(0, 10);
+    const e = rowEarliestISO(x);
     if (!e) return false;
     if (bucket === "TODAY") return e === today;
     if (bucket === "TOMORROW") return e === tomorrow;
@@ -1091,13 +1258,26 @@ async function renderSummaryList() {
         <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
         <div class="col" style="gap:8px">
           ${list
-            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
             .map((rr) => {
-              const dt = formatLongDMY(String(rr.expiry_value).slice(0, 10));
+              const e1 = rowEarliestISO(rr);
+              const e2 = rowLatestISO(rr);
+              const q = rowQty(rr);
+
+              const dateText =
+                e1 && e2 && e2 !== e1
+                  ? `${formatLongDMY(e1)} → ${formatLongDMY(e2)}`
+                  : (e1 ? formatLongDMY(e1) : "-");
+
+              const qtyText = q != null ? `Qty: ${q}` : "";
+
               return `
               <div style="display:flex;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 12px">
-                <div style="font-weight:1200">${escapeHtml(rr.name)}</div>
-                <div style="font-weight:1200">${escapeHtml(dt)}</div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <div style="font-weight:1200">${escapeHtml(rr.name)}</div>
+                  ${qtyText ? `<div class="muted" style="font-weight:900;font-size:12px">${escapeHtml(qtyText)}</div>` : ``}
+                </div>
+                <div style="font-weight:1200;text-align:right">${escapeHtml(dateText)}</div>
               </div>
             `;
             })
@@ -1624,6 +1804,7 @@ function cssEsc(s) {
 function enforceArray(v) {
   return Array.isArray(v) ? v : [];
 }
+
 /* =========================
    QTY UX helpers (disable, animation, haptic)
    ========================= */
