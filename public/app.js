@@ -821,19 +821,27 @@ function bindItemEditors(items, cat) {
     const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root);
     const date = $(`[data-expdate="${cssEsc(key)}"]`, root);
 
+    // ✅ set initial disabled state
+    updateQtyUI(root, key);
+
     if (inc) inc.addEventListener("click", () => {
       d.qty = (Number(d.qty) || 0) + 1;
-      if (qty) qty.value = String(d.qty);
+      updateQtyUI(root, key);
+      pulseBtn(inc);      // ✅ press animation
+      haptic(12);         // ✅ haptic
     });
 
     if (dec) dec.addEventListener("click", () => {
       d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
-      if (qty) qty.value = String(d.qty);
+      updateQtyUI(root, key);
+      pulseBtn(dec);      // ✅ press animation
+      haptic(10);         // ✅ haptic
     });
 
     if (qty) qty.addEventListener("input", () => {
       const n = Number(qty.value || 0);
       d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
+      updateQtyUI(root, key); // ✅ keeps minus disabled correctly
     });
 
     if (presetSel) presetSel.addEventListener("change", () => {
@@ -856,6 +864,7 @@ function bindItemEditors(items, cat) {
     });
   }
 }
+
 
 async function saveCategory(items, cat) {
   const store = state.session.store;
@@ -1614,4 +1623,39 @@ function cssEsc(s) {
 }
 function enforceArray(v) {
   return Array.isArray(v) ? v : [];
+}
+/* =========================
+   QTY UX helpers (disable, animation, haptic)
+   ========================= */
+function haptic(ms = 12) {
+  try {
+    if (navigator && typeof navigator.vibrate === "function") {
+      navigator.vibrate(ms);
+    }
+  } catch {}
+}
+
+function pulseBtn(btn) {
+  if (!btn) return;
+  btn.classList.remove("pulse");
+  // reflow to restart animation
+  void btn.offsetWidth;
+  btn.classList.add("pulse");
+}
+
+function updateQtyUI(root, key) {
+  const d = state.drafts[key] || { qty: 0 };
+  const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
+  const qty = $(`[data-qty="${cssEsc(key)}"]`, root);
+
+  const q = Math.max(0, Number(d.qty) || 0);
+  d.qty = q;
+  if (qty) qty.value = String(q);
+
+  // Disable minus when qty=0
+  if (dec) {
+    const disabled = q <= 0;
+    dec.disabled = disabled;
+    dec.classList.toggle("is-disabled", disabled);
+  }
 }
