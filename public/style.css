@@ -470,3 +470,32 @@ body{
   overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
 }
+/* =========================
+   PATCH — Qty UX (disable, press anim)
+   ========================= */
+
+/* smoother press + feel */
+.qty-btn{
+  transition: transform .06s ease, filter .12s ease, opacity .12s ease;
+}
+.qty-btn:active{
+  transform: scale(.96);
+  filter: brightness(.95);
+}
+
+/* disabled minus (when qty=0) */
+.qty-btn.is-disabled,
+.qty-btn:disabled{
+  opacity: .45 !important;
+  filter: grayscale(.35);
+  cursor: not-allowed;
+}
+
+/* optional: tiny pulse when tapped */
+.qty-btn.pulse{
+  animation: qtyPulse .12s ease-out;
+}
+@keyframes qtyPulse{
+  from{ transform: scale(.96); }
+  to{ transform: scale(1); }
+}
