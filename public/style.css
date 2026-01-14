@@ -499,3 +499,21 @@ body{
   from{ transform: scale(.96); }
   to{ transform: scale(1); }
 }
+/* =========================
+   PATCH — Qty buttons: white bg, red/green symbols
+   ========================= */
+.qty-btn{
+  background:#fff !important;
+  font-weight:1200;
+}
+
+/* make symbols colored */
+.qty-btn.dec{ color: var(--red) !important; }
+.qty-btn.inc{ color: var(--green) !important; }
+
+/* keep disabled looking disabled */
+.qty-btn.is-disabled,
+.qty-btn:disabled{
+  opacity:.35 !important;
+  cursor:not-allowed;
+}
