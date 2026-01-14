@@ -1,13 +1,14 @@
 // =========================
 // PreCheck — server.js (FULL)
-// UTC-based daily reset
+// UTC timestamps in DB ✅
+// DAILY RESET uses Singapore day (Asia/Singapore) ✅
 // Store-separated: PDD vs SKH
 // Manager CRUD: items + categories (soft delete)
 // Supports BOTH /api/log (single) and /api/log/batch
 // Adds:
 //   ✅ items.is_hourly (hourly expiry toggle)
 //   ✅ /api/status + auto "done checking" after save
-//   ✅ /api/expiry returns qty + expiry_at + expiry_value (TODAY ONLY, UTC)
+//   ✅ /api/expiry returns qty + expiry_at + expiry_value (TODAY ONLY, SG DAY)
 // =========================
 
 import express from "express";
@@ -26,6 +27,9 @@ const PORT = process.env.PORT || 10000;
 const DATABASE_URL = process.env.DATABASE_URL;
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-now";
 const MANAGER_PIN = process.env.MANAGER_PIN || "1234";
+
+// ✅ Day boundary timezone (Singapore)
+const DAY_TZ = process.env.DAY_TZ || "Asia/Singapore";
 
 if (!DATABASE_URL) console.error("❌ Missing DATABASE_URL env var");
 
@@ -83,19 +87,27 @@ function dbCategoryFromUi(cat) {
   return c;
 }
 
-// -------- Daily "done" marker (UTC day) --------
-async function markDoneUTC(store, staff) {
+// ✅ Helper: "today" based on Singapore day boundary
+// This returns a DATE (no time) representing SG day.
+async function sgTodayDate() {
+  // Using SQL keeps it consistent with DB server clock
+  const r = await q(`select (now() at time zone $1)::date as d`, [DAY_TZ]);
+  return r.rows[0]?.d; // JS Date object-ish from pg, OK for comparisons in SQL using same expression below
+}
+
+// -------- Daily "done" marker (SG day) --------
+async function markDoneSG(store, staff) {
   if (!store) return;
   const who = String(staff || "").trim() || null;
 
   await q(
     `
     insert into public.daily_status (store, day_key, last_saved_at, last_saved_by)
-    values ($1, (now() at time zone 'utc')::date, now(), $2)
+    values ($1, (now() at time zone $3)::date, now(), $2)
     on conflict (store, day_key)
     do update set last_saved_at=excluded.last_saved_at, last_saved_by=excluded.last_saved_by
   `,
-    [store, who]
+    [store, who, DAY_TZ]
   );
 }
 
@@ -105,7 +117,7 @@ async function markDoneUTC(store, staff) {
 app.get("/api/health", async (req, res) => {
   try {
     await q("select 1 as ok", []);
-    res.json({ ok: true });
+    res.json({ ok: true, day_tz: DAY_TZ });
   } catch (e) {
     err(res, 500, e?.message || "db error");
   }
@@ -115,7 +127,7 @@ app.get("/api/health", async (req, res) => {
 // Status (Manager Summary indicator)
 // =========================
 
-// GET /api/status?store=PDD  -> today's (UTC) status
+// GET /api/status?store=PDD  -> today's status (SG DAY)
 app.get("/api/status", async (req, res) => {
   try {
     const store = normStore(req.query.store);
@@ -125,10 +137,10 @@ app.get("/api/status", async (req, res) => {
       `
       select store, day_key, last_saved_at, last_saved_by
       from public.daily_status
-      where store=$1 and day_key=(now() at time zone 'utc')::date
+      where store=$1 and day_key=(now() at time zone $2)::date
       limit 1
     `,
-      [store]
+      [store, DAY_TZ]
     );
 
     res.json(r.rows[0] || null);
@@ -143,7 +155,7 @@ app.post("/api/status/mark-done", async (req, res) => {
     const store = normStore(req.body?.store);
     if (!store) return err(res, 400, "Invalid store");
     const staff = String(req.body?.staff || "").trim();
-    await markDoneUTC(store, staff);
+    await markDoneSG(store, staff);
     res.json({ ok: true });
   } catch (e) {
     err(res, 500, e?.message || "Failed");
@@ -247,8 +259,8 @@ app.post("/api/log", async (req, res) => {
       [store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at]
     );
 
-    // ✅ Mark store "done" today (UTC)
-    await markDoneUTC(store, staff);
+    // ✅ Mark store "done" today (SG DAY)
+    await markDoneSG(store, staff);
 
     res.json({ ok: true });
   } catch (e) {
@@ -294,8 +306,8 @@ app.post("/api/log/batch", async (req, res) => {
       );
     }
 
-    // ✅ Mark store "done" today (UTC)
-    await markDoneUTC(store, staff);
+    // ✅ Mark store "done" today (SG DAY)
+    await markDoneSG(store, staff);
 
     res.json({ ok: true });
   } catch (e) {
@@ -304,8 +316,8 @@ app.post("/api/log/batch", async (req, res) => {
 });
 
 // =========================
-// Summary (RESET DAILY - TODAY ONLY, UTC)
-// Latest entry per item_name+category+sub_category, but ONLY from today's logs (UTC).
+// Summary (RESET DAILY - TODAY ONLY, SG DAY)
+// Latest entry per item_name+category+sub_category, but ONLY from today's logs (SG DAY).
 // Returns qty + expiry_at + expiry_value (date string).
 // =========================
 app.get("/api/expiry", async (req, res) => {
@@ -319,7 +331,7 @@ app.get("/api/expiry", async (req, res) => {
         select *
         from public.logs
         where store=$1
-          and (created_at at time zone 'utc')::date = (now() at time zone 'utc')::date
+          and (created_at at time zone $2)::date = (now() at time zone $2)::date
       ),
       ranked as (
         select
@@ -348,7 +360,7 @@ app.get("/api/expiry", async (req, res) => {
         and (expiry is not null or expiry_at is not null)
       order by name asc
     `,
-      [store]
+      [store, DAY_TZ]
     );
 
     res.json(
@@ -610,4 +622,5 @@ app.get("/", (req, res) => {
 // -------- Start --------
 app.listen(PORT, () => {
   console.log(`✅ PreCheck server running on :${PORT}`);
+  console.log(`🕛 Daily reset timezone: ${DAY_TZ}`);
 });
