@@ -542,3 +542,15 @@ body{
   font-weight:1200;
 }
 .add-date-btn:active{ transform:scale(.99); }
+/* QTY buttons: white background + colored symbols */
+.qty-btn{
+  background:#fff !important;
+}
+
+.qty-btn[data-inc]{
+  color:#2e7d32 !important; /* green + */
+}
+
+.qty-btn[data-dec]{
+  color:#c62828 !important; /* red − */
+}
