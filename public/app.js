@@ -1,22 +1,23 @@
 /* =========================
    PreCheck — public/app.js (FULL)
-   MERGED FIXES + NEW REQUESTS:
+   MERGED:
    ✅ Popup ALWAYS after login (forced)
+   ✅ Add "BakedWaffle" in popup
    ✅ Role pill solid colors (Manager red + white text, Staff yellow + black text)
-   ✅ Save button smaller but still bottom + long + oval
    ✅ Prevent swipe/back from closing app (back = goBack, home = confirm exit)
-   ✅ Login is a PAGE (not modal) + forces Home render right after login
    ✅ Shelf-life rules:
       - Unopened chiller + Fountain Drinks => manual date only
       - shelf_life_days > 7 => manual date only
       - shelf_life_days <= 7 => preset dropdown dates (Today..N-1) in "24 January 2026" format
       - Chicken Bacon (c) => auto today (EOD)
-
-   ✅ NEW:
-      - 4-hour expiry dropdown (7am/11am/3pm/7pm) for HOURLY items
-      - Two expiry dates per item: earliest + latest (Add date)
-      - Summary shows quantity + earliest/latest when API provides it (backward compatible)
-
+   ✅ NEW: Hourly expiry items (manager toggles is_hourly)
+      - Staff picks TIME only (15-min steps, AM/PM)
+      - Date = today automatically
+      - Saves expiry_at timestamp
+      - Summary groups by date, shows time if available
+   ✅ Login store buttons white default; highlight only selected
+   ✅ Manager summary store buttons white default; highlight only selected
+   ✅ Summary "Done checking" indicator via /api/status
    Matches your index.html IDs:
    - #btnMenu, #drawerBackdrop, #btnDrawerClose
    - #drawerHome, #drawerAlerts, #drawerManager, #drawerSummary, #drawerWISR, #drawerLogout
@@ -38,21 +39,11 @@ const POPUP_ITEMS = [
   "Liquid Egg",
   "Flatbread(Thawing)",
   "Avocado",
+  "BakedWaffle", // ✅ added
 ];
 
-// RULES you requested:
-// - Unopened chiller => manual date always
-// - > 7 days => manual date
-// - <= 7 days => preset dropdown dates (includes Today), format "24 January 2026"
-const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]); // manual date only
-
-// ✅ NEW: 4-hour time slots
-const FOUR_HOUR_SLOTS = [
-  { label: "7:00 AM", value: "07:00" },
-  { label: "11:00 AM", value: "11:00" },
-  { label: "3:00 PM", value: "15:00" },
-  { label: "7:00 PM", value: "19:00" },
-];
+// manual date only categories
+const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
 
 const CAT_EMOJI = {
   "Prepared items": "🥪",
@@ -85,23 +76,20 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
-  // per item key:
-  // { qty, expType, expDateISO, expTime, extraDates: [] }
-  drafts: {},
+  drafts: {}, // per item key: { qty, expType, expDateISO, expTime15 }
 };
 
 /* ---------- boot ---------- */
 bindTopbar();
 bindDrawer();
 bindModal();
-bindAppBackGuard(); // prevent swipe/back from closing app
+bindAppBackGuard();
 startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
   ensureSessionDayKey();
 
-  // Login page when session missing
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
@@ -109,7 +97,6 @@ async function boot() {
   }
 
   await loadAllForCurrentStore();
-  // show popup on app open if already logged in (once per day unless forced elsewhere)
   maybeShowExpiryPopup(false);
   render();
 }
@@ -131,7 +118,7 @@ function saveSession() {
 }
 
 /* =========================================================
-   DATE HELPERS
+   DATE/TIME HELPERS
    ========================================================= */
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -157,7 +144,6 @@ function addDaysISO(baseISO, n) {
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
 function formatLongDMY(iso) {
-  // "24 January 2026"
   const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
   const day = dt.getDate();
   const mon = dt.toLocaleString("en-GB", { month: "long" });
@@ -165,11 +151,54 @@ function formatLongDMY(iso) {
   return `${day} ${mon} ${year}`;
 }
 function isChickenBaconC(name) {
-  const t = String(name || "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
   return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
+}
+
+// 15-min time options in 12h display but value in "HH:MM" 24h
+function buildTime15Options() {
+  const out = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const hh = pad2(h);
+      const mm = pad2(m);
+      const value = `${hh}:${mm}`;
+      out.push({ value, label: formatTime12(value) });
+    }
+  }
+  return out;
+}
+const TIME_15 = buildTime15Options();
+
+function formatTime12(hhmm) {
+  const [hS, mS] = String(hhmm).split(":");
+  let h = Number(hS);
+  const m = Number(mS);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${pad2(m)} ${ampm}`;
+}
+
+function isoFromTodayAndTime(hhmm) {
+  const base = todayISO();
+  return `${base}T${String(hhmm)}:00`;
+}
+
+function datePartFromRow(row) {
+  if (row?.expiry_at) return String(row.expiry_at).slice(0, 10);
+  return String(row?.expiry_value || "").slice(0, 10);
+}
+function timePartFromRow(row) {
+  if (!row?.expiry_at) return "";
+  try {
+    const d = new Date(row.expiry_at);
+    const hh = pad2(d.getHours());
+    const mm = pad2(d.getMinutes());
+    return formatTime12(`${hh}:${mm}`);
+  } catch {
+    return "";
+  }
 }
 
 /* =========================================================
@@ -229,10 +258,10 @@ async function loadAllForCurrentStore() {
   state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
   state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
 
-  // normalize sauce sub_category so Standby/Open Inner/Sandwich Unit won't go empty
-  state.data.items = state.data.items.map((it) => ({
+  state.data.items = (state.data.items || []).map((it) => ({
     ...it,
     sub_category: it.sub_category ? normalizeSub(it.sub_category) : null,
+    is_hourly: !!it.is_hourly,
   }));
 }
 function normalizeSub(s) {
@@ -258,7 +287,6 @@ function renderRolePill() {
   btn.type = "button";
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
 
-  // force solid color via inline style
   if (state.session.isManager) {
     btn.style.background = "var(--red)";
     btn.style.color = "#fff";
@@ -275,7 +303,6 @@ function renderRolePill() {
   btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
   host.appendChild(btn);
 }
-
 function updateSessionLine() {
   const el = $("#sessionLine");
   if (!el) return;
@@ -408,7 +435,7 @@ function maybeShowExpiryPopup(force) {
 }
 
 /* =========================================================
-   LOGIN PAGE (replaces old session modal)
+   LOGIN PAGE
    ========================================================= */
 function renderLoginPage() {
   const main = $("#main");
@@ -422,8 +449,8 @@ function renderLoginPage() {
 
       <div style="font-weight:1200">Select Store</div>
       <div class="row" style="gap:12px;margin-top:10px">
-        <button id="pickPDD" class="btn" style="flex:1;background:var(--pdd);color:#fff">PDD</button>
-        <button id="pickSKH" class="btn" style="flex:1;background:var(--skh);color:#fff">SKH</button>
+        <button id="pickPDD" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">PDD</button>
+        <button id="pickSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
       </div>
 
       <div style="margin-top:14px;font-weight:1200">Shift</div>
@@ -444,17 +471,42 @@ function renderLoginPage() {
   `;
 
   let pick = storePick;
-  const setPick = (v) => {
-    pick = v;
+
+  const applyStoreBtnUI = () => {
     const a = $("#pickPDD");
     const b = $("#pickSKH");
-    if (a) a.style.opacity = v === "PDD" ? "1" : ".65";
-    if (b) b.style.opacity = v === "SKH" ? "1" : ".65";
-  };
-  setPick(pick);
 
-  $("#pickPDD").addEventListener("click", () => setPick("PDD"));
-  $("#pickSKH").addEventListener("click", () => setPick("SKH"));
+    // default white
+    if (a) {
+      a.style.background = "#fff";
+      a.style.color = "#111";
+      a.style.border = "1px solid var(--line)";
+      a.style.opacity = "1";
+    }
+    if (b) {
+      b.style.background = "#fff";
+      b.style.color = "#111";
+      b.style.border = "1px solid var(--line)";
+      b.style.opacity = "1";
+    }
+
+    // selected highlight
+    if (pick === "PDD" && a) {
+      a.style.background = "var(--pdd)";
+      a.style.color = "#fff";
+      a.style.border = "0";
+    }
+    if (pick === "SKH" && b) {
+      b.style.background = "var(--skh)";
+      b.style.color = "#fff";
+      b.style.border = "0";
+    }
+  };
+
+  applyStoreBtnUI();
+
+  $("#pickPDD").addEventListener("click", () => { pick = "PDD"; applyStoreBtnUI(); });
+  $("#pickSKH").addEventListener("click", () => { pick = "SKH"; applyStoreBtnUI(); });
 
   $("#startBtn").addEventListener("click", async () => {
     const staff = String($("#staffInp").value || "").trim();
@@ -474,12 +526,10 @@ function renderLoginPage() {
       renderRolePill();
       updateSessionLine();
 
-      // force HOME right after login
       state.navStack = [];
       state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
       render();
 
-      // ✅ FORCE popup after login (always)
       setTimeout(() => maybeShowExpiryPopup(true), 150);
     } catch (e) {
       console.error(e);
@@ -511,7 +561,7 @@ function goHome() {
 }
 
 /* =========================================================
-   BACK / SWIPE GUARD (prevents accidental close)
+   BACK / SWIPE GUARD
    ========================================================= */
 let backGuardArmed = false;
 function bindAppBackGuard() {
@@ -524,7 +574,6 @@ function bindAppBackGuard() {
   window.addEventListener("popstate", () => {
     if (!backGuardArmed) return;
 
-    // If modal is open, close modal first
     const modalOpen = !$("#modalBackdrop")?.classList.contains("hidden");
     if (modalOpen) {
       closeModal();
@@ -532,29 +581,24 @@ function bindAppBackGuard() {
       return;
     }
 
-    // If not logged in, don't exit
     if (!state.session.store || !state.session.staff) {
       safePushHistory();
       return;
     }
 
-    // If inside pages, go back
     if (state.navStack.length > 0) {
       goBack();
       safePushHistory();
       return;
     }
 
-    // Home: confirm exit
     openConfirmExit();
     safePushHistory();
   });
 }
-
 function safePushHistory() {
   try { history.pushState({ pc: 1 }, ""); } catch {}
 }
-
 function openConfirmExit() {
   openModal(
     "Exit PreCheck?",
@@ -588,7 +632,6 @@ function render() {
   const main = $("#main");
   if (!main) return;
 
-  // Login page
   if (!state.session.store || !state.session.staff) {
     renderLoginPage();
     return;
@@ -672,7 +715,6 @@ function renderCategory() {
   const main = $("#main");
   const cat = state.view.category;
 
-  // Sauce -> sub tiles first
   if (cat === "Sauce" && !state.view.sauceSub) {
     const tiles = SAUCE_SUBS
       .map((s, idx) => {
@@ -754,6 +796,9 @@ function itemKey(it) {
 }
 
 function shelfLifeModeFor(it, cat) {
+  // ✅ hourly wins
+  if (it.is_hourly) return { mode: "HOURLY", life: 0 };
+
   const life = Number(it.shelf_life_days || 0);
 
   if (isChickenBaconC(it.name)) return { mode: "EOD_AUTO", life };
@@ -764,32 +809,28 @@ function shelfLifeModeFor(it, cat) {
   return { mode: "PRESET", life };
 }
 
-/* ✅ NEW: decide if item uses 4-hour time expiry
-   You can drive this from Supabase by adding one of these fields in items:
-   - expiry_type = "HOURLY"
-   - expiry_rule = "FOUR_HOUR"
-   - has_expiry_time = true
-*/
-function usesHourlyExpiry(it) {
-  const a = String(it.expiry_type || "").toUpperCase();
-  const b = String(it.expiry_rule || "").toUpperCase();
-  const c = it.has_expiry_time === true;
-  return a === "HOURLY" || b === "FOUR_HOUR" || c;
-}
-
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
-  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime: "", extraDates: [] };
+  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "" };
   const d = state.drafts[key];
-
-  // normalize defaults
-  if (!Array.isArray(d.extraDates)) d.extraDates = [];
-  if (typeof d.expTime !== "string") d.expTime = "";
 
   const rule = shelfLifeModeFor(it, cat);
   let expiryUI = "";
 
-  if (rule.mode === "EOD_AUTO") {
+  if (rule.mode === "HOURLY") {
+    const opts = TIME_15.map(
+      (o) => `<option value="${escapeHtml(o.value)}"${d.expTime15 === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`
+    ).join("");
+
+    expiryUI = `
+      <label class="label">Expiry time (Today)</label>
+      <select class="select" data-exptime="${escapeHtml(key)}">
+        <option value="">Select time</option>
+        ${opts}
+      </select>
+      <div class="edit-helper">Hourly expiry (today only)</div>
+    `;
+  } else if (rule.mode === "EOD_AUTO") {
     expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
   } else if (rule.mode === "MANUAL") {
     expiryUI = `
@@ -820,34 +861,6 @@ function renderItemEditor(it, cat) {
     `;
   }
 
-  // ✅ NEW: time selector for HOURLY items
-  if (usesHourlyExpiry(it)) {
-    const timeOpts = FOUR_HOUR_SLOTS.map((t) => {
-      const sel = d.expTime === t.value ? " selected" : "";
-      return `<option value="${t.value}"${sel}>${escapeHtml(t.label)}</option>`;
-    }).join("");
-
-    expiryUI += `
-      <label class="label" style="margin-top:8px">Expiry time</label>
-      <select class="select" data-exptime="${escapeHtml(key)}">
-        <option value="">Select time</option>
-        ${timeOpts}
-      </select>
-      <div class="edit-helper">4-hour checks</div>
-    `;
-  }
-
-  // ✅ NEW: add extra expiry date (latest)
-  expiryUI += `
-    <div style="margin-top:10px">
-      <button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}">➕ Add date</button>
-      <div class="col" style="gap:8px;margin-top:8px" data-extradates="${escapeHtml(key)}"></div>
-      <div class="muted" style="font-size:12px;font-weight:900;margin-top:6px">
-        Earliest = main date. Latest = added date.
-      </div>
-    </div>
-  `;
-
   return `
     <div class="edit-card" data-key="${escapeHtml(key)}">
       <div class="edit-name">${escapeHtml(it.name)}</div>
@@ -873,12 +886,7 @@ function bindItemEditors(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d =
-      state.drafts[key] ||
-      (state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime: "", extraDates: [] });
-
-    if (!Array.isArray(d.extraDates)) d.extraDates = [];
-    if (typeof d.expTime !== "string") d.expTime = "";
+    const d = state.drafts[key] || (state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "" });
 
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
     const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
@@ -886,16 +894,8 @@ function bindItemEditors(items, cat) {
 
     const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root);
     const date = $(`[data-expdate="${cssEsc(key)}"]`, root);
-
-    // ✅ NEW: time selector
     const timeSel = $(`[data-exptime="${cssEsc(key)}"]`, root);
 
-    // ✅ NEW: extra dates UI
-    const addBtn = $(`[data-adddate="${cssEsc(key)}"]`, root);
-    const extraWrap = $(`[data-extradates="${cssEsc(key)}"]`, root);
-    if (extraWrap) renderExtraDates(extraWrap, d);
-
-    // ✅ set initial disabled state
     updateQtyUI(root, key);
 
     if (inc) inc.addEventListener("click", () => {
@@ -918,6 +918,11 @@ function bindItemEditors(items, cat) {
       updateQtyUI(root, key);
     });
 
+    if (timeSel) timeSel.addEventListener("change", () => {
+      d.expTime15 = String(timeSel.value || "");
+      d.expType = "HOURLY";
+    });
+
     if (presetSel) presetSel.addEventListener("change", () => {
       const v = String(presetSel.value || "");
       const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
@@ -936,55 +941,7 @@ function bindItemEditors(items, cat) {
       d.expDateISO = String(date.value || "");
       if (!d.expType) d.expType = "MANUAL";
     });
-
-    if (timeSel) timeSel.addEventListener("change", () => {
-      d.expTime = String(timeSel.value || "");
-    });
-
-    if (addBtn && extraWrap) {
-      addBtn.addEventListener("click", () => {
-        // allow 1 extra date (latest). If you want more later, change this.
-        if (d.extraDates.length >= 1) {
-          toast("Only 2 dates per item");
-          return;
-        }
-        d.extraDates.push("");
-        renderExtraDates(extraWrap, d);
-      });
-    }
   }
-}
-
-// ✅ NEW helper: render extra date inputs
-function renderExtraDates(wrap, d) {
-  if (!wrap) return;
-  const vals = Array.isArray(d.extraDates) ? d.extraDates : [];
-
-  wrap.innerHTML = vals.map((v, i) => {
-    return `
-      <div class="col" style="gap:6px">
-        <div style="font-weight:1100">Latest expiry</div>
-        <input type="date" class="select" data-extra="${i}" value="${escapeHtml(v || "")}">
-        <button class="btn btn-ghost" type="button" data-rmextra="${i}">Remove</button>
-      </div>
-    `;
-  }).join("");
-
-  const inputs = $$("input[data-extra]", wrap);
-  inputs.forEach((inp, idx) => {
-    inp.addEventListener("change", () => {
-      d.extraDates[idx] = String(inp.value || "");
-    });
-  });
-
-  const rmBtns = $$("button[data-rmextra]", wrap);
-  rmBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.getAttribute("data-rmextra") || 0);
-      d.extraDates.splice(idx, 1);
-      renderExtraDates(wrap, d);
-    });
-  });
 }
 
 async function saveCategory(items, cat) {
@@ -997,22 +954,24 @@ async function saveCategory(items, cat) {
   const rows = [];
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "", expTime: "", extraDates: [] };
+    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "", expTime15: "" };
     const qty = Number(d.qty) || 0;
     if (qty <= 0) continue;
 
     const rule = shelfLifeModeFor(it, cat);
 
     let expiry = null;
-    if (rule.mode === "EOD_AUTO") expiry = today;
-    else expiry = d.expDateISO || null;
+    let expiry_at = null;
 
-    const more = Array.isArray(d.extraDates) ? d.extraDates : [];
-    const allDates = [expiry, ...more].filter(Boolean).map((x) => String(x).slice(0, 10));
-    allDates.sort();
-
-    const expiry_earliest = allDates.length ? allDates[0] : null;
-    const expiry_latest = allDates.length ? allDates[allDates.length - 1] : null;
+    if (rule.mode === "HOURLY") {
+      if (!d.expTime15) continue; // must choose time
+      expiry = today;
+      expiry_at = isoFromTodayAndTime(d.expTime15);
+    } else if (rule.mode === "EOD_AUTO") {
+      expiry = today;
+    } else {
+      expiry = d.expDateISO || null;
+    }
 
     rows.push({
       item_id: it.id ?? null,
@@ -1020,19 +979,8 @@ async function saveCategory(items, cat) {
       category: it.category,
       sub_category: it.sub_category || null,
       quantity: qty,
-
-      // backward compat
-      expiry: expiry,
-
-      // ✅ NEW: extra fields for your server to store
-      expiry_earliest,
-      expiry_latest,
-      expiry_dates: allDates,
-
-      // ✅ NEW: time field for HOURLY items
-      expiry_time: d.expTime || null,
-
-      expiry_at: null,
+      expiry,
+      expiry_at,
     });
   }
 
@@ -1048,7 +996,7 @@ async function saveCategory(items, cat) {
 }
 
 /* =========================================================
-   ALERTS (placeholder)
+   ALERTS
    ========================================================= */
 function renderAlerts() {
   const main = $("#main");
@@ -1068,35 +1016,7 @@ function renderAlerts() {
 /* =========================================================
    SUMMARY
    ========================================================= */
-
-// ✅ NEW: read earliest/latest from API row if exists, else fallback
-function rowEarliestISO(rr) {
-  const v =
-    rr.expiry_earliest ||
-    rr.earliest_expiry ||
-    rr.earliest ||
-    rr.expiry_value ||
-    rr.expiry ||
-    "";
-  return String(v || "").slice(0, 10);
-}
-function rowLatestISO(rr) {
-  const v =
-    rr.expiry_latest ||
-    rr.latest_expiry ||
-    rr.latest ||
-    rr.expiry_value ||
-    rr.expiry ||
-    "";
-  return String(v || "").slice(0, 10);
-}
-function rowQty(rr) {
-  const q = rr.quantity ?? rr.qty ?? rr.count ?? rr.total_qty ?? null;
-  const n = Number(q);
-  return Number.isFinite(n) ? n : null;
-}
-
-function renderSummaryHome() {
+async function renderSummaryHome() {
   const main = $("#main");
 
   const isMgr = !!state.session.isManager;
@@ -1113,10 +1033,10 @@ function renderSummaryHome() {
       <div class="card">
         <div style="font-weight:1200;margin-bottom:8px">Store view</div>
         <div class="row" style="gap:12px">
-          <button id="mPDD" class="btn" style="flex:1;background:var(--pdd);color:#fff">PDD</button>
-          <button id="mSKH" class="btn" style="flex:1;background:var(--skh);color:#fff">SKH</button>
+          <button id="mPDD" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">PDD</button>
+          <button id="mSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
         </div>
-        <div class="muted" style="margin-top:8px">Staff sees only their store.</div>
+        <div id="doneLine" class="muted" style="margin-top:10px;font-weight:1000"></div>
       </div>
     ` : ""}
 
@@ -1131,12 +1051,14 @@ function renderSummaryHome() {
   }
 
   updateSummaryModeButtons();
+  await updateDoneIndicator();
   drawSummaryCards().catch(console.error);
 }
 
 function setSummaryMode(mode) {
   state.view.summaryMode = mode;
   updateSummaryModeButtons();
+  updateDoneIndicator().catch(()=>{});
   drawSummaryCards().catch(console.error);
 }
 
@@ -1144,8 +1066,34 @@ function updateSummaryModeButtons() {
   if (!state.session.isManager) return;
   const m = state.view.summaryMode;
   const a = $("#mPDD"), b = $("#mSKH");
-  if (a) a.style.opacity = m === "PDD" ? "1" : ".65";
-  if (b) b.style.opacity = m === "SKH" ? "1" : ".65";
+
+  // default white
+  if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
+  if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
+
+  // selected highlight
+  if (m === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
+  if (m === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
+}
+
+async function updateDoneIndicator() {
+  if (!state.session.isManager) return;
+  const mode = state.view.summaryMode || "PDD";
+  const line = $("#doneLine");
+  if (!line) return;
+
+  try {
+    const s = await apiGet(`/api/status?store=${encodeURIComponent(mode)}`);
+    if (!s) {
+      line.innerHTML = `⏳ <b>${mode}</b> not done yet today`;
+      return;
+    }
+    const when = s.last_saved_at ? new Date(s.last_saved_at) : null;
+    const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
+    line.innerHTML = `✅ <b>${mode}</b> done — last saved by <b>${escapeHtml(s.last_saved_by || "")}</b>${hhmm ? ` at <b>${hhmm}</b>` : ""}`;
+  } catch {
+    line.textContent = "";
+  }
 }
 
 async function drawSummaryCards() {
@@ -1161,10 +1109,11 @@ async function drawSummaryCards() {
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
   const rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
-  const todayCount = rows.filter((x) => rowEarliestISO(x) === today).length;
-  const tomCount = rows.filter((x) => rowEarliestISO(x) === tomorrow).length;
+  // ✅ daily reset: only counts based on date part
+  const todayCount = rows.filter((x) => datePartFromRow(x) === today).length;
+  const tomCount = rows.filter((x) => datePartFromRow(x) === tomorrow).length;
   const safeCount = rows.filter((x) => {
-    const e = rowEarliestISO(x);
+    const e = datePartFromRow(x);
     return e && e !== today && e !== tomorrow;
   }).length;
 
@@ -1232,7 +1181,7 @@ async function renderSummaryList() {
   let rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
   rows = rows.filter((x) => {
-    const e = rowEarliestISO(x);
+    const e = datePartFromRow(x);
     if (!e) return false;
     if (bucket === "TODAY") return e === today;
     if (bucket === "TOMORROW") return e === tomorrow;
@@ -1258,26 +1207,22 @@ async function renderSummaryList() {
         <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
         <div class="col" style="gap:8px">
           ${list
-            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
             .map((rr) => {
-              const e1 = rowEarliestISO(rr);
-              const e2 = rowLatestISO(rr);
-              const q = rowQty(rr);
-
-              const dateText =
-                e1 && e2 && e2 !== e1
-                  ? `${formatLongDMY(e1)} → ${formatLongDMY(e2)}`
-                  : (e1 ? formatLongDMY(e1) : "-");
-
-              const qtyText = q != null ? `Qty: ${q}` : "";
+              const dt = formatLongDMY(datePartFromRow(rr));
+              const tm = timePartFromRow(rr);
+              const qty = rr.qty != null ? Number(rr.qty) : null;
 
               return `
-              <div style="display:flex;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 12px">
-                <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+                <div style="display:flex;justify-content:space-between;gap:10px">
                   <div style="font-weight:1200">${escapeHtml(rr.name)}</div>
-                  ${qtyText ? `<div class="muted" style="font-weight:900;font-size:12px">${escapeHtml(qtyText)}</div>` : ``}
+                  <div style="font-weight:1200">${escapeHtml(dt)}</div>
                 </div>
-                <div style="font-weight:1200;text-align:right">${escapeHtml(dateText)}</div>
+                <div class="muted" style="margin-top:6px;font-weight:1000;display:flex;justify-content:space-between">
+                  <div>${tm ? `Time: ${escapeHtml(tm)}` : ""}</div>
+                  <div>${qty != null ? `Qty: ${qty}` : ""}</div>
+                </div>
               </div>
             `;
             })
@@ -1473,15 +1418,17 @@ async function renderManagerEditItems() {
         const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
         const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
         const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
+        const hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
 
         const category = String(catSel.value || "").trim();
         const sub_category = String(subSel.value || "").trim() || null;
         const shelf_life_days = Number(lifeInp.value || 0);
+        const is_hourly = !!hourlyChk?.checked;
 
         try {
           await apiPatch(
             `/api/manager/items/${id}`,
-            { store: state.session.store, category, sub_category, shelf_life_days },
+            { store: state.session.store, category, sub_category, shelf_life_days, is_hourly },
             token
           );
           toast("Saved ✅");
@@ -1548,6 +1495,11 @@ function managerItemRow(it) {
 
           <div style="font-weight:1200">Shelf life (days)</div>
           <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(it.shelf_life_days)}">
+
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
+            <input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}>
+            Hourly expiry (time only)
+          </label>
 
           <div class="row">
             <button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button>
@@ -1733,6 +1685,11 @@ function openAddItemModal() {
           <div style="font-weight:1200">Shelf life (days)</div>
           <input id="itLife" class="input" type="number" min="0" value="0">
 
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
+            <input id="itHourly" type="checkbox">
+            Hourly expiry (time only)
+          </label>
+
           <button id="itSave" class="btn btn-yellow" style="width:100%">Save</button>
         </div>
       </div>
@@ -1745,13 +1702,14 @@ function openAddItemModal() {
     const category = String($("#itCat").value || "").trim();
     const sub_category = String($("#itSub").value || "").trim() || null;
     const shelf_life_days = Number($("#itLife").value || 0);
+    const is_hourly = !!$("#itHourly")?.checked;
 
     if (!name || !category) return toast("Missing name/category");
 
     try {
       await apiPost(
         "/api/manager/items",
-        { store: state.session.store, name, category, sub_category, shelf_life_days },
+        { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly },
         state.session.managerToken
       );
       toast("Saved ✅");
@@ -1806,7 +1764,7 @@ function enforceArray(v) {
 }
 
 /* =========================
-   QTY UX helpers (disable, animation, haptic)
+   QTY UX helpers
    ========================= */
 function haptic(ms = 12) {
   try {
@@ -1815,15 +1773,12 @@ function haptic(ms = 12) {
     }
   } catch {}
 }
-
 function pulseBtn(btn) {
   if (!btn) return;
   btn.classList.remove("pulse");
-  // reflow to restart animation
   void btn.offsetWidth;
   btn.classList.add("pulse");
 }
-
 function updateQtyUI(root, key) {
   const d = state.drafts[key] || { qty: 0 };
   const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
@@ -1833,7 +1788,6 @@ function updateQtyUI(root, key) {
   d.qty = q;
   if (qty) qty.value = String(q);
 
-  // Disable minus when qty=0
   if (dec) {
     const disabled = q <= 0;
     dec.disabled = disabled;
