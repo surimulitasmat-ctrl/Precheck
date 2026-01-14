@@ -1,8 +1,13 @@
 // =========================
 // PreCheck — server.js (FULL)
+// UTC-based daily reset
 // Store-separated: PDD vs SKH
 // Manager CRUD: items + categories (soft delete)
 // Supports BOTH /api/log (single) and /api/log/batch
+// Adds:
+//   ✅ items.is_hourly (hourly expiry toggle)
+//   ✅ /api/status + auto "done checking" after save
+//   ✅ /api/expiry returns qty + expiry_at + expiry_value (TODAY ONLY, UTC)
 // =========================
 
 import express from "express";
@@ -78,6 +83,22 @@ function dbCategoryFromUi(cat) {
   return c;
 }
 
+// -------- Daily "done" marker (UTC day) --------
+async function markDoneUTC(store, staff) {
+  if (!store) return;
+  const who = String(staff || "").trim() || null;
+
+  await q(
+    `
+    insert into public.daily_status (store, day_key, last_saved_at, last_saved_by)
+    values ($1, (now() at time zone 'utc')::date, now(), $2)
+    on conflict (store, day_key)
+    do update set last_saved_at=excluded.last_saved_at, last_saved_by=excluded.last_saved_by
+  `,
+    [store, who]
+  );
+}
+
 // =========================
 // Health
 // =========================
@@ -87,6 +108,45 @@ app.get("/api/health", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     err(res, 500, e?.message || "db error");
+  }
+});
+
+// =========================
+// Status (Manager Summary indicator)
+// =========================
+
+// GET /api/status?store=PDD  -> today's (UTC) status
+app.get("/api/status", async (req, res) => {
+  try {
+    const store = normStore(req.query.store);
+    if (!store) return err(res, 400, "Invalid store");
+
+    const r = await q(
+      `
+      select store, day_key, last_saved_at, last_saved_by
+      from public.daily_status
+      where store=$1 and day_key=(now() at time zone 'utc')::date
+      limit 1
+    `,
+      [store]
+    );
+
+    res.json(r.rows[0] || null);
+  } catch (e) {
+    err(res, 500, e?.message || "Failed");
+  }
+});
+
+// Optional: allow frontend to mark done explicitly if you want
+app.post("/api/status/mark-done", async (req, res) => {
+  try {
+    const store = normStore(req.body?.store);
+    if (!store) return err(res, 400, "Invalid store");
+    const staff = String(req.body?.staff || "").trim();
+    await markDoneUTC(store, staff);
+    res.json({ ok: true });
+  } catch (e) {
+    err(res, 500, e?.message || "Failed");
   }
 });
 
@@ -129,7 +189,7 @@ app.get("/api/items", async (req, res) => {
 
     const r = await q(
       `
-      select id, store, name, category, sub_category, shelf_life_days
+      select id, store, name, category, sub_category, shelf_life_days, is_hourly
       from public.items
       where store=$1 and deleted_at is null and is_active=true
       order by category asc, name asc
@@ -142,6 +202,7 @@ app.get("/api/items", async (req, res) => {
         ...x,
         category: uiCategoryFromDb(x.category),
         sub_category: x.sub_category,
+        is_hourly: !!x.is_hourly,
       }))
     );
   } catch (e) {
@@ -149,7 +210,7 @@ app.get("/api/items", async (req, res) => {
   }
 });
 
-// ---------- (IMPORTANT) Single log save: /api/log ----------
+// ---------- Single log save: /api/log ----------
 app.post("/api/log", async (req, res) => {
   try {
     const r = req.body || {};
@@ -165,7 +226,11 @@ app.post("/api/log", async (req, res) => {
     const sub_category = r.sub_category ? String(r.sub_category) : null;
 
     const quantity = r.quantity == null ? null : Number(r.quantity);
-    const expiry = r.expiry ? String(r.expiry) : null;
+
+    // expiry = date only (YYYY-MM-DD) or null
+    const expiry = r.expiry ? String(r.expiry).slice(0, 10) : null;
+
+    // expiry_at = ISO timestamp string or null
     const expiry_at = r.expiry_at ? String(r.expiry_at) : null;
 
     if (!staff || !shift) return err(res, 400, "Missing staff/shift");
@@ -181,6 +246,9 @@ app.post("/api/log", async (req, res) => {
     `,
       [store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at]
     );
+
+    // ✅ Mark store "done" today (UTC)
+    await markDoneUTC(store, staff);
 
     res.json({ ok: true });
   } catch (e) {
@@ -207,8 +275,9 @@ app.post("/api/log/batch", async (req, res) => {
       const item_name = String(r.item_name || r.item || "").trim();
       const category = dbCategoryFromUi(String(r.category || "").trim());
       const sub_category = r.sub_category ? String(r.sub_category) : null;
+
       const quantity = r.quantity == null ? null : Number(r.quantity);
-      const expiry = r.expiry ? String(r.expiry) : null;
+      const expiry = r.expiry ? String(r.expiry).slice(0, 10) : null;
       const expiry_at = r.expiry_at ? String(r.expiry_at) : null;
 
       if (!item_name || !category) continue;
@@ -225,13 +294,20 @@ app.post("/api/log/batch", async (req, res) => {
       );
     }
 
+    // ✅ Mark store "done" today (UTC)
+    await markDoneUTC(store, staff);
+
     res.json({ ok: true });
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
 });
 
-// Latest expiry per item for summary (today/tomorrow/safe)
+// =========================
+// Summary (RESET DAILY - TODAY ONLY, UTC)
+// Latest entry per item_name+category+sub_category, but ONLY from today's logs (UTC).
+// Returns qty + expiry_at + expiry_value (date string).
+// =========================
 app.get("/api/expiry", async (req, res) => {
   try {
     const store = normStore(req.query.store);
@@ -239,26 +315,37 @@ app.get("/api/expiry", async (req, res) => {
 
     const r = await q(
       `
-      with ranked as (
+      with today_logs as (
+        select *
+        from public.logs
+        where store=$1
+          and (created_at at time zone 'utc')::date = (now() at time zone 'utc')::date
+      ),
+      ranked as (
         select
           item_name,
           category,
           sub_category,
-          coalesce(expiry::text, (expiry_at at time zone 'utc')::date::text) as expiry_value,
+          quantity,
+          expiry,
+          expiry_at,
           created_at,
           row_number() over (
             partition by item_name, category, coalesce(sub_category,'')
             order by created_at desc
           ) as rn
-        from public.logs
-        where store=$1
+        from today_logs
       )
-      select item_name as name,
-             category,
-             sub_category,
-             expiry_value
+      select
+        item_name as name,
+        category,
+        sub_category,
+        quantity as qty,
+        expiry_at,
+        coalesce(expiry::text, (expiry_at at time zone 'utc')::date::text) as expiry_value
       from ranked
-      where rn=1 and expiry_value is not null
+      where rn=1
+        and (expiry is not null or expiry_at is not null)
       order by name asc
     `,
       [store]
@@ -303,7 +390,7 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
 
     const r = await q(
       `
-      select id, store, name, category, sub_category, shelf_life_days, is_active
+      select id, store, name, category, sub_category, shelf_life_days, is_active, is_hourly
       from public.items
       where store=$1 and deleted_at is null
       order by category asc, name asc
@@ -315,6 +402,7 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
       r.rows.map((x) => ({
         ...x,
         category: uiCategoryFromDb(x.category),
+        is_hourly: !!x.is_hourly,
       }))
     );
   } catch (e) {
@@ -331,17 +419,18 @@ app.post("/api/manager/items", requireManager, async (req, res) => {
     const category = dbCategoryFromUi(String(req.body?.category || "").trim());
     const sub_category = req.body?.sub_category ? String(req.body.sub_category) : null;
     const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
+    const is_hourly = !!req.body?.is_hourly;
 
     if (!name || !category) return err(res, 400, "Missing name/category");
     if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return err(res, 400, "Invalid shelf life");
 
     const r = await q(
       `
-      insert into public.items (store, name, category, sub_category, shelf_life_days, is_active)
-      values ($1,$2,$3,$4,$5,true)
+      insert into public.items (store, name, category, sub_category, shelf_life_days, is_hourly, is_active)
+      values ($1,$2,$3,$4,$5,$6,true)
       returning id
     `,
-      [store, name, category, sub_category, shelf_life_days]
+      [store, name, category, sub_category, shelf_life_days, is_hourly]
     );
 
     res.json({ ok: true, id: r.rows[0]?.id });
@@ -361,6 +450,7 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
     const category = dbCategoryFromUi(String(req.body?.category || "").trim());
     const sub_category = req.body?.sub_category ? String(req.body.sub_category) : null;
     const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
+    const is_hourly = req.body?.is_hourly == null ? null : !!req.body.is_hourly;
 
     if (!category) return err(res, 400, "Missing category");
     if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return err(res, 400, "Invalid shelf life");
@@ -368,10 +458,14 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
     await q(
       `
       update public.items
-      set category=$1, sub_category=$2, shelf_life_days=$3, updated_at=now()
-      where id=$4 and store=$5 and deleted_at is null
+      set category=$1,
+          sub_category=$2,
+          shelf_life_days=$3,
+          is_hourly=coalesce($4, is_hourly),
+          updated_at=now()
+      where id=$5 and store=$6 and deleted_at is null
     `,
-      [category, sub_category, shelf_life_days, id, store]
+      [category, sub_category, shelf_life_days, is_hourly, id, store]
     );
 
     res.json({ ok: true });
