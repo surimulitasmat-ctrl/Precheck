@@ -8,7 +8,9 @@
 // Adds:
 //   ✅ items.is_hourly (hourly expiry toggle)
 //   ✅ /api/status + auto "done checking" after save
-//   ✅ /api/expiry returns qty + expiry_at + expiry_value (TODAY ONLY, SG DAY)
+//   ✅ /api/expiry returns TODAY ONLY (SG DAY)
+//   ✅ NEW: Add Date (2 batches) -> logs.quantity2 + logs.expiry2 + logs.expiry2_at
+//       /api/expiry returns earliest_expiry + latest_expiry + both qty
 // =========================
 
 import express from "express";
@@ -85,14 +87,6 @@ function dbCategoryFromUi(cat) {
   const c = String(cat || "").trim();
   if (c.toLowerCase() === "fountain drinks") return "Back counter";
   return c;
-}
-
-// ✅ Helper: "today" based on Singapore day boundary
-// This returns a DATE (no time) representing SG day.
-async function sgTodayDate() {
-  // Using SQL keeps it consistent with DB server clock
-  const r = await q(`select (now() at time zone $1)::date as d`, [DAY_TZ]);
-  return r.rows[0]?.d; // JS Date object-ish from pg, OK for comparisons in SQL using same expression below
 }
 
 // -------- Daily "done" marker (SG day) --------
@@ -238,25 +232,47 @@ app.post("/api/log", async (req, res) => {
     const sub_category = r.sub_category ? String(r.sub_category) : null;
 
     const quantity = r.quantity == null ? null : Number(r.quantity);
-
-    // expiry = date only (YYYY-MM-DD) or null
     const expiry = r.expiry ? String(r.expiry).slice(0, 10) : null;
-
-    // expiry_at = ISO timestamp string or null
     const expiry_at = r.expiry_at ? String(r.expiry_at) : null;
+
+    // ✅ Add Date (2nd batch)
+    const quantity2 = r.quantity2 == null ? null : Number(r.quantity2);
+    const expiry2 = r.expiry2 ? String(r.expiry2).slice(0, 10) : null;
+    const expiry2_at = r.expiry2_at ? String(r.expiry2_at) : null;
 
     if (!staff || !shift) return err(res, 400, "Missing staff/shift");
     if (!item_name || !category) return err(res, 400, "Missing item/category");
     if (quantity != null && (!Number.isFinite(quantity) || quantity < 0)) return err(res, 400, "Invalid quantity");
+    if (quantity2 != null && (!Number.isFinite(quantity2) || quantity2 < 0)) return err(res, 400, "Invalid quantity2");
 
     await q(
       `
       insert into public.logs
-      (store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at, created_at)
+      (store, staff, shift, item_id, item_name, category, sub_category,
+       quantity, expiry, expiry_at,
+       quantity2, expiry2, expiry2_at,
+       created_at)
       values
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+      ($1,$2,$3,$4,$5,$6,$7,
+       $8,$9,$10,
+       $11,$12,$13,
+       now())
     `,
-      [store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at]
+      [
+        store,
+        staff,
+        shift,
+        item_id,
+        item_name,
+        category,
+        sub_category,
+        quantity,
+        expiry,
+        expiry_at,
+        quantity2,
+        expiry2,
+        expiry2_at,
+      ]
     );
 
     // ✅ Mark store "done" today (SG DAY)
@@ -292,17 +308,43 @@ app.post("/api/log/batch", async (req, res) => {
       const expiry = r.expiry ? String(r.expiry).slice(0, 10) : null;
       const expiry_at = r.expiry_at ? String(r.expiry_at) : null;
 
+      // ✅ Add Date (2nd batch)
+      const quantity2 = r.quantity2 == null ? null : Number(r.quantity2);
+      const expiry2 = r.expiry2 ? String(r.expiry2).slice(0, 10) : null;
+      const expiry2_at = r.expiry2_at ? String(r.expiry2_at) : null;
+
       if (!item_name || !category) continue;
       if (quantity != null && (!Number.isFinite(quantity) || quantity < 0)) continue;
+      if (quantity2 != null && (!Number.isFinite(quantity2) || quantity2 < 0)) continue;
 
       await q(
         `
         insert into public.logs
-        (store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at, created_at)
+        (store, staff, shift, item_id, item_name, category, sub_category,
+         quantity, expiry, expiry_at,
+         quantity2, expiry2, expiry2_at,
+         created_at)
         values
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+        ($1,$2,$3,$4,$5,$6,$7,
+         $8,$9,$10,
+         $11,$12,$13,
+         now())
       `,
-        [store, staff, shift, item_id, item_name, category, sub_category, quantity, expiry, expiry_at]
+        [
+          store,
+          staff,
+          shift,
+          item_id,
+          item_name,
+          category,
+          sub_category,
+          quantity,
+          expiry,
+          expiry_at,
+          quantity2,
+          expiry2,
+          expiry2_at,
+        ]
       );
     }
 
@@ -318,7 +360,10 @@ app.post("/api/log/batch", async (req, res) => {
 // =========================
 // Summary (RESET DAILY - TODAY ONLY, SG DAY)
 // Latest entry per item_name+category+sub_category, but ONLY from today's logs (SG DAY).
-// Returns qty + expiry_at + expiry_value (date string).
+// Returns:
+//  - qty, expiry_value, expiry_at
+//  - qty2, expiry2_value, expiry2_at
+//  - earliest_expiry_value, latest_expiry_value  (date strings)
 // =========================
 app.get("/api/expiry", async (req, res) => {
   try {
@@ -341,23 +386,59 @@ app.get("/api/expiry", async (req, res) => {
           quantity,
           expiry,
           expiry_at,
+          quantity2,
+          expiry2,
+          expiry2_at,
           created_at,
           row_number() over (
             partition by item_name, category, coalesce(sub_category,'')
             order by created_at desc
           ) as rn
         from today_logs
+      ),
+      picked as (
+        select
+          item_name as name,
+          category,
+          sub_category,
+          quantity as qty,
+          expiry_at,
+          -- convert expiry_at -> date (UTC) when expiry is null
+          coalesce(expiry, (expiry_at at time zone 'utc')::date) as exp_date_1,
+
+          quantity2 as qty2,
+          expiry2_at,
+          coalesce(expiry2, (expiry2_at at time zone 'utc')::date) as exp_date_2
+        from ranked
+        where rn=1
       )
       select
-        item_name as name,
+        name,
         category,
         sub_category,
-        quantity as qty,
+        qty,
         expiry_at,
-        coalesce(expiry::text, (expiry_at at time zone 'utc')::date::text) as expiry_value
-      from ranked
-      where rn=1
-        and (expiry is not null or expiry_at is not null)
+        (exp_date_1)::text as expiry_value,
+
+        qty2,
+        expiry2_at,
+        (exp_date_2)::text as expiry2_value,
+
+        -- earliest / latest (handle nulls)
+        (case
+          when exp_date_1 is null then exp_date_2
+          when exp_date_2 is null then exp_date_1
+          else least(exp_date_1, exp_date_2)
+        end)::text as earliest_expiry_value,
+
+        (case
+          when exp_date_1 is null then exp_date_2
+          when exp_date_2 is null then exp_date_1
+          else greatest(exp_date_1, exp_date_2)
+        end)::text as latest_expiry_value
+
+      from picked
+      where (exp_date_1 is not null or exp_date_2 is not null)
       order by name asc
     `,
       [store, DAY_TZ]
