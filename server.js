@@ -364,6 +364,7 @@ app.post("/api/log/batch", async (req, res) => {
 //  - qty, expiry_value, expiry_at
 //  - qty2, expiry2_value, expiry2_at
 //  - earliest_expiry_value, latest_expiry_value  (date strings)
+// ✅ FIXED: handles expiry columns stored as TEXT or DATE (no COALESCE type crash)
 // =========================
 app.get("/api/expiry", async (req, res) => {
   try {
@@ -401,14 +402,25 @@ app.get("/api/expiry", async (req, res) => {
           item_name as name,
           category,
           sub_category,
+
           quantity as qty,
           expiry_at,
-          -- convert expiry_at -> date (UTC) when expiry is null
-          coalesce(expiry, (expiry_at at time zone 'utc')::date) as exp_date_1,
+
+          -- ✅ exp_date_1: always becomes DATE
+          coalesce(
+            nullif(expiry::text, '')::date,
+            (expiry_at at time zone 'utc')::date
+          ) as exp_date_1,
 
           quantity2 as qty2,
           expiry2_at,
-          coalesce(expiry2, (expiry2_at at time zone 'utc')::date) as exp_date_2
+
+          -- ✅ exp_date_2: always becomes DATE
+          coalesce(
+            nullif(expiry2::text, '')::date,
+            (expiry2_at at time zone 'utc')::date
+          ) as exp_date_2
+
         from ranked
         where rn=1
       )
@@ -416,15 +428,15 @@ app.get("/api/expiry", async (req, res) => {
         name,
         category,
         sub_category,
+
         qty,
         expiry_at,
-        (exp_date_1)::text as expiry_value,
+        exp_date_1::text as expiry_value,
 
         qty2,
         expiry2_at,
-        (exp_date_2)::text as expiry2_value,
+        exp_date_2::text as expiry2_value,
 
-        -- earliest / latest (handle nulls)
         (case
           when exp_date_1 is null then exp_date_2
           when exp_date_2 is null then exp_date_1
