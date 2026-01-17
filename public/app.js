@@ -1209,7 +1209,7 @@ function openAddDateModal({ it, cat, key }) {
   const earManual = $("#earManual");
   if (earManual) {
     earManual.addEventListener("click", () => {
-      openDateSliderModal({
+     openDateWheelModal({
         title: "Pick Earliest expiry",
         initialISO: d.earliestISO || todayISO(),
         minISO: blockPast,
@@ -1223,7 +1223,7 @@ function openAddDateModal({ it, cat, key }) {
   const earPick = $("#earPick");
   if (earPick) {
     earPick.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick Earliest expiry",
         initialISO: d.earliestISO || todayISO(),
         minISO: blockPast,
@@ -1247,7 +1247,7 @@ function openAddDateModal({ it, cat, key }) {
   const latManual = $("#latManual");
   if (latManual) {
     latManual.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick Latest expiry",
         initialISO: d.latestISO || todayISO(),
         minISO: blockPast,
@@ -1261,7 +1261,7 @@ function openAddDateModal({ it, cat, key }) {
   const latPick = $("#latPick");
   if (latPick) {
     latPick.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick Latest expiry",
         initialISO: d.latestISO || todayISO(),
         minISO: blockPast,
@@ -1448,7 +1448,7 @@ function bindItemEditors(items, cat) {
     });
 
     if (pickBtn) pickBtn.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick expiry date",
         initialISO: d.expDateISO || todayISO(),
         minISO: todayISO(),
