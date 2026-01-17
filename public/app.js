@@ -816,135 +816,262 @@ function shelfLifeModeFor(it, cat) {
   return { mode: "PRESET", life };
 }
 
-/* ---------- slider date picker (themed) ---------- */
-function openDateSliderModal({ title, initialISO, minISO, onPick }) {
-  const base = initialISO || todayISO();
-  const min = minISO || todayISO();
+/* ---------- Wheel date picker (Day/Month/Year) ---------- */
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  const today = todayISO();
+  const min = (minISO || today).slice(0, 10);
+  const max = (maxISO || addDaysISO(today, 365 * 5)).slice(0, 10);
 
-  const dt = new Date(base + "T00:00:00");
-  let d = dt.getDate();
-  let m = dt.getMonth() + 1;
-  let y = dt.getFullYear();
+  const init = (initialISO || min).slice(0, 10);
+
+  const monthNames = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+  ];
 
   const minDt = new Date(min + "T00:00:00");
+  const maxDt = new Date(max + "T00:00:00");
 
+  let cur = parseISO(init);
+  if (!cur) cur = parseISO(min);
+  cur = clampToRange(cur, minDt, maxDt);
+
+  const yearMin = minDt.getFullYear();
+  const yearMax = maxDt.getFullYear();
+
+  // Build lists
   const years = [];
-  const nowY = new Date().getFullYear();
-  for (let yy = nowY; yy <= nowY + 5; yy++) years.push(yy);
+  for (let y = yearMin; y <= yearMax; y++) years.push(y);
 
-  const months = Array.from({ length: 12 }, (_, i) => i + 1);
-
-  function daysInMonth(year, month) {
-    return new Date(year, month, 0).getDate();
-  }
-
-  function clampDay() {
-    const maxD = daysInMonth(y, m);
-    if (d > maxD) d = maxD;
-    if (d < 1) d = 1;
-  }
-
-  function toISO() {
-    clampDay();
-    return `${y}-${pad2(m)}-${pad2(d)}`;
-  }
-
-  function isAllowed(iso) {
-    const t = new Date(iso + "T00:00:00");
-    return t >= minDt;
-  }
-
+  // Modal HTML
   openModal(
-    title || "Pick date",
+    title || "Expiry date",
     `
-      <div class="card">
-        <div style="font-weight:1200;margin-bottom:8px">Select date</div>
+      <div class="pc-wheel">
+        <div class="pc-wheel-head">
+          <div class="pc-wheel-title">${escapeHtml(title || "Expiry date")}</div>
+          <button class="pc-wheel-x" type="button" id="wheelX">✕</button>
+        </div>
+        <div class="pc-wheel-sub">Swipe / tap to choose, then press Set</div>
 
-        <div style="display:flex;gap:10px;margin-top:10px">
-          <div style="flex:1">
-            <div class="muted" style="font-weight:1000;margin-bottom:6px">Day</div>
-            <input id="sdDay" class="input" type="range" min="1" max="31" value="${d}">
-            <div id="sdDayVal" style="font-weight:1200;text-align:center">${d}</div>
+        <div class="pc-wheel-cols">
+          <div class="pc-wheel-col">
+            <div class="pc-wheel-label">Day</div>
+            <div class="pc-wheel-list" id="wheelDay"></div>
           </div>
 
-          <div style="flex:1">
-            <div class="muted" style="font-weight:1000;margin-bottom:6px">Month</div>
-            <input id="sdMon" class="input" type="range" min="1" max="12" value="${m}">
-            <div id="sdMonVal" style="font-weight:1200;text-align:center">${m}</div>
+          <div class="pc-wheel-col">
+            <div class="pc-wheel-label">Month</div>
+            <div class="pc-wheel-list" id="wheelMon"></div>
           </div>
 
-          <div style="flex:1">
-            <div class="muted" style="font-weight:1000;margin-bottom:6px">Year</div>
-            <input id="sdYear" class="input" type="range" min="${years[0]}" max="${years[years.length-1]}" value="${y}">
-            <div id="sdYearVal" style="font-weight:1200;text-align:center">${y}</div>
+          <div class="pc-wheel-col">
+            <div class="pc-wheel-label">Year</div>
+            <div class="pc-wheel-list" id="wheelYear"></div>
           </div>
+
+          <div class="pc-wheel-highlight" aria-hidden="true"></div>
         </div>
 
-        <div id="sdPreview" style="margin-top:12px;font-weight:1200;font-size:18px">
-          ${escapeHtml(formatLongDMY(toISO()))}
-        </div>
-        <div id="sdWarn" class="muted" style="margin-top:6px;font-weight:1100"></div>
+        <div class="pc-wheel-note" id="wheelNote"></div>
 
-        <div class="row" style="gap:12px;margin-top:14px">
-          <button id="sdCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
-          <button id="sdOk" class="btn btn-red" style="flex:1">OK</button>
+        <div class="pc-wheel-actions">
+          <button class="pc-wheel-btn cancel" type="button" id="wheelCancel">Cancel</button>
+          <button class="pc-wheel-btn ok" type="button" id="wheelOk">Set date</button>
         </div>
       </div>
     `,
     { noBackdropClose: true }
   );
 
-  const dayEl = $("#sdDay");
-  const monEl = $("#sdMon");
-  const yearEl = $("#sdYear");
+  // Close buttons
+  $("#wheelX")?.addEventListener("click", closeModal);
+  $("#wheelCancel")?.addEventListener("click", closeModal);
 
-  const dayVal = $("#sdDayVal");
-  const monVal = $("#sdMonVal");
-  const yearVal = $("#sdYearVal");
-  const prev = $("#sdPreview");
-  const warn = $("#sdWarn");
+  // Create wheel lists
+  const dayEl = $("#wheelDay");
+  const monEl = $("#wheelMon");
+  const yearEl = $("#wheelYear");
+  const noteEl = $("#wheelNote");
+  const okEl = $("#wheelOk");
 
-  function refresh() {
-    d = Number(dayEl.value || d);
-    m = Number(monEl.value || m);
-    y = Number(yearEl.value || y);
+  // Helper: make wheel with snap center
+  function buildWheel(container, values, renderFn) {
+    container.innerHTML = `
+      <div class="pc-wheel-pad"></div>
+      ${values.map(v => `<button class="pc-wheel-item" type="button" data-v="${escapeHtml(String(v))}">${renderFn(v)}</button>`).join("")}
+      <div class="pc-wheel-pad"></div>
+    `;
 
-    clampDay();
+    // click-to-select
+    $$(".pc-wheel-item", container).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const v = btn.dataset.v;
+        scrollToValue(container, v);
+      });
+    });
 
-    dayEl.max = String(daysInMonth(y, m));
-    dayEl.value = String(d);
-
-    dayVal.textContent = String(d);
-    monVal.textContent = String(m);
-    yearVal.textContent = String(y);
-
-    const iso = toISO();
-    prev.textContent = formatLongDMY(iso);
-
-    if (!isAllowed(iso)) {
-      warn.textContent = "⚠️ You cannot select past dates.";
-      $("#sdOk").disabled = true;
-      $("#sdOk").classList.add("is-disabled");
-    } else {
-      warn.textContent = "";
-      $("#sdOk").disabled = false;
-      $("#sdOk").classList.remove("is-disabled");
-    }
+    // snap on scroll end
+    let t = null;
+    container.addEventListener("scroll", () => {
+      clearTimeout(t);
+      t = setTimeout(() => snap(container), 80);
+    });
   }
 
-  dayEl.addEventListener("input", refresh);
-  monEl.addEventListener("input", refresh);
-  yearEl.addEventListener("input", refresh);
-  refresh();
+  function scrollToValue(container, v) {
+    const items = $$(".pc-wheel-item", container);
+    const idx = items.findIndex(x => x.dataset.v === String(v));
+    if (idx < 0) return;
+    const target = items[idx];
+    const top = target.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2);
+    container.scrollTo({ top, behavior: "smooth" });
+  }
 
-  $("#sdCancel").addEventListener("click", closeModal);
-  $("#sdOk").addEventListener("click", () => {
-    const iso = toISO();
-    if (!isAllowed(iso)) return;
+  function snap(container) {
+    const items = $$(".pc-wheel-item", container);
+    if (!items.length) return;
+
+    const center = container.scrollTop + container.clientHeight / 2;
+    let best = items[0], bestDist = Infinity;
+
+    for (const it of items) {
+      const itCenter = it.offsetTop + it.clientHeight / 2;
+      const dist = Math.abs(itCenter - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+
+    const top = best.offsetTop - (container.clientHeight / 2) + (best.clientHeight / 2);
+    container.scrollTo({ top, behavior: "smooth" });
+    return best.dataset.v;
+  }
+
+  function getSelected(container) {
+    const v = snap(container);
+    // mark selected style
+    $$(".pc-wheel-item", container).forEach(x => x.classList.toggle("is-selected", x.dataset.v === v));
+    return v;
+  }
+
+  function daysInMonth(y, m) {
+    return new Date(y, m, 0).getDate(); // m = 1..12
+  }
+
+  function rebuildDays() {
+    const y = Number(getSelected(yearEl) || cur.getFullYear());
+    const m = Number(getSelected(monEl) || (cur.getMonth() + 1));
+    const maxD = daysInMonth(y, m);
+
+    const currentDay = Number(getSelected(dayEl) || cur.getDate());
+    const days = [];
+    for (let d = 1; d <= maxD; d++) days.push(d);
+
+    buildWheel(dayEl, days, (d) => String(d));
+
+    // keep nearest day
+    const safeDay = Math.min(currentDay, maxD);
+    scrollToValue(dayEl, String(safeDay));
+    getSelected(dayEl);
+  }
+
+  function currentISO() {
+    const y = Number(getSelected(yearEl));
+    const m = Number(getSelected(monEl));
+    const d = Number(getSelected(dayEl));
+    if (!y || !m || !d) return "";
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+
+  function validate() {
+    // ensure selected classes set
+    getSelected(yearEl); getSelected(monEl); getSelected(dayEl);
+
+    const iso = currentISO();
+    if (!iso) return;
+
+    const dt = new Date(iso + "T00:00:00");
+    const badMin = dt < minDt;
+    const badMax = dt > maxDt;
+
+    if (badMin) {
+      noteEl.textContent = `Date cannot be before ${formatLongDMY(min)}.`;
+      okEl.disabled = true;
+      okEl.classList.add("is-disabled");
+      return;
+    }
+    if (badMax) {
+      noteEl.textContent = `Date cannot be after ${formatLongDMY(max)}.`;
+      okEl.disabled = true;
+      okEl.classList.add("is-disabled");
+      return;
+    }
+
+    noteEl.textContent = "";
+    okEl.disabled = false;
+    okEl.classList.remove("is-disabled");
+  }
+
+  // Build month wheel (1..12 but show names)
+  buildWheel(monEl, Array.from({ length: 12 }, (_, i) => i + 1), (m) => monthNames[m - 1]);
+  buildWheel(yearEl, years, (y) => String(y));
+  // Day wheel builds after month/year
+  buildWheel(dayEl, [1], (d) => String(d));
+
+  // Initial position
+  scrollToValue(yearEl, String(cur.getFullYear()));
+  scrollToValue(monEl, String(cur.getMonth() + 1));
+
+  // Wait a tick then build days correctly
+  setTimeout(() => {
+    getSelected(yearEl);
+    getSelected(monEl);
+    rebuildDays();
+    scrollToValue(dayEl, String(cur.getDate()));
+    validate();
+  }, 0);
+
+  // When month/year changes, rebuild days
+  let syT = null;
+  yearEl.addEventListener("scroll", () => {
+    clearTimeout(syT);
+    syT = setTimeout(() => { getSelected(yearEl); rebuildDays(); validate(); }, 90);
+  });
+  monEl.addEventListener("scroll", () => {
+    clearTimeout(syT);
+    syT = setTimeout(() => { getSelected(monEl); rebuildDays(); validate(); }, 90);
+  });
+  dayEl.addEventListener("scroll", () => {
+    clearTimeout(syT);
+    syT = setTimeout(() => { getSelected(dayEl); validate(); }, 90);
+  });
+
+  // OK
+  okEl.addEventListener("click", () => {
+    const iso = currentISO();
+    if (!iso) return;
+    const dt = new Date(iso + "T00:00:00");
+    if (dt < minDt || dt > maxDt) return;
     closeModal();
     onPick && onPick(iso);
   });
+
+  // ---- helpers ----
+  function parseISO(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").slice(0, 10));
+    if (!m) return null;
+    const dt = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  function clampToRange(dt, minD, maxD) {
+    if (dt < minD) return new Date(minD);
+    if (dt > maxD) return new Date(maxD);
+    return dt;
+  }
 }
+
 
 /* ---------- Add Date popup (Earliest + Latest) ---------- */
 function openAddDateModal({ it, cat, key }) {
