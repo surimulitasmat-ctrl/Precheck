@@ -1,29 +1,22 @@
 /* =========================
    PreCheck — public/app.js (FULL)
-   MERGED:
-   ✅ Popup ALWAYS after login (forced)
-   ✅ Add "BakedWaffle" in popup
+   UPDATED / ADDED:
+   ✅ Popup ALWAYS after login (forced) + add "BakedWaffle"
    ✅ Role pill solid colors (Manager red + white text, Staff yellow + black text)
    ✅ Prevent swipe/back from closing app (back = goBack, home = confirm exit)
-   ✅ Shelf-life rules:
-      - Unopened chiller + Fountain Drinks => manual date only
-      - shelf_life_days > 7 => manual date only
-      - shelf_life_days <= 7 => preset dropdown dates (Today..N-1) in "24 January 2026" format
-      - Chicken Bacon (c) => auto today (EOD)
-   ✅ NEW: Hourly expiry items (manager toggles is_hourly)
-      - Staff picks TIME only (15-min steps, AM/PM)
-      - Date = today automatically
-      - Saves expiry_at timestamp
-      - Summary groups by date, shows time if available
-   ✅ Login store buttons white default; highlight only selected
-   ✅ Manager summary store buttons white default; highlight only selected
+   ✅ Shelf-life rules (same as your rules)
+   ✅ Hourly expiry items (manager toggles is_hourly) — time only (15-min steps)
+   ✅ Store buttons white default; highlight only selected (login + manager summary)
    ✅ Summary "Done checking" indicator via /api/status
-   Matches your index.html IDs:
-   - #btnMenu, #drawerBackdrop, #btnDrawerClose
-   - #drawerHome, #drawerAlerts, #drawerManager, #drawerSummary, #drawerWISR, #drawerLogout
-   - #main, #sessionLine, #roleHost
-   - modal: #modalBackdrop #modalClose #modalTitle #modalBody
-   - toast: #toast
+   ✅ Summary shows AM + PM groups (if API returns shift)
+   ✅ Stock Alert page (drawer label changes + tiny dot when low stock)
+      - excludes Sauce + Front counter
+      - optional per-item min limit (manager sets)
+   ✅ Add Date (2nd expiry):
+      - small button on left "＋ Date"
+      - popup to set Earliest + Latest expiry + qty
+      - follows shelf-life rules, and blocks backdated dates
+   ✅ Manual date picker replaced with themed slider picker (day/month/year modal)
    ========================= */
 
 /* ---------- DOM helpers ---------- */
@@ -39,11 +32,14 @@ const POPUP_ITEMS = [
   "Liquid Egg",
   "Flatbread(Thawing)",
   "Avocado",
-  "BakedWaffle", // ✅ added
+  "BakedWaffle",
 ];
 
 // manual date only categories
 const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
+
+// exclude from Stock Alert page
+const STOCK_ALERT_EXCLUDE_CATS = new Set(["Sauce", "Front counter"]);
 
 const CAT_EMOJI = {
   "Prepared items": "🥪",
@@ -76,7 +72,8 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
-  drafts: {}, // per item key: { qty, expType, expDateISO, expTime15 }
+  drafts: {}, // per itemKey: { qty, expType, expDateISO, expTime15, extraOpen, earliestISO, latestISO, earliestQty, latestQty }
+  stock: { hasDot: false, rows: [] }, // low-stock results
 };
 
 /* ---------- boot ---------- */
@@ -90,6 +87,9 @@ boot().catch(console.error);
 async function boot() {
   ensureSessionDayKey();
 
+  // update drawer label on load
+  updateDrawerAlertLabel(false);
+
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
@@ -97,6 +97,7 @@ async function boot() {
   }
 
   await loadAllForCurrentStore();
+  await refreshStockDot().catch(() => {});
   maybeShowExpiryPopup(false);
   render();
 }
@@ -143,6 +144,16 @@ function addDaysISO(baseISO, n) {
   dt.setDate(dt.getDate() + n);
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
+function isoMin(a, b) {
+  if (!a) return b || "";
+  if (!b) return a || "";
+  return a <= b ? a : b;
+}
+function isoMax(a, b) {
+  if (!a) return b || "";
+  if (!b) return a || "";
+  return a >= b ? a : b;
+}
 function formatLongDMY(iso) {
   const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
   const day = dt.getDate();
@@ -155,20 +166,29 @@ function isChickenBaconC(name) {
   return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
 }
 
-// 15-min time options in 12h display but value in "HH:MM" 24h
+// 15-min time options (24h value, 12h label)
 function buildTime15Options() {
   const out = [];
   for (let h = 0; h < 24; h++) {
     for (let m = 0; m < 60; m += 15) {
-      const hh = pad2(h);
-      const mm = pad2(m);
-      const value = `${hh}:${mm}`;
-      out.push({ value, label: formatTime12(value) });
+      out.push({ value: `${pad2(h)}:${pad2(m)}`, label: formatTime12(`${pad2(h)}:${pad2(m)}`) });
     }
   }
   return out;
 }
 const TIME_15 = buildTime15Options();
+
+// Hourly dropdown you requested (7am to 11pm only)
+const HOURLY_7AM_11PM = buildHourlyLimited();
+function buildHourlyLimited() {
+  const out = [];
+  for (let h = 7; h <= 23; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      out.push({ value: `${pad2(h)}:${pad2(m)}`, label: formatTime12(`${pad2(h)}:${pad2(m)}`) });
+    }
+  }
+  return out;
+}
 
 function formatTime12(hhmm) {
   const [hS, mS] = String(hhmm).split(":");
@@ -181,21 +201,18 @@ function formatTime12(hhmm) {
 }
 
 function isoFromTodayAndTime(hhmm) {
-  const base = todayISO();
-  return `${base}T${String(hhmm)}:00`;
+  return `${todayISO()}T${String(hhmm)}:00`;
 }
 
 function datePartFromRow(row) {
   if (row?.expiry_at) return String(row.expiry_at).slice(0, 10);
-  return String(row?.expiry_value || "").slice(0, 10);
+  return String(row?.expiry_value || row?.expiry || "").slice(0, 10);
 }
 function timePartFromRow(row) {
   if (!row?.expiry_at) return "";
   try {
     const d = new Date(row.expiry_at);
-    const hh = pad2(d.getHours());
-    const mm = pad2(d.getMinutes());
-    return formatTime12(`${hh}:${mm}`);
+    return formatTime12(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
   } catch {
     return "";
   }
@@ -262,8 +279,12 @@ async function loadAllForCurrentStore() {
     ...it,
     sub_category: it.sub_category ? normalizeSub(it.sub_category) : null,
     is_hourly: !!it.is_hourly,
+    // stock alert fields (optional)
+    stock_alert_enabled: !!it.stock_alert_enabled,
+    stock_min: it.stock_min != null ? Number(it.stock_min) : null,
   }));
 }
+
 function normalizeSub(s) {
   const t = String(s || "").trim().toLowerCase();
   if (t === "open inner" || t === "openinner") return "Open Inner";
@@ -286,7 +307,6 @@ function renderRolePill() {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
-
   if (state.session.isManager) {
     btn.style.background = "var(--red)";
     btn.style.color = "#fff";
@@ -294,12 +314,10 @@ function renderRolePill() {
     btn.style.background = "var(--yellow)";
     btn.style.color = "#111";
   }
-
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
     <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
   `;
-
   btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
   host.appendChild(btn);
 }
@@ -321,13 +339,11 @@ function bindDrawer() {
   const btnClose = $("#btnDrawerClose");
 
   if (btnMenu) btnMenu.addEventListener("click", (e) => { e.preventDefault(); openDrawer(); });
-
   if (backdrop) {
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) closeDrawer();
     });
   }
-
   if (btnClose) btnClose.addEventListener("click", (e) => { e.preventDefault(); closeDrawer(); });
 
   const bind = (id, fn) => {
@@ -336,7 +352,7 @@ function bindDrawer() {
   };
 
   bind("#drawerHome", () => goHome());
-  bind("#drawerAlerts", () => setView({ page: "alerts" }, true));
+  bind("#drawerAlerts", () => setView({ page: "stockAlerts" }, true));
   bind("#drawerManager", () => setView({ page: "manager" }, true));
   bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
   bind("#drawerWISR", () => setView({ page: "wisr" }, true));
@@ -344,6 +360,14 @@ function bindDrawer() {
 }
 function openDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.remove("hidden"); }
 function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
+
+/* rename Alerts -> Stock Alert + dot */
+function updateDrawerAlertLabel(hasDot) {
+  const el = $("#drawerAlerts");
+  if (!el) return;
+  const dot = hasDot ? " •" : "";
+  el.textContent = `📦 Stock Alert${dot}`;
+}
 
 /* =========================================================
    MODAL + TOAST
@@ -440,7 +464,6 @@ function maybeShowExpiryPopup(force) {
 function renderLoginPage() {
   const main = $("#main");
   const s = state.session;
-
   const storePick = s.store || "PDD";
 
   main.innerHTML = `
@@ -476,33 +499,12 @@ function renderLoginPage() {
     const a = $("#pickPDD");
     const b = $("#pickSKH");
 
-    // default white
-    if (a) {
-      a.style.background = "#fff";
-      a.style.color = "#111";
-      a.style.border = "1px solid var(--line)";
-      a.style.opacity = "1";
-    }
-    if (b) {
-      b.style.background = "#fff";
-      b.style.color = "#111";
-      b.style.border = "1px solid var(--line)";
-      b.style.opacity = "1";
-    }
+    if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
+    if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
 
-    // selected highlight
-    if (pick === "PDD" && a) {
-      a.style.background = "var(--pdd)";
-      a.style.color = "#fff";
-      a.style.border = "0";
-    }
-    if (pick === "SKH" && b) {
-      b.style.background = "var(--skh)";
-      b.style.color = "#fff";
-      b.style.border = "0";
-    }
+    if (pick === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
+    if (pick === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
   };
-
   applyStoreBtnUI();
 
   $("#pickPDD").addEventListener("click", () => { pick = "PDD"; applyStoreBtnUI(); });
@@ -523,6 +525,7 @@ function renderLoginPage() {
 
     try {
       await loadAllForCurrentStore();
+      await refreshStockDot().catch(() => {});
       renderRolePill();
       updateSessionLine();
 
@@ -641,7 +644,7 @@ function render() {
     case "login": return renderLoginPage();
     case "home": return renderHome();
     case "category": return renderCategory();
-    case "alerts": return renderAlerts();
+    case "stockAlerts": return renderStockAlerts();
     case "summaryHome": return renderSummaryHome();
     case "summaryList": return renderSummaryList();
     case "wisr": return renderWISR();
@@ -671,8 +674,8 @@ function renderHome() {
       const tone = tileToneFor(name);
       return `
       <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(name)}" type="button">
-        <div class="emoji">${emoji}</div>
-        <div class="title">${escapeHtml(name)}</div>
+        <div class="emoji" style="font-size:54px">${emoji}</div>
+        <div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(name)}</div>
         <div class="sub">${counts[name] || 0} items</div>
       </button>
     `;
@@ -708,6 +711,9 @@ function tileToneFor(name) {
   return map[name] || "t-pink";
 }
 
+/* =======================
+   PART 1 ends here
+   ======================= */
 /* =========================================================
    CATEGORY
    ========================================================= */
@@ -715,6 +721,7 @@ function renderCategory() {
   const main = $("#main");
   const cat = state.view.category;
 
+  // Sauce sub-menu
   if (cat === "Sauce" && !state.view.sauceSub) {
     const tiles = SAUCE_SUBS
       .map((s, idx) => {
@@ -796,7 +803,7 @@ function itemKey(it) {
 }
 
 function shelfLifeModeFor(it, cat) {
-  // ✅ hourly wins
+  // hourly wins
   if (it.is_hourly) return { mode: "HOURLY", life: 0 };
 
   const life = Number(it.shelf_life_days || 0);
@@ -809,16 +816,376 @@ function shelfLifeModeFor(it, cat) {
   return { mode: "PRESET", life };
 }
 
+/* ---------- slider date picker (themed) ---------- */
+function openDateSliderModal({ title, initialISO, minISO, onPick }) {
+  const base = initialISO || todayISO();
+  const min = minISO || todayISO();
+
+  const dt = new Date(base + "T00:00:00");
+  let d = dt.getDate();
+  let m = dt.getMonth() + 1;
+  let y = dt.getFullYear();
+
+  const minDt = new Date(min + "T00:00:00");
+
+  const years = [];
+  const nowY = new Date().getFullYear();
+  for (let yy = nowY; yy <= nowY + 5; yy++) years.push(yy);
+
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  function daysInMonth(year, month) {
+    return new Date(year, month, 0).getDate();
+  }
+
+  function clampDay() {
+    const maxD = daysInMonth(y, m);
+    if (d > maxD) d = maxD;
+    if (d < 1) d = 1;
+  }
+
+  function toISO() {
+    clampDay();
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+
+  function isAllowed(iso) {
+    const t = new Date(iso + "T00:00:00");
+    return t >= minDt;
+  }
+
+  openModal(
+    title || "Pick date",
+    `
+      <div class="card">
+        <div style="font-weight:1200;margin-bottom:8px">Select date</div>
+
+        <div style="display:flex;gap:10px;margin-top:10px">
+          <div style="flex:1">
+            <div class="muted" style="font-weight:1000;margin-bottom:6px">Day</div>
+            <input id="sdDay" class="input" type="range" min="1" max="31" value="${d}">
+            <div id="sdDayVal" style="font-weight:1200;text-align:center">${d}</div>
+          </div>
+
+          <div style="flex:1">
+            <div class="muted" style="font-weight:1000;margin-bottom:6px">Month</div>
+            <input id="sdMon" class="input" type="range" min="1" max="12" value="${m}">
+            <div id="sdMonVal" style="font-weight:1200;text-align:center">${m}</div>
+          </div>
+
+          <div style="flex:1">
+            <div class="muted" style="font-weight:1000;margin-bottom:6px">Year</div>
+            <input id="sdYear" class="input" type="range" min="${years[0]}" max="${years[years.length-1]}" value="${y}">
+            <div id="sdYearVal" style="font-weight:1200;text-align:center">${y}</div>
+          </div>
+        </div>
+
+        <div id="sdPreview" style="margin-top:12px;font-weight:1200;font-size:18px">
+          ${escapeHtml(formatLongDMY(toISO()))}
+        </div>
+        <div id="sdWarn" class="muted" style="margin-top:6px;font-weight:1100"></div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="sdCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="sdOk" class="btn btn-red" style="flex:1">OK</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  const dayEl = $("#sdDay");
+  const monEl = $("#sdMon");
+  const yearEl = $("#sdYear");
+
+  const dayVal = $("#sdDayVal");
+  const monVal = $("#sdMonVal");
+  const yearVal = $("#sdYearVal");
+  const prev = $("#sdPreview");
+  const warn = $("#sdWarn");
+
+  function refresh() {
+    d = Number(dayEl.value || d);
+    m = Number(monEl.value || m);
+    y = Number(yearEl.value || y);
+
+    clampDay();
+
+    dayEl.max = String(daysInMonth(y, m));
+    dayEl.value = String(d);
+
+    dayVal.textContent = String(d);
+    monVal.textContent = String(m);
+    yearVal.textContent = String(y);
+
+    const iso = toISO();
+    prev.textContent = formatLongDMY(iso);
+
+    if (!isAllowed(iso)) {
+      warn.textContent = "⚠️ You cannot select past dates.";
+      $("#sdOk").disabled = true;
+      $("#sdOk").classList.add("is-disabled");
+    } else {
+      warn.textContent = "";
+      $("#sdOk").disabled = false;
+      $("#sdOk").classList.remove("is-disabled");
+    }
+  }
+
+  dayEl.addEventListener("input", refresh);
+  monEl.addEventListener("input", refresh);
+  yearEl.addEventListener("input", refresh);
+  refresh();
+
+  $("#sdCancel").addEventListener("click", closeModal);
+  $("#sdOk").addEventListener("click", () => {
+    const iso = toISO();
+    if (!isAllowed(iso)) return;
+    closeModal();
+    onPick && onPick(iso);
+  });
+}
+
+/* ---------- Add Date popup (Earliest + Latest) ---------- */
+function openAddDateModal({ it, cat, key }) {
+  const d = state.drafts[key] || (state.drafts[key] = {});
+  d.earliestISO = d.earliestISO || "";
+  d.latestISO = d.latestISO || "";
+  d.earliestQty = d.earliestQty || 0;
+  d.latestQty = d.latestQty || 0;
+
+  const rule = shelfLifeModeFor(it, cat);
+
+  // allowed options
+  const today = todayISO();
+  let presetMax = 1;
+  if (rule.mode === "PRESET") presetMax = Math.max(1, Math.min(7, Number(rule.life) || 1));
+
+  const presetOptions = Array.from({ length: presetMax }, (_, i) => {
+    const iso = addDaysISO(today, i);
+    return `<option value="${escapeHtml(iso)}">${escapeHtml(formatLongDMY(iso))}</option>`;
+  }).join("");
+
+  const blockPast = today;
+
+  openModal(
+    "Add Date (2nd Expiry)",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(it.name)}</div>
+
+        <div class="muted" style="font-weight:1000;margin-bottom:12px">
+          Set 2 expiry dates + quantities (Earliest & Latest).
+        </div>
+
+        <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
+          <div style="font-weight:1200;margin-bottom:8px">Earliest expiry</div>
+
+          ${rule.mode === "HOURLY"
+            ? `<div class="muted" style="font-weight:1000">Hourly items cannot use Add Date.</div>`
+            : rule.mode === "EOD_AUTO"
+            ? `<div class="muted" style="font-weight:1000">Chicken Bacon (c) is auto today (EOD).</div>`
+            : rule.mode === "MANUAL"
+            ? `
+              <button id="earPick" class="btn btn-yellow" style="width:100%">Pick date</button>
+              <div id="earShow" style="margin-top:8px;font-weight:1200">${d.earliestISO ? escapeHtml(formatLongDMY(d.earliestISO)) : "Not set"}</div>
+            `
+            : `
+              <select id="earSel" class="select">
+                <option value="">Select</option>
+                ${presetOptions}
+              </select>
+              <button id="earManual" class="btn btn-ghost" style="width:100%;margin-top:8px">Manual pick</button>
+              <div id="earShow" style="margin-top:8px;font-weight:1200">${d.earliestISO ? escapeHtml(formatLongDMY(d.earliestISO)) : "Not set"}</div>
+            `
+          }
+
+          <div style="margin-top:10px;font-weight:1200">Qty</div>
+          <input id="earQty" class="input" inputmode="numeric" value="${escapeHtml(d.earliestQty || 0)}">
+        </div>
+
+        <div style="height:12px"></div>
+
+        <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
+          <div style="font-weight:1200;margin-bottom:8px">Latest expiry</div>
+
+          ${rule.mode === "HOURLY"
+            ? ``
+            : rule.mode === "EOD_AUTO"
+            ? ``
+            : rule.mode === "MANUAL"
+            ? `
+              <button id="latPick" class="btn btn-yellow" style="width:100%">Pick date</button>
+              <div id="latShow" style="margin-top:8px;font-weight:1200">${d.latestISO ? escapeHtml(formatLongDMY(d.latestISO)) : "Not set"}</div>
+            `
+            : `
+              <select id="latSel" class="select">
+                <option value="">Select</option>
+                ${presetOptions}
+              </select>
+              <button id="latManual" class="btn btn-ghost" style="width:100%;margin-top:8px">Manual pick</button>
+              <div id="latShow" style="margin-top:8px;font-weight:1200">${d.latestISO ? escapeHtml(formatLongDMY(d.latestISO)) : "Not set"}</div>
+            `
+          }
+
+          <div style="margin-top:10px;font-weight:1200">Qty</div>
+          <input id="latQty" class="input" inputmode="numeric" value="${escapeHtml(d.latestQty || 0)}">
+        </div>
+
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          Note: Past dates are blocked.
+        </div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="adCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="adOk" class="btn btn-red" style="flex:1">Done</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  if (rule.mode === "HOURLY") {
+    $("#adCancel").addEventListener("click", closeModal);
+    $("#adOk").addEventListener("click", closeModal);
+    return;
+  }
+  if (rule.mode === "EOD_AUTO") {
+    // earliest/latest fixed today; only qty matters
+    $("#earQty").addEventListener("input", () => (d.earliestQty = Number($("#earQty").value || 0)));
+    $("#latQty").addEventListener("input", () => (d.latestQty = Number($("#latQty").value || 0)));
+    $("#adCancel").addEventListener("click", closeModal);
+    $("#adOk").addEventListener("click", () => {
+      d.earliestISO = todayISO();
+      d.latestISO = todayISO();
+      closeModal();
+      toast("Added date ✅");
+    });
+    return;
+  }
+
+  const setShow = (id, iso) => {
+    const el = $(id);
+    if (!el) return;
+    el.textContent = iso ? formatLongDMY(iso) : "Not set";
+  };
+
+  // Earliest bindings
+  const earSel = $("#earSel");
+  if (earSel) {
+    earSel.value = d.earliestISO || "";
+    earSel.addEventListener("change", () => {
+      d.earliestISO = String(earSel.value || "");
+      setShow("#earShow", d.earliestISO);
+    });
+  }
+  const earManual = $("#earManual");
+  if (earManual) {
+    earManual.addEventListener("click", () => {
+      openDateSliderModal({
+        title: "Pick Earliest expiry",
+        initialISO: d.earliestISO || todayISO(),
+        minISO: blockPast,
+        onPick: (iso) => {
+          d.earliestISO = iso;
+          setShow("#earShow", iso);
+        },
+      });
+    });
+  }
+  const earPick = $("#earPick");
+  if (earPick) {
+    earPick.addEventListener("click", () => {
+      openDateSliderModal({
+        title: "Pick Earliest expiry",
+        initialISO: d.earliestISO || todayISO(),
+        minISO: blockPast,
+        onPick: (iso) => {
+          d.earliestISO = iso;
+          setShow("#earShow", iso);
+        },
+      });
+    });
+  }
+
+  // Latest bindings
+  const latSel = $("#latSel");
+  if (latSel) {
+    latSel.value = d.latestISO || "";
+    latSel.addEventListener("change", () => {
+      d.latestISO = String(latSel.value || "");
+      setShow("#latShow", d.latestISO);
+    });
+  }
+  const latManual = $("#latManual");
+  if (latManual) {
+    latManual.addEventListener("click", () => {
+      openDateSliderModal({
+        title: "Pick Latest expiry",
+        initialISO: d.latestISO || todayISO(),
+        minISO: blockPast,
+        onPick: (iso) => {
+          d.latestISO = iso;
+          setShow("#latShow", iso);
+        },
+      });
+    });
+  }
+  const latPick = $("#latPick");
+  if (latPick) {
+    latPick.addEventListener("click", () => {
+      openDateSliderModal({
+        title: "Pick Latest expiry",
+        initialISO: d.latestISO || todayISO(),
+        minISO: blockPast,
+        onPick: (iso) => {
+          d.latestISO = iso;
+          setShow("#latShow", iso);
+        },
+      });
+    });
+  }
+
+  $("#earQty").addEventListener("input", () => (d.earliestQty = Number($("#earQty").value || 0)));
+  $("#latQty").addEventListener("input", () => (d.latestQty = Number($("#latQty").value || 0)));
+
+  $("#adCancel").addEventListener("click", closeModal);
+  $("#adOk").addEventListener("click", () => {
+    // validate
+    const eq = Number(d.earliestQty || 0);
+    const lq = Number(d.latestQty || 0);
+
+    if ((eq > 0 && !d.earliestISO) || (lq > 0 && !d.latestISO)) {
+      toast("Set date for qty > 0");
+      return;
+    }
+
+    // prevent past dates
+    if (d.earliestISO && d.earliestISO < blockPast) return toast("Earliest cannot be past");
+    if (d.latestISO && d.latestISO < blockPast) return toast("Latest cannot be past");
+
+    // also ensure earliest <= latest if both
+    if (d.earliestISO && d.latestISO && d.earliestISO > d.latestISO) {
+      toast("Earliest must be before Latest");
+      return;
+    }
+
+    closeModal();
+    toast("Added date ✅");
+  });
+}
+
+/* ---------- item editor card ---------- */
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
-  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "" };
+  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "", extraOpen: false, earliestISO: "", latestISO: "", earliestQty: 0, latestQty: 0 };
   const d = state.drafts[key];
 
   const rule = shelfLifeModeFor(it, cat);
   let expiryUI = "";
 
   if (rule.mode === "HOURLY") {
-    const opts = TIME_15.map(
+    const opts = HOURLY_7AM_11PM.map(
       (o) => `<option value="${escapeHtml(o.value)}"${d.expTime15 === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`
     ).join("");
 
@@ -833,10 +1200,11 @@ function renderItemEditor(it, cat) {
   } else if (rule.mode === "EOD_AUTO") {
     expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
   } else if (rule.mode === "MANUAL") {
+    // replace <input type="date"> with slider button
     expiryUI = `
       <label class="label">Expiry date</label>
-      <input class="select" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}">
-      <div class="edit-helper">Manual date</div>
+      <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
+      <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Manual date"}</div>
     `;
   } else {
     const today = todayISO();
@@ -854,16 +1222,30 @@ function renderItemEditor(it, cat) {
         ${opts}
         <option value="MANUAL"${d.expType==="MANUAL"?" selected":""}>Manual (pick date)</option>
       </select>
-      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType==="MANUAL" ? "" : "hidden"}">
-        <input class="select" type="date" data-expdate="${escapeHtml(key)}" value="${escapeHtml(d.expDateISO || "")}">
+      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType==="MANUAL" ? "" : "hidden"}" style="margin-top:8px">
+        <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
+        <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : ""}</div>
       </div>
       <div class="edit-helper">Preset dates (from shelf life)</div>
     `;
   }
 
+  // "+ Date" button (not for HOURLY)
+  const addDateBtn = (rule.mode === "HOURLY")
+    ? ""
+    : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
+
+  const extraBadge = (d.earliestQty > 0 || d.latestQty > 0)
+    ? `<div class="muted" style="font-weight:1100;margin-top:6px">Extra: ${d.earliestQty||0} / ${d.latestQty||0}</div>`
+    : "";
+
   return `
     <div class="edit-card" data-key="${escapeHtml(key)}">
-      <div class="edit-name">${escapeHtml(it.name)}</div>
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div class="edit-name">${escapeHtml(it.name)}</div>
+        ${addDateBtn}
+      </div>
+      ${extraBadge}
 
       <div class="edit-row">
         <div class="qty-stepper">
@@ -886,15 +1268,16 @@ function bindItemEditors(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || (state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "" });
+    const d = state.drafts[key] || (state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "", extraOpen: false, earliestISO: "", latestISO: "", earliestQty: 0, latestQty: 0 });
 
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
     const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
     const qty = $(`[data-qty="${cssEsc(key)}"]`, root);
 
     const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root);
-    const date = $(`[data-expdate="${cssEsc(key)}"]`, root);
     const timeSel = $(`[data-exptime="${cssEsc(key)}"]`, root);
+    const pickBtn = $(`[data-pickdate="${cssEsc(key)}"]`, root);
+    const addDate = $(`[data-adddate="${cssEsc(key)}"]`, root);
 
     updateQtyUI(root, key);
 
@@ -937,51 +1320,117 @@ function bindItemEditors(items, cat) {
       }
     });
 
-    if (date) date.addEventListener("change", () => {
-      d.expDateISO = String(date.value || "");
-      if (!d.expType) d.expType = "MANUAL";
+    if (pickBtn) pickBtn.addEventListener("click", () => {
+      openDateSliderModal({
+        title: "Pick expiry date",
+        initialISO: d.expDateISO || todayISO(),
+        minISO: todayISO(),
+        onPick: (iso) => {
+          d.expDateISO = iso;
+          if (!d.expType) d.expType = "MANUAL";
+          // re-render this page so the helper text updates
+          render();
+        },
+      });
+    });
+
+    if (addDate) addDate.addEventListener("click", () => {
+      openAddDateModal({ it, cat, key });
     });
   }
 }
 
+/* ---------- save category (includes Add Date rows) ---------- */
 async function saveCategory(items, cat) {
   const store = state.session.store;
   const staff = state.session.staff;
   const shift = state.session.shift;
-
   const today = todayISO();
 
   const rows = [];
+
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "", expTime15: "" };
+    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "", expTime15: "", earliestISO: "", latestISO: "", earliestQty: 0, latestQty: 0 };
+
     const qty = Number(d.qty) || 0;
-    if (qty <= 0) continue;
+    const eq = Number(d.earliestQty) || 0;
+    const lq = Number(d.latestQty) || 0;
 
     const rule = shelfLifeModeFor(it, cat);
 
-    let expiry = null;
-    let expiry_at = null;
+    // main row
+    if (qty > 0) {
+      let expiry = null;
+      let expiry_at = null;
 
-    if (rule.mode === "HOURLY") {
-      if (!d.expTime15) continue; // must choose time
-      expiry = today;
-      expiry_at = isoFromTodayAndTime(d.expTime15);
-    } else if (rule.mode === "EOD_AUTO") {
-      expiry = today;
-    } else {
-      expiry = d.expDateISO || null;
+      if (rule.mode === "HOURLY") {
+        if (!d.expTime15) {
+          toast(`Pick time for ${it.name}`);
+          return;
+        }
+        expiry = today;
+        expiry_at = isoFromTodayAndTime(d.expTime15);
+      } else if (rule.mode === "EOD_AUTO") {
+        expiry = today;
+      } else {
+        expiry = d.expDateISO || null;
+        if (expiry && expiry < today) { toast("Past dates not allowed"); return; }
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: qty,
+        expiry,
+        expiry_at,
+        shift,
+        // mark main
+        is_extra: false,
+      });
     }
 
-    rows.push({
-      item_id: it.id ?? null,
-      item_name: it.name,
-      category: it.category,
-      sub_category: it.sub_category || null,
-      quantity: qty,
-      expiry,
-      expiry_at,
-    });
+    // extra earliest row
+    if (eq > 0) {
+      const expiry = (rule.mode === "EOD_AUTO") ? today : (d.earliestISO || "");
+      if (!expiry) { toast("Set earliest date"); return; }
+      if (expiry < today) { toast("Past dates not allowed"); return; }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: eq,
+        expiry,
+        expiry_at: null,
+        shift,
+        is_extra: true,
+        extra_tag: "EARLIEST",
+      });
+    }
+
+    // extra latest row
+    if (lq > 0) {
+      const expiry = (rule.mode === "EOD_AUTO") ? today : (d.latestISO || "");
+      if (!expiry) { toast("Set latest date"); return; }
+      if (expiry < today) { toast("Past dates not allowed"); return; }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: lq,
+        expiry,
+        expiry_at: null,
+        shift,
+        is_extra: true,
+        extra_tag: "LATEST",
+      });
+    }
   }
 
   if (!rows.length) return toast("Nothing to save");
@@ -989,6 +1438,9 @@ async function saveCategory(items, cat) {
   try {
     await apiPost("/api/log/batch", { store, staff, shift, rows });
     toast("Saved ✅");
+
+    // refresh stock dot after save (optional)
+    await refreshStockDot().catch(() => {});
   } catch (e) {
     console.error(e);
     toast("Save failed");
@@ -996,22 +1448,94 @@ async function saveCategory(items, cat) {
 }
 
 /* =========================================================
-   ALERTS
+   STOCK ALERT PAGE
    ========================================================= */
-function renderAlerts() {
+async function refreshStockDot() {
+  // expects endpoint: /api/stock/low?store=... -> rows
+  const store = state.session.store;
+  try {
+    const r = await apiGet(`/api/stock/low?store=${encodeURIComponent(store)}`);
+    const rows = enforceArray(r).filter((x) => !STOCK_ALERT_EXCLUDE_CATS.has(String(x.category || "")));
+    state.stock.rows = rows;
+    state.stock.hasDot = rows.length > 0;
+    updateDrawerAlertLabel(state.stock.hasDot);
+  } catch {
+    state.stock.rows = [];
+    state.stock.hasDot = false;
+    updateDrawerAlertLabel(false);
+  }
+}
+
+async function renderStockAlerts() {
   const main = $("#main");
+
   main.innerHTML = `
     <div class="page-head">
       <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title">Alerts</div>
+      <div class="page-title">Stock Alert</div>
     </div>
-    <div class="card">
-      <div style="font-weight:1200">Coming soon</div>
-      <div class="muted">We will show expiry alerts here later.</div>
-    </div>
+    <div id="saWrap" class="col"></div>
   `;
   $("#btnBack").addEventListener("click", goBack);
+
+  const wrap = $("#saWrap");
+  wrap.innerHTML = `<div class="card">Loading…</div>`;
+
+  await refreshStockDot().catch(() => {});
+  const rows = state.stock.rows || [];
+
+  if (!rows.length) {
+    wrap.innerHTML = `
+      <div class="card">
+        <div style="font-weight:1200">No low stock ✅</div>
+        <div class="muted" style="margin-top:6px">All items are above minimum.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const grouped = new Map();
+  for (const rr of rows) {
+    const cat = rr.category || "Other";
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat).push(rr);
+  }
+
+  let html = "";
+  for (const [cat, list] of grouped.entries()) {
+    html += `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div>
+        <div class="col" style="gap:10px">
+          ${list
+            .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
+            .map((x) => {
+              const cur = x.current_qty != null ? Number(x.current_qty) : null;
+              const min = x.min_qty != null ? Number(x.min_qty) : null;
+              return `
+                <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+                  <div style="display:flex;justify-content:space-between;gap:10px">
+                    <div style="font-weight:1200">${escapeHtml(x.name)}</div>
+                    <div style="font-weight:1200">${min != null ? `Min ${min}` : ""}</div>
+                  </div>
+                  <div class="muted" style="margin-top:6px;font-weight:1100">
+                    Current: <b>${cur != null ? cur : "?"}</b>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  wrap.innerHTML = html;
 }
+
+/* =========================================================
+   ALERTS (old) — removed
+   ========================================================= */
 
 /* =========================================================
    SUMMARY
@@ -1067,11 +1591,9 @@ function updateSummaryModeButtons() {
   const m = state.view.summaryMode;
   const a = $("#mPDD"), b = $("#mSKH");
 
-  // default white
   if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
   if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
 
-  // selected highlight
   if (m === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
   if (m === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
 }
@@ -1109,7 +1631,6 @@ async function drawSummaryCards() {
   const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
   const rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
 
-  // ✅ daily reset: only counts based on date part
   const todayCount = rows.filter((x) => datePartFromRow(x) === today).length;
   const tomCount = rows.filter((x) => datePartFromRow(x) === tomorrow).length;
   const safeCount = rows.filter((x) => {
@@ -1211,16 +1732,17 @@ async function renderSummaryList() {
             .map((rr) => {
               const dt = formatLongDMY(datePartFromRow(rr));
               const tm = timePartFromRow(rr);
-              const qty = rr.qty != null ? Number(rr.qty) : null;
+              const qty = rr.qty != null ? Number(rr.qty) : (rr.quantity != null ? Number(rr.quantity) : null);
+              const sh = rr.shift ? String(rr.shift) : "";
 
               return `
               <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
                 <div style="display:flex;justify-content:space-between;gap:10px">
-                  <div style="font-weight:1200">${escapeHtml(rr.name)}</div>
+                  <div style="font-weight:1200">${escapeHtml(rr.name || rr.item_name)}</div>
                   <div style="font-weight:1200">${escapeHtml(dt)}</div>
                 </div>
                 <div class="muted" style="margin-top:6px;font-weight:1000;display:flex;justify-content:space-between">
-                  <div>${tm ? `Time: ${escapeHtml(tm)}` : ""}</div>
+                  <div>${tm ? `Time: ${escapeHtml(tm)}` : ""} ${sh ? `• ${escapeHtml(sh)}` : ""}</div>
                   <div>${qty != null ? `Qty: ${qty}` : ""}</div>
                 </div>
               </div>
@@ -1241,6 +1763,9 @@ function bucketTitle(b) {
   return "All Safe";
 }
 
+/* =======================
+   PART 2 ends here
+   ======================= */
 /* =========================================================
    WISR
    ========================================================= */
@@ -1325,7 +1850,10 @@ function openManagerLogin() {
     { noBackdropClose: true }
   );
 
-  $("#pinCancel").addEventListener("click", () => { closeModal(); goBack(); });
+  $("#pinCancel").addEventListener("click", () => {
+    closeModal();
+    goBack();
+  });
 
   $("#pinBtn").addEventListener("click", async () => {
     const pin = String($("#pinInp").value || "").trim();
@@ -1664,9 +2192,9 @@ function openEditCategoryModal(id, currentName) {
 function openAddItemModal() {
   const cats = (state.data.categories || []).map((c) => c.name);
   const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-  const subOpts = [`<option value="">(none)</option>`].concat(
-    SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`)
-  ).join("");
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`))
+    .join("");
 
   openModal(
     "Add Item",
@@ -1724,6 +2252,19 @@ function openAddItemModal() {
 }
 
 /* =========================================================
+   STOCK ALERT — drawer label dot + route glue
+   ========================================================= */
+function updateDrawerAlertLabel(hasDot) {
+  const btn = $("#drawerAlerts");
+  if (!btn) return;
+
+  // replace existing label "Alerts" -> "Stock Alert"
+  btn.innerHTML = hasDot
+    ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
+    : `📦 Stock Alert`;
+}
+
+/* =========================================================
    LOGOUT
    ========================================================= */
 function doLogout() {
@@ -1746,7 +2287,43 @@ function doLogout() {
 }
 
 /* =========================================================
-   UTILS
+   FINAL FIXES / GLOBALS (must exist)
+   ========================================================= */
+
+// 7:00 AM to 11:00 PM only, 15-min steps
+function buildHourly7amTo11pm() {
+  const out = [];
+  for (let h = 7; h <= 23; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      // include 23:00, 23:15, 23:30, 23:45 (11pm hour)
+      const value = `${pad2(h)}:${pad2(m)}`;
+      out.push({ value, label: formatTime12(value) });
+    }
+  }
+  return out;
+}
+const HOURLY_7AM_11PM = buildHourly7amTo11pm();
+
+// Stock alert excludes
+const STOCK_ALERT_EXCLUDE_CATS = new Set(["Sauce", "Front counter"]);
+
+// Stock state (safe)
+state.stock = state.stock || { rows: [], hasDot: false };
+
+// Route glue: make drawer Alerts open Stock Alert screen
+// If your PART 1 render() still calls renderAlerts(), this will hijack it safely.
+function renderAlerts() {
+  return renderStockAlerts();
+}
+
+// Make sure drawer label is correct on load
+try {
+  updateDrawerAlertLabel(false);
+  refreshStockDot().catch(() => {});
+} catch {}
+
+/* =========================================================
+   UTILS (must be last in your file)
    ========================================================= */
 function escapeHtml(s) {
   return String(s ?? "")
@@ -1793,4 +2370,4 @@ function updateQtyUI(root, key) {
     dec.disabled = disabled;
     dec.classList.toggle("is-disabled", disabled);
   }
-         }
+}
