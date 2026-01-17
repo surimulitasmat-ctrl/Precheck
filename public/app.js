@@ -217,7 +217,6 @@ function timePartFromRow(row) {
     return "";
   }
 }
-
 /* =========================================================
    API
    ========================================================= */
@@ -368,7 +367,6 @@ function updateDrawerAlertLabel(hasDot) {
   const dot = hasDot ? " •" : "";
   el.textContent = `📦 Stock Alert${dot}`;
 }
-
 /* =========================================================
    MODAL + TOAST
    ========================================================= */
@@ -540,7 +538,6 @@ function renderLoginPage() {
     }
   });
 }
-
 /* =========================================================
    NAVIGATION
    ========================================================= */
@@ -710,10 +707,6 @@ function tileToneFor(name) {
   };
   return map[name] || "t-pink";
 }
-
-/* =======================
-   PART 1 ends here
-   ======================= */
 /* =========================================================
    CATEGORY
    ========================================================= */
@@ -815,36 +808,50 @@ function shelfLifeModeFor(it, cat) {
 
   return { mode: "PRESET", life };
 }
-
-/* ---------- Wheel date picker (Day/Month/Year) ---------- */
 /* =========================================================
-   DATE WHEEL PICKER (iOS-style)
+   DATE WHEEL PICKER (iOS-style) — FIXED ✅
+   (Removed the old duplicated slider code that caused: Unexpected token '}')
    ========================================================= */
-
 function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const today = todayISO();
   const min = (minISO || today).slice(0, 10);
   const max = (maxISO || addDaysISO(today, 365 * 5)).slice(0, 10);
-
   const init = (initialISO || min).slice(0, 10);
 
   const minDt = new Date(min + "T00:00:00");
   const maxDt = new Date(max + "T00:00:00");
 
-  let cur = new Date(init + "T00:00:00");
-  if (isNaN(cur)) cur = new Date(min + "T00:00:00");
-  if (cur < minDt) cur = minDt;
-  if (cur > maxDt) cur = maxDt;
+  function parseISO(iso) {
+    const d = new Date(String(iso).slice(0, 10) + "T00:00:00");
+    return isNaN(d) ? null : d;
+  }
+  function clamp(dt) {
+    if (dt < minDt) return new Date(minDt);
+    if (dt > maxDt) return new Date(maxDt);
+    return dt;
+  }
+
+  let cur = clamp(parseISO(init) || parseISO(min) || new Date());
 
   const yearMin = minDt.getFullYear();
   const yearMax = maxDt.getFullYear();
-
   const years = [];
-  for (let y = yearMin; y <= yearMax; y++) years.push(y);
+  for (let yy = yearMin; yy <= yearMax; yy++) years.push(yy);
 
   function daysInMonth(y, m) {
-    return new Date(y, m, 0).getDate();
+    return new Date(y, m, 0).getDate(); // m = 1..12
   }
+  function toISO(y, m, d) {
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+  function inRangeISO(iso) {
+    return iso >= min && iso <= max;
+  }
+
+  // current parts
+  let y = cur.getFullYear();
+  let m = cur.getMonth() + 1;
+  let d = cur.getDate();
 
   openModal(
     title || "Select date",
@@ -852,7 +859,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     <div class="pc-wheel">
       <div class="pc-wheel-head">
         <div class="pc-wheel-title">${escapeHtml(title || "Select date")}</div>
-        <button class="pc-wheel-x" id="wheelX">✕</button>
+        <button class="pc-wheel-x" type="button" id="wheelX">✕</button>
       </div>
 
       <div class="pc-wheel-cols">
@@ -860,20 +867,23 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
           <div class="pc-wheel-label">Day</div>
           <div class="pc-wheel-list" id="wheelDay"></div>
         </div>
+
         <div class="pc-wheel-col">
           <div class="pc-wheel-label">Month</div>
           <div class="pc-wheel-list" id="wheelMon"></div>
         </div>
+
         <div class="pc-wheel-col">
           <div class="pc-wheel-label">Year</div>
           <div class="pc-wheel-list" id="wheelYear"></div>
         </div>
-        <div class="pc-wheel-highlight"></div>
+
+        <div class="pc-wheel-highlight" aria-hidden="true"></div>
       </div>
 
       <div class="pc-wheel-actions">
-        <button class="pc-wheel-btn cancel" id="wheelCancel">Cancel</button>
-        <button class="pc-wheel-btn ok" id="wheelOk">Set date</button>
+        <button class="pc-wheel-btn cancel" type="button" id="wheelCancel">Cancel</button>
+        <button class="pc-wheel-btn ok" type="button" id="wheelOk">Set date</button>
       </div>
     </div>
     `,
@@ -886,87 +896,27 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const dayEl = $("#wheelDay");
   const monEl = $("#wheelMon");
   const yearEl = $("#wheelYear");
+  const okEl = $("#wheelOk");
 
-  let y = cur.getFullYear();
-  let m = cur.getMonth() + 1;
-  let d = cur.getDate();
+  const monthLabel = (mm) => new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
 
-  function render() {
-    const dim = daysInMonth(y, m);
-
-    dayEl.innerHTML = `
-      <div class="pc-wheel-pad"></div>
-      ${Array.from({ length: dim }, (_, i) =>
-        `<button class="pc-wheel-item ${i+1===d?"active":""}" data-v="${i+1}">${i+1}</button>`
-      ).join("")}
-      <div class="pc-wheel-pad"></div>
-    `;
-
-    monEl.innerHTML = `
-      <div class="pc-wheel-pad"></div>
-      ${Array.from({ length: 12 }, (_, i) =>
-        `<button class="pc-wheel-item ${i+1===m?"active":""}" data-v="${i+1}">
-          ${new Date(2000, i, 1).toLocaleString("en",{month:"long"})}
-        </button>`
-      ).join("")}
-      <div class="pc-wheel-pad"></div>
-    `;
-
-    yearEl.innerHTML = `
-      <div class="pc-wheel-pad"></div>
-      ${years.map(v =>
-        `<button class="pc-wheel-item ${v===y?"active":""}" data-v="${v}">${v}</button>`
-      ).join("")}
-      <div class="pc-wheel-pad"></div>
-    `;
-
-    bindWheel(dayEl, v => d = Number(v));
-    bindWheel(monEl, v => { m = Number(v); if (d > daysInMonth(y,m)) d = daysInMonth(y,m); });
-    bindWheel(yearEl, v => { y = Number(v); if (d > daysInMonth(y,m)) d = daysInMonth(y,m); });
-  }
-
-  function bindWheel(el, onPickVal) {
-    $$(".pc-wheel-item", el).forEach(btn => {
-      btn.onclick = () => {
-        onPickVal(btn.dataset.v);
-        render();
-      };
-    });
-  }
-
-  render();
-
-  $("#wheelOk").addEventListener("click", () => {
-    const iso = `${y}-${pad2(m)}-${pad2(d)}`;
-    if (iso < min || iso > max) return;
-    closeModal();
-    onPick && onPick(iso);
-  });
-}
-
-/* BACKWARD COMPATIBILITY — DO NOT REMOVE */
-function openDateSliderModal(opts) {
-  return openDateWheelModal(opts);
-}
-
-
-  function scrollToValue(container, v) {
-    const items = $$(".pc-wheel-item", container);
-    const idx = items.findIndex(x => x.dataset.v === String(v));
-    if (idx < 0) return;
-    const target = items[idx];
-    const top = target.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2);
+  function scrollToActive(container) {
+    const active = container.querySelector(".pc-wheel-item.active");
+    if (!active) return;
+    const top = active.offsetTop - (container.clientHeight / 2) + (active.clientHeight / 2);
     container.scrollTo({ top, behavior: "smooth" });
   }
 
-  function snap(container) {
-    const items = $$(".pc-wheel-item", container);
+  function snapToClosest(container) {
+    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
     if (!items.length) return;
 
     const center = container.scrollTop + container.clientHeight / 2;
-    let best = items[0], bestDist = Infinity;
+    let best = null;
+    let bestDist = Infinity;
 
     for (const it of items) {
+      if (it.classList.contains("dim")) continue;
       const itCenter = it.offsetTop + it.clientHeight / 2;
       const dist = Math.abs(itCenter - center);
       if (dist < bestDist) {
@@ -974,135 +924,103 @@ function openDateSliderModal(opts) {
         best = it;
       }
     }
-
-    const top = best.offsetTop - (container.clientHeight / 2) + (best.clientHeight / 2);
-    container.scrollTo({ top, behavior: "smooth" });
-    return best.dataset.v;
+    if (!best) return;
+    best.click();
   }
 
-  function getSelected(container) {
-    const v = snap(container);
-    // mark selected style
-    $$(".pc-wheel-item", container).forEach(x => x.classList.toggle("is-selected", x.dataset.v === v));
-    return v;
+  function bindWheel(container, onPickVal) {
+    $$(".pc-wheel-item", container).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.classList.contains("dim")) return;
+        onPickVal(btn.dataset.v);
+        renderWheel();
+      });
+    });
+
+    let t = null;
+    container.addEventListener("scroll", () => {
+      clearTimeout(t);
+      t = setTimeout(() => snapToClosest(container), 90);
+    });
   }
 
-  function daysInMonth(y, m) {
-    return new Date(y, m, 0).getDate(); // m = 1..12
+  function setOkEnabled() {
+    const iso = toISO(y, m, d);
+    okEl.disabled = !inRangeISO(iso);
   }
 
-  function rebuildDays() {
-    const y = Number(getSelected(yearEl) || cur.getFullYear());
-    const m = Number(getSelected(monEl) || (cur.getMonth() + 1));
-    const maxD = daysInMonth(y, m);
+  function renderWheel() {
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+    if (d < 1) d = 1;
 
-    const currentDay = Number(getSelected(dayEl) || cur.getDate());
-    const days = [];
-    for (let d = 1; d <= maxD; d++) days.push(d);
+    // Day
+    dayEl.innerHTML = `
+      <div class="pc-wheel-pad"></div>
+      ${Array.from({ length: dim }, (_, i) => {
+        const dd = i + 1;
+        const iso = toISO(y, m, dd);
+        const active = dd === d ? "active" : "";
+        const dimCls = inRangeISO(iso) ? "" : "dim";
+        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${dd}">${dd}</button>`;
+      }).join("")}
+      <div class="pc-wheel-pad"></div>
+    `;
 
-    buildWheel(dayEl, days, (d) => String(d));
+    // Month
+    monEl.innerHTML = `
+      <div class="pc-wheel-pad"></div>
+      ${Array.from({ length: 12 }, (_, i) => {
+        const mm = i + 1;
+        const isoStart = toISO(y, mm, 1);
+        const isoEnd = toISO(y, mm, daysInMonth(y, mm));
+        const dimCls = (isoEnd < min || isoStart > max) ? "dim" : "";
+        const active = mm === m ? "active" : "";
+        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${mm}">${escapeHtml(monthLabel(mm))}</button>`;
+      }).join("")}
+      <div class="pc-wheel-pad"></div>
+    `;
 
-    // keep nearest day
-    const safeDay = Math.min(currentDay, maxD);
-    scrollToValue(dayEl, String(safeDay));
-    getSelected(dayEl);
+    // Year
+    yearEl.innerHTML = `
+      <div class="pc-wheel-pad"></div>
+      ${years.map((yy) => {
+        const isoStart = toISO(yy, 1, 1);
+        const isoEnd = toISO(yy, 12, 31);
+        const dimCls = (isoEnd < min || isoStart > max) ? "dim" : "";
+        const active = yy === y ? "active" : "";
+        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${yy}">${yy}</button>`;
+      }).join("")}
+      <div class="pc-wheel-pad"></div>
+    `;
+
+    bindWheel(dayEl, (v) => (d = Number(v)));
+    bindWheel(monEl, (v) => (m = Number(v)));
+    bindWheel(yearEl, (v) => (y = Number(v)));
+
+    setOkEnabled();
+
+    setTimeout(() => {
+      scrollToActive(dayEl);
+      scrollToActive(monEl);
+      scrollToActive(yearEl);
+    }, 0);
   }
 
-  function currentISO() {
-    const y = Number(getSelected(yearEl));
-    const m = Number(getSelected(monEl));
-    const d = Number(getSelected(dayEl));
-    if (!y || !m || !d) return "";
-    return `${y}-${pad2(m)}-${pad2(d)}`;
-  }
+  renderWheel();
 
-  function validate() {
-    // ensure selected classes set
-    getSelected(yearEl); getSelected(monEl); getSelected(dayEl);
-
-    const iso = currentISO();
-    if (!iso) return;
-
-    const dt = new Date(iso + "T00:00:00");
-    const badMin = dt < minDt;
-    const badMax = dt > maxDt;
-
-    if (badMin) {
-      noteEl.textContent = `Date cannot be before ${formatLongDMY(min)}.`;
-      okEl.disabled = true;
-      okEl.classList.add("is-disabled");
-      return;
-    }
-    if (badMax) {
-      noteEl.textContent = `Date cannot be after ${formatLongDMY(max)}.`;
-      okEl.disabled = true;
-      okEl.classList.add("is-disabled");
-      return;
-    }
-
-    noteEl.textContent = "";
-    okEl.disabled = false;
-    okEl.classList.remove("is-disabled");
-  }
-
-  // Build month wheel (1..12 but show names)
-  buildWheel(monEl, Array.from({ length: 12 }, (_, i) => i + 1), (m) => monthNames[m - 1]);
-  buildWheel(yearEl, years, (y) => String(y));
-  // Day wheel builds after month/year
-  buildWheel(dayEl, [1], (d) => String(d));
-
-  // Initial position
-  scrollToValue(yearEl, String(cur.getFullYear()));
-  scrollToValue(monEl, String(cur.getMonth() + 1));
-
-  // Wait a tick then build days correctly
-  setTimeout(() => {
-    getSelected(yearEl);
-    getSelected(monEl);
-    rebuildDays();
-    scrollToValue(dayEl, String(cur.getDate()));
-    validate();
-  }, 0);
-
-  // When month/year changes, rebuild days
-  let syT = null;
-  yearEl.addEventListener("scroll", () => {
-    clearTimeout(syT);
-    syT = setTimeout(() => { getSelected(yearEl); rebuildDays(); validate(); }, 90);
-  });
-  monEl.addEventListener("scroll", () => {
-    clearTimeout(syT);
-    syT = setTimeout(() => { getSelected(monEl); rebuildDays(); validate(); }, 90);
-  });
-  dayEl.addEventListener("scroll", () => {
-    clearTimeout(syT);
-    syT = setTimeout(() => { getSelected(dayEl); validate(); }, 90);
-  });
-
-  // OK
   okEl.addEventListener("click", () => {
-    const iso = currentISO();
-    if (!iso) return;
-    const dt = new Date(iso + "T00:00:00");
-    if (dt < minDt || dt > maxDt) return;
+    const iso = toISO(y, m, d);
+    if (!inRangeISO(iso)) return;
     closeModal();
     onPick && onPick(iso);
   });
-
-  // ---- helpers ----
-  function parseISO(iso) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").slice(0, 10));
-    if (!m) return null;
-    const dt = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
-    return isNaN(dt.getTime()) ? null : dt;
-  }
-  function clampToRange(dt, minD, maxD) {
-    if (dt < minD) return new Date(minD);
-    if (dt > maxD) return new Date(maxD);
-    return dt;
-  }
 }
 
+/* Backward compatible alias */
+function openDateSliderModal(opts) {
+  return openDateWheelModal(opts);
+}
 
 /* ---------- Add Date popup (Earliest + Latest) ---------- */
 function openAddDateModal({ it, cat, key }) {
@@ -1240,7 +1158,7 @@ function openAddDateModal({ it, cat, key }) {
   const earManual = $("#earManual");
   if (earManual) {
     earManual.addEventListener("click", () => {
-     openDateWheelModal({
+      openDateWheelModal({
         title: "Pick Earliest expiry",
         initialISO: d.earliestISO || todayISO(),
         minISO: blockPast,
@@ -1336,7 +1254,19 @@ function openAddDateModal({ it, cat, key }) {
 /* ---------- item editor card ---------- */
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
-  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "", extraOpen: false, earliestISO: "", latestISO: "", earliestQty: 0, latestQty: 0 };
+  if (!state.drafts[key]) {
+    state.drafts[key] = {
+      qty: 0,
+      expType: "",
+      expDateISO: "",
+      expTime15: "",
+      extraOpen: false,
+      earliestISO: "",
+      latestISO: "",
+      earliestQty: 0,
+      latestQty: 0
+    };
+  }
   const d = state.drafts[key];
 
   const rule = shelfLifeModeFor(it, cat);
@@ -1358,7 +1288,6 @@ function renderItemEditor(it, cat) {
   } else if (rule.mode === "EOD_AUTO") {
     expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
   } else if (rule.mode === "MANUAL") {
-    // replace <input type="date"> with slider button
     expiryUI = `
       <label class="label">Expiry date</label>
       <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
@@ -1426,7 +1355,11 @@ function bindItemEditors(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || (state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTime15: "", extraOpen: false, earliestISO: "", latestISO: "", earliestQty: 0, latestQty: 0 });
+    const d = state.drafts[key] || (state.drafts[key] = {
+      qty: 0, expType: "", expDateISO: "", expTime15: "",
+      extraOpen: false, earliestISO: "", latestISO: "",
+      earliestQty: 0, latestQty: 0
+    });
 
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
     const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
@@ -1486,7 +1419,6 @@ function bindItemEditors(items, cat) {
         onPick: (iso) => {
           d.expDateISO = iso;
           if (!d.expType) d.expType = "MANUAL";
-          // re-render this page so the helper text updates
           render();
         },
       });
@@ -1545,7 +1477,6 @@ async function saveCategory(items, cat) {
         expiry,
         expiry_at,
         shift,
-        // mark main
         is_extra: false,
       });
     }
@@ -1596,15 +1527,12 @@ async function saveCategory(items, cat) {
   try {
     await apiPost("/api/log/batch", { store, staff, shift, rows });
     toast("Saved ✅");
-
-    // refresh stock dot after save (optional)
     await refreshStockDot().catch(() => {});
   } catch (e) {
     console.error(e);
     toast("Save failed");
   }
 }
-
 /* =========================================================
    STOCK ALERT PAGE
    ========================================================= */
@@ -1666,7 +1594,7 @@ async function renderStockAlerts() {
         <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div>
         <div class="col" style="gap:10px">
           ${list
-            .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
             .map((x) => {
               const cur = x.current_qty != null ? Number(x.current_qty) : null;
               const min = x.min_qty != null ? Number(x.min_qty) : null;
@@ -1690,10 +1618,6 @@ async function renderStockAlerts() {
 
   wrap.innerHTML = html;
 }
-
-/* =========================================================
-   ALERTS (old) — removed
-   ========================================================= */
 
 /* =========================================================
    SUMMARY
@@ -1740,7 +1664,7 @@ async function renderSummaryHome() {
 function setSummaryMode(mode) {
   state.view.summaryMode = mode;
   updateSummaryModeButtons();
-  updateDoneIndicator().catch(()=>{});
+  updateDoneIndicator().catch(() => {});
   drawSummaryCards().catch(console.error);
 }
 
@@ -1920,10 +1844,6 @@ function bucketTitle(b) {
   if (b === "TOMORROW") return "Expiring Tomorrow";
   return "All Safe";
 }
-
-/* =======================
-   PART 2 ends here
-   ======================= */
 /* =========================================================
    WISR
    ========================================================= */
@@ -2032,7 +1952,6 @@ function openManagerLogin() {
     }
   });
 }
-
 /* ---------- manager: edit items ---------- */
 async function renderManagerEditItems() {
   if (!state.session.isManager) return openManagerLogin();
@@ -2410,7 +2329,7 @@ function openAddItemModal() {
 }
 
 /* =========================================================
-   STOCK ALERT — drawer label dot
+   Stock Alert drawer label + dot (KEEP ONLY THIS ONE ✅)
    ========================================================= */
 function updateDrawerAlertLabel(hasDot) {
   const btn = $("#drawerAlerts");
@@ -2420,7 +2339,6 @@ function updateDrawerAlertLabel(hasDot) {
     ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
     : `📦 Stock Alert`;
 }
-
 /* =========================================================
    LOGOUT
    ========================================================= */
