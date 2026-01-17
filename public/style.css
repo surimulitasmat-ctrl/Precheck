@@ -554,3 +554,74 @@ body{
 .qty-btn[data-dec]{
   color:#c62828 !important; /* red − */
 }
+/* =========================
+   Stock Alert dot
+   ========================= */
+.tiny-dot{
+  display:inline-block;
+  width:9px;
+  height:9px;
+  border-radius:99px;
+  background: var(--red);
+  margin-left:8px;
+  vertical-align:middle;
+  box-shadow: 0 0 0 4px rgba(211,47,47,.12);
+}
+
+/* =========================
+   Segmented Slider (pill)
+   ========================= */
+.seg{
+  position:relative;
+  display:flex;
+  gap:6px;
+  padding:6px;
+  border-radius:999px;
+  background:#fff;
+  border:1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+  overflow:hidden;
+}
+.seg button{
+  position:relative;
+  z-index:2;
+  flex:1;
+  border:0;
+  background:transparent;
+  padding:10px 12px;
+  border-radius:999px;
+  font-weight:1200;
+  cursor:pointer;
+}
+.seg .seg-thumb{
+  position:absolute;
+  z-index:1;
+  top:6px;
+  left:6px;
+  height:calc(100% - 12px);
+  width:calc((100% - 12px) / 3); /* default for 3 options */
+  border-radius:999px;
+  background: rgba(0,154,68,.12);
+  border:1px solid rgba(0,154,68,.22);
+  transition: transform .18s ease;
+}
+.seg[data-n="2"] .seg-thumb{ width:calc((100% - 12px) / 2); }
+.seg[data-n="3"] .seg-thumb{ width:calc((100% - 12px) / 3); }
+.seg[data-n="4"] .seg-thumb{ width:calc((100% - 12px) / 4); }
+
+/* =========================
+   Add-date small button (left)
+   ========================= */
+.add-date-btn{
+  border:0;
+  background:rgba(0,0,0,.06);
+  border-radius:12px;
+  width:40px;
+  height:40px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  font-weight:1200;
+}
+.add-date-btn:active{ transform:scale(.99); }
