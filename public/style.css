@@ -680,3 +680,166 @@ body{
   opacity:.45;
   cursor:not-allowed;
 }
+/* =========================
+   PreCheck — iOS Wheel Date Picker (POLISHED)
+   Paste at END of style.css
+   ========================= */
+
+.pc-wheel{
+  border-radius:18px;
+  overflow:hidden;
+}
+
+.pc-wheel-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 14px 10px;
+}
+
+.pc-wheel-title{
+  font-weight:1200;
+  font-size:18px;
+}
+
+.pc-wheel-x{
+  border:0;
+  background:#fff;
+  width:36px;
+  height:36px;
+  border-radius:12px;
+  box-shadow:0 8px 16px rgba(0,0,0,.12);
+  cursor:pointer;
+}
+.pc-wheel-x:active{ transform:scale(.98); }
+
+.pc-wheel-cols{
+  position:relative;
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:8px;
+  padding:6px 10px 12px;
+}
+
+/* fade top/bottom like iOS */
+.pc-wheel-cols::before,
+.pc-wheel-cols::after{
+  content:"";
+  position:absolute;
+  left:0;
+  right:0;
+  height:28%;
+  pointer-events:none;
+  z-index:5;
+}
+.pc-wheel-cols::before{
+  top:0;
+  background:linear-gradient(180deg, rgba(255,255,255,1), rgba(255,255,255,0));
+}
+.pc-wheel-cols::after{
+  bottom:0;
+  background:linear-gradient(0deg, rgba(255,255,255,1), rgba(255,255,255,0));
+}
+
+/* center highlight bar */
+.pc-wheel-highlight{
+  position:absolute;
+  left:10px;
+  right:10px;
+  top:50%;
+  transform:translateY(-50%);
+  height:46px;
+  border-radius:14px;
+  background:rgba(0,154,68,.10);
+  box-shadow:inset 0 0 0 1px rgba(0,154,68,.18);
+  z-index:4;
+  pointer-events:none;
+}
+
+.pc-wheel-col{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.pc-wheel-label{
+  font-weight:1100;
+  color:rgba(0,0,0,.6);
+  font-size:12px;
+  padding-left:6px;
+}
+
+/* wheel list */
+.pc-wheel-list{
+  height:230px;
+  overflow:auto;
+  border-radius:16px;
+  border:1px solid rgba(0,0,0,.10);
+  background:#fff;
+  scroll-snap-type:y mandatory;
+  -webkit-overflow-scrolling:touch;
+  position:relative;
+}
+
+/* padding top/bottom so center aligns */
+.pc-wheel-pad{
+  height:92px;
+}
+
+.pc-wheel-item{
+  width:100%;
+  border:0;
+  background:transparent;
+  padding:10px 8px;
+  font-weight:1000;
+  font-size:16px;
+  cursor:pointer;
+  scroll-snap-align:center;
+  transition:transform .12s ease, opacity .12s ease;
+}
+
+.pc-wheel-item.active{
+  font-weight:1300;
+  font-size:18px;
+  transform:scale(1.02);
+  color:#0b5a2a;
+}
+
+.pc-wheel-item.dim{
+  opacity:.35;
+  cursor:not-allowed;
+}
+
+.pc-wheel-actions{
+  display:flex;
+  gap:10px;
+  padding:12px 14px 14px;
+}
+
+.pc-wheel-btn{
+  flex:1;
+  border:0;
+  border-radius:999px;
+  padding:14px 14px;
+  font-weight:1200;
+  box-shadow:0 10px 20px rgba(0,0,0,.10);
+  cursor:pointer;
+}
+
+.pc-wheel-btn.cancel{
+  background:linear-gradient(180deg, #FFD54A, #FFC72C);
+  color:#111;
+}
+
+.pc-wheel-btn.ok{
+  background:linear-gradient(180deg, #EF5350, #D32F2F);
+  color:#fff;
+}
+
+.pc-wheel-btn:active{ transform:scale(.99); }
+
+.pc-wheel-btn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+  filter:grayscale(.2);
+}
