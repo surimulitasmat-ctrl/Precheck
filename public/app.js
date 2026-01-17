@@ -2539,6 +2539,149 @@ function doLogout() {
 /* =========================================================
    UTILS (must be last in your file)
    ========================================================= */
+/* =========================================================
+   DATE WHEEL PICKER (FINAL)
+   ========================================================= */
+
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  const today = todayISO();
+  const min = (minISO || today).slice(0, 10);
+  const max = (maxISO || addDaysISO(today, 365 * 5)).slice(0, 10);
+  const init = (initialISO || min).slice(0, 10);
+
+  const minDt = new Date(min + "T00:00:00");
+  const maxDt = new Date(max + "T00:00:00");
+
+  function parseISO(iso) {
+    const d = new Date(String(iso).slice(0,10) + "T00:00:00");
+    return isNaN(d) ? null : d;
+  }
+
+  function clamp(dt) {
+    if (dt < minDt) return new Date(minDt);
+    if (dt > maxDt) return new Date(maxDt);
+    return dt;
+  }
+
+  let cur = clamp(parseISO(init) || parseISO(min) || new Date());
+
+  let y = cur.getFullYear();
+  let m = cur.getMonth() + 1;
+  let d = cur.getDate();
+
+  const years = [];
+  for (let yy = minDt.getFullYear(); yy <= maxDt.getFullYear(); yy++) {
+    years.push(yy);
+  }
+
+  function daysInMonth(y, m) {
+    return new Date(y, m, 0).getDate();
+  }
+
+  function toISO(y, m, d) {
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+
+  function inRangeISO(iso) {
+    return iso >= min && iso <= max;
+  }
+
+  openModal(
+    title || "Select date",
+    `
+      <div class="pc-wheel">
+        <div class="pc-wheel-head">
+          <div class="pc-wheel-title">${escapeHtml(title || "Select date")}</div>
+          <button class="pc-wheel-x" id="wheelX">✕</button>
+        </div>
+
+        <div class="pc-wheel-cols">
+          <div class="pc-wheel-col">
+            <div class="pc-wheel-label">Day</div>
+            <div class="pc-wheel-list" id="wheelDay"></div>
+          </div>
+          <div class="pc-wheel-col">
+            <div class="pc-wheel-label">Month</div>
+            <div class="pc-wheel-list" id="wheelMon"></div>
+          </div>
+          <div class="pc-wheel-col">
+            <div class="pc-wheel-label">Year</div>
+            <div class="pc-wheel-list" id="wheelYear"></div>
+          </div>
+          <div class="pc-wheel-highlight"></div>
+        </div>
+
+        <div class="pc-wheel-actions">
+          <button class="pc-wheel-btn cancel" id="wheelCancel">Cancel</button>
+          <button class="pc-wheel-btn ok" id="wheelOk">Set date</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#wheelX").onclick = closeModal;
+  $("#wheelCancel").onclick = closeModal;
+
+  const dayEl = $("#wheelDay");
+  const monEl = $("#wheelMon");
+  const yearEl = $("#wheelYear");
+  const okEl = $("#wheelOk");
+
+  function render() {
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+
+    const dayHTML = [];
+    for (let i = 1; i <= dim; i++) {
+      const iso = toISO(y, m, i);
+      dayHTML.push(
+        `<button class="pc-wheel-item ${i===d?'active':''} ${inRangeISO(iso)?'':'dim'}" data-v="${i}">${i}</button>`
+      );
+    }
+    dayEl.innerHTML = `<div class="pc-wheel-pad"></div>${dayHTML.join("")}<div class="pc-wheel-pad"></div>`;
+
+    monEl.innerHTML = `<div class="pc-wheel-pad"></div>${
+      Array.from({length:12},(_,i)=>{
+        const mm=i+1;
+        return `<button class="pc-wheel-item ${mm===m?'active':''}" data-v="${mm}">
+          ${new Date(2000,mm-1).toLocaleString("en",{month:"long"})}
+        </button>`;
+      }).join("")
+    }<div class="pc-wheel-pad"></div>`;
+
+    yearEl.innerHTML = `<div class="pc-wheel-pad"></div>${
+      years.map(yy=>`<button class="pc-wheel-item ${yy===y?'active':''}" data-v="${yy}">${yy}</button>`).join("")
+    }<div class="pc-wheel-pad"></div>`;
+
+    bind(dayEl, v=>d=+v);
+    bind(monEl, v=>m=+v);
+    bind(yearEl, v=>y=+v);
+    okEl.disabled = !inRangeISO(toISO(y,m,d));
+  }
+
+  function bind(el, fn){
+    el.querySelectorAll(".pc-wheel-item").forEach(b=>{
+      if(b.classList.contains("dim")) return;
+      b.onclick=()=>{ fn(b.dataset.v); render(); };
+    });
+  }
+
+  render();
+
+  okEl.onclick=()=>{
+    const iso = toISO(y,m,d);
+    if(!inRangeISO(iso)) return;
+    closeModal();
+    onPick && onPick(iso);
+  };
+}
+
+/* backward compatibility */
+function openDateSliderModal(opts){
+  return openDateWheelModal(opts);
+}
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
