@@ -1,437 +1,556 @@
 /* =========================
-   PreCheck — style.css (FULL)
-   Mobile-first, Subway-like
+   PreCheck — public/style.css (FULL)
+   MERGED + CLEANED (from what you pasted)
+   ✅ Keeps your theme + drawer + tiles + animations
+   ✅ Adds variables used by app.js: --pdd, --skh
+   ✅ Role badge is SOLID color (Manager red/white, Staff yellow/black)
+   ✅ Bottom Save button is long + oval + a bit smaller (matches your latest app.js)
+   ✅ Removes duplicated/contradicting patch blocks (only 1 final truth)
    ========================= */
 
-/* ---------- CSS Variables ---------- */
-:root {
-  --green: #009a44;
-  --green-dark: #007a36;
-  --yellow: #ffce00;
-  --red: #e53935;
-  --blue: #1976d2;
-  --teal: #00897b;
-  --purple: #6a1b9a;
-  --orange: #ef6c00;
+:root{
+  --green:#009A44;
+  --green-dark:#0b5a2a;
+  --yellow:#FFC72C;
 
-  --bg: #f6f7f8;
-  --card: #ffffff;
-  --line: #e3e5e8;
-  --text: #1c1c1c;
-  --muted: #6b7280;
+  --bg:#f6f7f8;
+  --card:#ffffff;
+  --text:#1b1b1b;
+  --muted:rgba(0,0,0,.62);
+  --line:rgba(0,0,0,.10);
 
-  --radius: 18px;
-  --shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  --shadow:0 14px 26px rgba(0,0,0,.12);
+  --shadow-soft:0 10px 22px rgba(0,0,0,.10);
 
-  --pdd: #009a44;
-  --skh: #1976d2;
+  --red:#d32f2f;      /* final red */
+  --blue:#1E88E5;
+
+  /* used by your login buttons + summary buttons in app.js */
+  --pdd:#d32f2f;      /* PDD = red */
+  --skh:#1565c0;      /* SKH = blue */
 }
 
-/* ---------- Reset ---------- */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background:var(--bg);
+  color:var(--text);
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-}
+.hidden{display:none !important}
+.container{padding:14px; padding-bottom:24px; max-width:820px; margin:0 auto}
 
-.hidden {
-  display: none !important;
+/* ---------- Topbar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:20;
+  background:var(--green);
+  color:#fff;
+  padding:10px 12px;
+  box-shadow:0 10px 20px rgba(0,0,0,.12);
 }
+.topbar-row{display:flex; align-items:center; gap:10px}
+.brand-wrap{display:flex; flex-direction:column; gap:2px}
+.brand{font-weight:1100; letter-spacing:.2px}
+.session-line{font-size:12px; opacity:.92}
+.topbar-right{margin-left:auto; display:flex; align-items:center; gap:10px}
 
-/* ---------- Top Bar ---------- */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  background: var(--green);
-  color: #fff;
-  padding: env(safe-area-inset-top) 12px 8px;
+.menu-btn{
+  border:0; background:transparent; color:#fff;
+  width:44px; height:44px;
+  border-radius:12px; display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
 }
-
-.topbar-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.menu-btn {
-  background: transparent;
-  border: none;
-  color: #fff;
-  padding: 8px;
-}
-
-.brand-wrap {
-  flex: 1;
-}
-
-.brand {
-  font-weight: 1200;
-  font-size: 18px;
-}
-
-.session-line {
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-/* ---------- Role Pill ---------- */
-.role-btn {
-  border-radius: 999px;
-  padding: 6px 12px;
-  border: none;
-  font-weight: 1200;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* ---------- Container ---------- */
-.container {
-  padding: 14px;
-}
-
-/* ---------- Drawer ---------- */
-.drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 80;
-}
-
-.drawer {
-  width: 280px;
-  max-width: 85%;
-  height: 100%;
-  background: var(--card);
-  box-shadow: var(--shadow);
-}
-
-.drawer-head {
-  padding: 14px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.drawer-title {
-  font-weight: 1200;
-}
-
-.drawer-body {
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.drawer-item {
-  background: transparent;
-  border: none;
-  text-align: left;
-  padding: 12px;
-  border-radius: 12px;
-  font-weight: 1100;
-}
-
-.drawer-item:hover {
-  background: #f0f2f3;
-}
-
-.drawer-item.big {
-  font-size: 16px;
-}
-
-.drawer-item.danger {
-  color: var(--red);
-}
-
-.drawer-spacer {
-  flex: 1;
-}
+.menu-btn:active{transform:scale(.98); opacity:.95}
 
 /* ---------- Buttons ---------- */
-.btn {
-  border-radius: 999px;
-  border: none;
-  padding: 12px 16px;
-  font-weight: 1200;
+.btn{
+  border:0;
+  border-radius:999px;
+  padding:12px 16px;
+  font-weight:1100;
+  cursor:pointer;
+  box-shadow:var(--shadow-soft);
+}
+.btn:active{transform:scale(.99)}
+.btn-yellow{background:var(--yellow); color:#1b1b1b}
+.btn-red{background:var(--red); color:#fff}
+.btn-blue{background:var(--skh); color:#fff}
+.btn-ghost{
+  background:#fff;
+  border:1px solid var(--line);
+  box-shadow:none;
+  font-weight:1000;
 }
 
-.btn-yellow {
-  background: var(--yellow);
-  color: #111;
+.icon-btn{
+  border:0; background:#fff; color:#1b1b1b;
+  width:36px; height:36px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
+  box-shadow:0 8px 16px rgba(0,0,0,.12);
 }
-
-.btn-red {
-  background: var(--red);
-  color: #fff;
-}
-
-.btn-blue {
-  background: var(--blue);
-  color: #fff;
-}
-
-.btn-ghost {
-  background: #f2f3f5;
-}
+.icon-btn:active{transform:scale(.98)}
 
 /* ---------- Cards ---------- */
-.card {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 14px;
-  box-shadow: var(--shadow);
-  margin-bottom: 12px;
+.card{
+  background:var(--card);
+  border-radius:18px;
+  box-shadow:var(--shadow);
+  padding:14px;
 }
 
-.page-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+.muted{color:var(--muted)}
+.row{display:flex; gap:10px; align-items:center}
+.col{display:flex; flex-direction:column; gap:12px}
+
+/* ---------- Drawer ---------- */
+.drawer-backdrop{
+  position:fixed; inset:0;
+  background:rgba(0,0,0,.25);
+  z-index:999;
+  display:flex;
+}
+.drawer-backdrop.hidden{display:none}
+.drawer{
+  width:82%; max-width:360px;
+  background:#fff;
+  border-top-right-radius:22px;
+  border-bottom-right-radius:22px;
+  box-shadow:0 22px 70px rgba(0,0,0,.22);
+  overflow:hidden;
+  transform:translateX(-14px);
+  animation:drawerIn .22s ease-out forwards;
+}
+@keyframes drawerIn{to{transform:translateX(0)}}
+
+.drawer-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px;
+  border-bottom:1px solid var(--line);
+}
+.drawer-title{font-weight:1100}
+.drawer-body{
+  display:flex; flex-direction:column;
+  padding:10px;
+  height: calc(100vh - 64px);
+}
+.drawer-item{
+  border:0; background:#fff;
+  text-align:left;
+  border-radius:16px;
+  padding:14px 14px;
+  font-weight:1100;
+  cursor:pointer;
+  transition:transform .08s ease, background .12s ease;
+}
+.drawer-item.big{font-size:18px; padding:16px 14px}
+.drawer-item:hover{background:rgba(0,0,0,.04)}
+.drawer-item:active{transform:scale(.99)}
+.drawer-item.danger{
+  background:rgba(229,57,53,.12);
+  color:#b71c1c;
+}
+.drawer-spacer{flex:1}
+
+/* ---------- Role pill (top-right) ---------- */
+.role-btn{
+  border:0;
+  border-radius:999px;
+  padding:10px 14px;
+  font-weight:1100;
+  display:flex; gap:10px; align-items:center;
+  cursor:pointer;
+  transition:transform .08s ease;
+}
+.role-btn:active{transform:scale(.99)}
+.role-ico{font-size:18px}
+
+/* ✅ Requested: solid colors */
+.role-btn.manager{
+  background:var(--red) !important;
+  color:#fff !important;
+}
+.role-btn.staff{
+  background:var(--yellow) !important;
+  color:#111 !important;
 }
 
-.page-title {
-  font-size: 20px;
-  font-weight: 1200;
+/* ---------- Tiles (Home + Sauce + Manager tools) ---------- */
+.tiles-2col{
+  display:grid; grid-template-columns:1fr 1fr;
+  gap:14px;
+}
+.tile{
+  border:0;
+  border-radius:20px;
+  padding:16px;
+  box-shadow:var(--shadow);
+  cursor:pointer;
+  text-align:left;
+  min-height:132px;
+  position:relative;
+  overflow:hidden;
+  transform:translateY(10px);
+  opacity:0;
+  animation:tileIn .35s ease forwards;
+}
+.tile:active{transform:scale(.99)}
+@keyframes tileIn{to{transform:translateY(0); opacity:1}}
+
+.tile .emoji{
+  font-size:52px;
+  line-height:1;
+}
+.tile .title{
+  margin-top:10px;
+  font-weight:1200;
+  font-size:18px;
+  color:#fff;
+}
+.tile .sub{
+  margin-top:4px;
+  font-weight:1000;
+  font-size:12px;
+  color:rgba(255,255,255,.92)
 }
 
-/* ---------- Tiles ---------- */
-.tiles-2col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
+/* color tones */
+.t-green{background:linear-gradient(135deg,#1f8a4a,#0f5f33)}
+.t-blue{background:linear-gradient(135deg,#2b89ff,#1762c7)}
+.t-cyan{background:linear-gradient(135deg,#26c6da,#0b7a86)}
+.t-green2{background:linear-gradient(135deg,#4caf50,#2e7d32)}
+.t-orange{background:linear-gradient(135deg,#ff9800,#e65100)}
+.t-red{background:linear-gradient(135deg,#ef5350,#b71c1c)}
+.t-teal{background:linear-gradient(135deg,#26a69a,#00695c)}
+.t-purple{background:linear-gradient(135deg,#7e57c2,#4527a0)}
+.t-pink{background:linear-gradient(135deg,#ec407a,#ad1457)}
 
-.tile {
-  border: none;
-  border-radius: var(--radius);
-  padding: 16px;
-  color: #fff;
-  text-align: left;
-  min-height: 110px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.tile .emoji {
-  font-size: 42px;
-}
-
-.tile .title {
-  font-weight: 1200;
-  font-size: 18px;
-}
-
-.tile .sub {
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-/* Tile tones */
-.t-green { background: var(--green); }
-.t-green2 { background: var(--green-dark); }
-.t-blue { background: var(--blue); }
-.t-cyan { background: #00acc1; }
-.t-orange { background: var(--orange); }
-.t-red { background: var(--red); }
-.t-teal { background: var(--teal); }
-.t-purple { background: var(--purple); }
-.t-pink { background: #ad1457; }
-
-/* ---------- Edit List ---------- */
-.edit-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.edit-card {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 14px;
-  box-shadow: var(--shadow);
-}
-
-.edit-name {
-  font-weight: 1200;
-  font-size: 16px;
-  margin-bottom: 10px;
-}
-
-.edit-row {
-  display: flex;
-  gap: 12px;
-}
-
-/* ---------- Quantity Stepper ---------- */
-.qty-stepper {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.qty-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: none;
-  background: var(--green);
-  color: #fff;
-  font-size: 20px;
-}
-
-.qty-btn.is-disabled {
-  background: #ccc;
-}
-
-.qty-inp {
-  width: 48px;
-  text-align: center;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  font-weight: 1200;
-}
+/* ---------- Page head ---------- */
+.page-head{display:flex; align-items:center; gap:12px; margin:8px 0 12px}
+.page-title{font-weight:1200; font-size:18px}
 
 /* ---------- Inputs ---------- */
-.input,
-.select {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  font-size: 14px;
+.input, .select{
+  width:100%;
+  padding:12px 12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#fff;
+  font-weight:800;
+  outline:none;
+  font-size:16px;
+}
+.input:focus, .select:focus{
+  border-color:rgba(0,154,68,.45);
+  box-shadow:0 0 0 4px rgba(0,154,68,.12)
 }
 
-.label {
-  font-size: 12px;
-  font-weight: 1100;
-  margin-bottom: 4px;
+/* ---------- Item row editor ---------- */
+.edit-list{display:flex; flex-direction:column; gap:12px; margin-top:12px}
+.edit-card{
+  background:#fff;
+  border-radius:18px;
+  box-shadow:var(--shadow);
+  padding:14px;
+  animation:fadeIn .2s ease;
 }
-
-.edit-helper {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 4px;
+@keyframes fadeIn{from{opacity:.6; transform:translateY(4px)} to{opacity:1; transform:translateY(0)}}
+.edit-name{font-weight:1200; font-size:18px; margin-bottom:10px}
+.edit-row{display:flex; gap:12px; align-items:stretch}
+.qty-stepper{
+  display:grid;
+  grid-template-columns:46px 74px 46px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:hidden;
+  height:48px;
+  background:#fff;
 }
+.qty-btn{border:0; background:#fff; font-size:22px; font-weight:1200; cursor:pointer}
+.qty-inp{border:0; text-align:center; font-weight:1100; font-size:16px; outline:none}
+.exp-wrap{flex:1; display:flex; flex-direction:column; gap:8px}
+.edit-helper{margin-top:10px; font-size:12px; opacity:.75; font-weight:900}
 
-/* ---------- Save Bar ---------- */
-.save-bar {
+/* ✅ Sticky bottom save bar (fits your app.js inline style) */
+.save-bar{
   position: sticky;
-  bottom: env(safe-area-inset-bottom);
-  background: linear-gradient(to top, rgba(246,247,248,0.95), rgba(246,247,248,0));
-  padding: 12px 0;
+  bottom: 12px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: transparent;
+  display:flex;
+  justify-content:center;
+}
+.save-bar button{
+  box-shadow:var(--shadow);
 }
 
-/* ---------- Dashboard Cards ---------- */
-.dash-card {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  border-radius: var(--radius);
-  color: #fff;
-  margin-bottom: 12px;
-  border: none;
+/* ---------- Alerts rows ---------- */
+.alert-row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 0;
+  border-top:1px dashed var(--line);
 }
+.alert-name{font-weight:1100}
+.alert-extra{font-size:12px; opacity:.75; font-weight:900}
 
-.dash-left .dash-title {
-  font-weight: 1200;
-  font-size: 18px;
+/* ---------- Summary (stacked dashboard cards used by your app.js) ---------- */
+.dash-card{
+  border:0;
+  width:100%;
+  text-align:left;
+  border-radius:18px;
+  padding:16px 14px;
+  box-shadow:var(--shadow);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  cursor:pointer;
 }
+.dash-card:active{transform:scale(.99)}
+.dash-left{display:flex; flex-direction:column; gap:4px}
+.dash-title{font-weight:1200; font-size:18px}
+.dash-sub{font-weight:1000; opacity:.85}
+.dash-right{display:flex; align-items:center; gap:12px}
+.dash-num{font-weight:1200; font-size:26px; line-height:1}
+.dash-go{font-weight:1200; font-size:26px; opacity:.8}
 
-.dash-left .dash-sub {
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-.dash-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.dash-num {
-  font-size: 28px;
-  font-weight: 1200;
-}
-
-.dash-go {
-  font-size: 26px;
-}
-
-.dash-red { background: var(--red); }
-.dash-amber { background: #f9a825; }
-.dash-green { background: var(--green); }
+.dash-red{background:#ffe6e6; color:#b71c1c}
+.dash-amber{background:#fff2dd; color:#6a3d00}
+.dash-green{background:#e7f7ea; color:#0b5a2a}
 
 /* ---------- Modal ---------- */
-.backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 90;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.backdrop{
+  position:fixed; inset:0;
+  background:rgba(0,0,0,.28);
+  display:flex; align-items:center; justify-content:center;
+  z-index:2000;
+}
+.modal{
+  width:min(560px, calc(100vw - 26px));
+  background:#fff;
+  border-radius:18px;
+  box-shadow:0 30px 80px rgba(0,0,0,.25);
+  overflow:hidden;
+  animation:pop .18s ease-out;
+}
+@keyframes pop{from{transform:translateY(8px); opacity:.7} to{transform:translateY(0); opacity:1}}
+.modal-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px;
+  border-bottom:1px solid var(--line);
+}
+.modal-title{font-weight:1200}
+.modal-body{padding:14px 16px}
+
+/* Popup checklist */
+.popup-title{font-weight:1200; font-size:18px; margin-bottom:8px}
+.popup-lead{font-weight:1000; color:rgba(0,0,0,.7)}
+.popup-list{margin:12px 0 0 0; padding:0; list-style:none}
+.popup-list li{
+  display:flex; align-items:center; gap:10px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(0,154,68,.08);
+  margin-bottom:10px;
+  font-weight:1100;
+}
+.popup-dot{
+  width:10px; height:10px; border-radius:99px; background:var(--green);
+  box-shadow:0 0 0 4px rgba(0,154,68,.12);
 }
 
-.modal {
-  width: min(92%, 420px);
-  background: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+/* Toast */
+.toast{
+  position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+  background:#111; color:#fff;
+  padding:10px 14px; border-radius:999px;
+  font-weight:900; z-index:9999;
+  box-shadow:0 18px 40px rgba(0,0,0,.25);
 }
 
-.modal-head {
-  padding: 12px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+/* Responsive */
+@media (max-width:420px){
+  .tile{min-height:126px}
+  .tile .emoji{font-size:48px}
+  .tile .title{font-size:17px}
+  .dash-title{font-size:17px}
+}
+/* =========================
+   PreCheck PATCH — Save button + +/- colors ONLY
+   Paste at END of style.css
+   ========================= */
+
+/* 1) Save button like mockup */
+.save-bar{
+  position: sticky;
+  bottom: 0;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(246,247,248,0), rgba(246,247,248,.85) 40%, rgba(246,247,248,1));
+  z-index: 50;
 }
 
-.modal-title {
-  font-weight: 1200;
-}
+#saveBtn{
+  width: min(92%, 560px);
+  margin: 0 auto;
+  display: block;
 
-.modal-body {
-  padding: 14px;
-}
-
-/* ---------- Toast ---------- */
-.toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #111;
-  color: #fff;
-  padding: 10px 16px;
+  border: 0;
   border-radius: 999px;
-  font-size: 14px;
-  z-index: 120;
+  padding: 18px 18px;
+  font-size: 18px;
+  font-weight: 1200;
+
+  background: linear-gradient(180deg, #FFD54A, #FFC72C);
+  box-shadow: 0 14px 26px rgba(0,0,0,.16);
 }
 
-/* ---------- Animations ---------- */
-.pulse {
-  animation: pulse 0.2s ease-out;
+#saveBtn:active{
+  transform: scale(.99);
+  filter: brightness(.98);
 }
 
-@keyframes pulse {
-  from { transform: scale(0.9); }
-  to { transform: scale(1); }
+/* Make sure last card not covered */
+#editList{ padding-bottom: 120px; }
+
+/* 2) +/- buttons colored */
+.qty-stepper{
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+}
+
+/* yellow +/- */
+.qty-btn{
+  background: linear-gradient(180deg, #FFD54A, #FFC72C) !important;
+  color: #1b1b1b !important;
+  font-weight: 1300;
+}
+
+/* center stays clean */
+.qty-inp{
+  background: #fff !important;
+  color: #1b1b1b;
+}
+
+/* optional: thin dividers like the mockup */
+.qty-stepper .qty-btn + .qty-inp,
+.qty-stepper .qty-inp + .qty-btn{
+  border-left: 1px solid rgba(0,0,0,.08);
+}
+/* =========================
+   PATCH — Qty button colors (final)
+   ========================= */
+
+/* minus = red */
+.qty-btn[data-dec],
+.qty-btn:first-child{
+  background: linear-gradient(180deg, #EF5350, #D32F2F) !important;
+  color: #fff !important;
+}
+
+/* plus = green */
+.qty-btn[data-inc],
+.qty-btn:last-child{
+  background: linear-gradient(180deg, #66BB6A, #2E7D32) !important;
+  color: #fff !important;
+}
+
+/* center stays clean */
+.qty-inp{
+  background:#fff !important;
+  color:#1b1b1b;
+  font-weight:1200;
+}
+
+/* keep pill look */
+.qty-stepper{
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+}
+/* =========================
+   PATCH — Qty UX (disable, press anim)
+   ========================= */
+
+/* smoother press + feel */
+.qty-btn{
+  transition: transform .06s ease, filter .12s ease, opacity .12s ease;
+}
+.qty-btn:active{
+  transform: scale(.96);
+  filter: brightness(.95);
+}
+
+/* disabled minus (when qty=0) */
+.qty-btn.is-disabled,
+.qty-btn:disabled{
+  opacity: .45 !important;
+  filter: grayscale(.35);
+  cursor: not-allowed;
+}
+
+/* optional: tiny pulse when tapped */
+.qty-btn.pulse{
+  animation: qtyPulse .12s ease-out;
+}
+@keyframes qtyPulse{
+  from{ transform: scale(.96); }
+  to{ transform: scale(1); }
+}
+/* =========================
+   PATCH — Qty buttons: white bg, red/green symbols
+   ========================= */
+.qty-btn{
+  background:#fff !important;
+  font-weight:1200;
+}
+
+/* make symbols colored */
+.qty-btn.dec{ color: var(--red) !important; }
+.qty-btn.inc{ color: var(--green) !important; }
+
+/* keep disabled looking disabled */
+.qty-btn.is-disabled,
+.qty-btn:disabled{
+  opacity:.35 !important;
+  cursor:not-allowed;
+}
+/* === Stepper button style (requested) === */
+.qty-btn{
+  background:#fff !important;     /* white background */
+}
+
+.qty-btn.dec{
+  color:#e53935 !important;       /* red minus */
+  font-weight:1300;
+}
+
+.qty-btn.inc{
+  color:#1b8a4a !important;       /* green plus */
+  font-weight:1300;
+}
+
+/* Add-date small button inside item card */
+.add-date-btn{
+  border:0;
+  background:rgba(0,0,0,.06);
+  border-radius:12px;
+  padding:8px 10px;
+  cursor:pointer;
+  font-weight:1200;
+}
+.add-date-btn:active{ transform:scale(.99); }
+/* QTY buttons: white background + colored symbols */
+.qty-btn{
+  background:#fff !important;
+}
+
+.qty-btn[data-inc]{
+  color:#2e7d32 !important; /* green + */
+}
+
+.qty-btn[data-dec]{
+  color:#c62828 !important; /* red − */
 }
