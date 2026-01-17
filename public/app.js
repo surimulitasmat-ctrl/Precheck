@@ -817,6 +817,10 @@ function shelfLifeModeFor(it, cat) {
 }
 
 /* ---------- Wheel date picker (Day/Month/Year) ---------- */
+/* =========================================================
+   DATE WHEEL PICKER (iOS-style)
+   ========================================================= */
+
 function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const today = todayISO();
   const min = (minISO || today).slice(0, 10);
@@ -824,100 +828,127 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
 
   const init = (initialISO || min).slice(0, 10);
 
-  const monthNames = [
-    "January","February","March","April","May","June",
-    "July","August","September","October","November","December"
-  ];
-
   const minDt = new Date(min + "T00:00:00");
   const maxDt = new Date(max + "T00:00:00");
 
-  let cur = parseISO(init);
-  if (!cur) cur = parseISO(min);
-  cur = clampToRange(cur, minDt, maxDt);
+  let cur = new Date(init + "T00:00:00");
+  if (isNaN(cur)) cur = new Date(min + "T00:00:00");
+  if (cur < minDt) cur = minDt;
+  if (cur > maxDt) cur = maxDt;
 
   const yearMin = minDt.getFullYear();
   const yearMax = maxDt.getFullYear();
 
-  // Build lists
   const years = [];
   for (let y = yearMin; y <= yearMax; y++) years.push(y);
 
-  // Modal HTML
+  function daysInMonth(y, m) {
+    return new Date(y, m, 0).getDate();
+  }
+
   openModal(
-    title || "Expiry date",
+    title || "Select date",
     `
-      <div class="pc-wheel">
-        <div class="pc-wheel-head">
-          <div class="pc-wheel-title">${escapeHtml(title || "Expiry date")}</div>
-          <button class="pc-wheel-x" type="button" id="wheelX">✕</button>
-        </div>
-        <div class="pc-wheel-sub">Swipe / tap to choose, then press Set</div>
-
-        <div class="pc-wheel-cols">
-          <div class="pc-wheel-col">
-            <div class="pc-wheel-label">Day</div>
-            <div class="pc-wheel-list" id="wheelDay"></div>
-          </div>
-
-          <div class="pc-wheel-col">
-            <div class="pc-wheel-label">Month</div>
-            <div class="pc-wheel-list" id="wheelMon"></div>
-          </div>
-
-          <div class="pc-wheel-col">
-            <div class="pc-wheel-label">Year</div>
-            <div class="pc-wheel-list" id="wheelYear"></div>
-          </div>
-
-          <div class="pc-wheel-highlight" aria-hidden="true"></div>
-        </div>
-
-        <div class="pc-wheel-note" id="wheelNote"></div>
-
-        <div class="pc-wheel-actions">
-          <button class="pc-wheel-btn cancel" type="button" id="wheelCancel">Cancel</button>
-          <button class="pc-wheel-btn ok" type="button" id="wheelOk">Set date</button>
-        </div>
+    <div class="pc-wheel">
+      <div class="pc-wheel-head">
+        <div class="pc-wheel-title">${escapeHtml(title || "Select date")}</div>
+        <button class="pc-wheel-x" id="wheelX">✕</button>
       </div>
+
+      <div class="pc-wheel-cols">
+        <div class="pc-wheel-col">
+          <div class="pc-wheel-label">Day</div>
+          <div class="pc-wheel-list" id="wheelDay"></div>
+        </div>
+        <div class="pc-wheel-col">
+          <div class="pc-wheel-label">Month</div>
+          <div class="pc-wheel-list" id="wheelMon"></div>
+        </div>
+        <div class="pc-wheel-col">
+          <div class="pc-wheel-label">Year</div>
+          <div class="pc-wheel-list" id="wheelYear"></div>
+        </div>
+        <div class="pc-wheel-highlight"></div>
+      </div>
+
+      <div class="pc-wheel-actions">
+        <button class="pc-wheel-btn cancel" id="wheelCancel">Cancel</button>
+        <button class="pc-wheel-btn ok" id="wheelOk">Set date</button>
+      </div>
+    </div>
     `,
     { noBackdropClose: true }
   );
 
-  // Close buttons
   $("#wheelX")?.addEventListener("click", closeModal);
   $("#wheelCancel")?.addEventListener("click", closeModal);
 
-  // Create wheel lists
   const dayEl = $("#wheelDay");
   const monEl = $("#wheelMon");
   const yearEl = $("#wheelYear");
-  const noteEl = $("#wheelNote");
-  const okEl = $("#wheelOk");
 
-  // Helper: make wheel with snap center
-  function buildWheel(container, values, renderFn) {
-    container.innerHTML = `
+  let y = cur.getFullYear();
+  let m = cur.getMonth() + 1;
+  let d = cur.getDate();
+
+  function render() {
+    const dim = daysInMonth(y, m);
+
+    dayEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
-      ${values.map(v => `<button class="pc-wheel-item" type="button" data-v="${escapeHtml(String(v))}">${renderFn(v)}</button>`).join("")}
+      ${Array.from({ length: dim }, (_, i) =>
+        `<button class="pc-wheel-item ${i+1===d?"active":""}" data-v="${i+1}">${i+1}</button>`
+      ).join("")}
       <div class="pc-wheel-pad"></div>
     `;
 
-    // click-to-select
-    $$(".pc-wheel-item", container).forEach(btn => {
-      btn.addEventListener("click", () => {
-        const v = btn.dataset.v;
-        scrollToValue(container, v);
-      });
-    });
+    monEl.innerHTML = `
+      <div class="pc-wheel-pad"></div>
+      ${Array.from({ length: 12 }, (_, i) =>
+        `<button class="pc-wheel-item ${i+1===m?"active":""}" data-v="${i+1}">
+          ${new Date(2000, i, 1).toLocaleString("en",{month:"long"})}
+        </button>`
+      ).join("")}
+      <div class="pc-wheel-pad"></div>
+    `;
 
-    // snap on scroll end
-    let t = null;
-    container.addEventListener("scroll", () => {
-      clearTimeout(t);
-      t = setTimeout(() => snap(container), 80);
+    yearEl.innerHTML = `
+      <div class="pc-wheel-pad"></div>
+      ${years.map(v =>
+        `<button class="pc-wheel-item ${v===y?"active":""}" data-v="${v}">${v}</button>`
+      ).join("")}
+      <div class="pc-wheel-pad"></div>
+    `;
+
+    bindWheel(dayEl, v => d = Number(v));
+    bindWheel(monEl, v => { m = Number(v); if (d > daysInMonth(y,m)) d = daysInMonth(y,m); });
+    bindWheel(yearEl, v => { y = Number(v); if (d > daysInMonth(y,m)) d = daysInMonth(y,m); });
+  }
+
+  function bindWheel(el, onPickVal) {
+    $$(".pc-wheel-item", el).forEach(btn => {
+      btn.onclick = () => {
+        onPickVal(btn.dataset.v);
+        render();
+      };
     });
   }
+
+  render();
+
+  $("#wheelOk").addEventListener("click", () => {
+    const iso = `${y}-${pad2(m)}-${pad2(d)}`;
+    if (iso < min || iso > max) return;
+    closeModal();
+    onPick && onPick(iso);
+  });
+}
+
+/* BACKWARD COMPATIBILITY — DO NOT REMOVE */
+function openDateSliderModal(opts) {
+  return openDateWheelModal(opts);
+}
+
 
   function scrollToValue(container, v) {
     const items = $$(".pc-wheel-item", container);
@@ -1209,7 +1240,7 @@ function openAddDateModal({ it, cat, key }) {
   const earManual = $("#earManual");
   if (earManual) {
     earManual.addEventListener("click", () => {
-      openDateSliderModal({
+     openDateWheelModal({
         title: "Pick Earliest expiry",
         initialISO: d.earliestISO || todayISO(),
         minISO: blockPast,
@@ -1223,7 +1254,7 @@ function openAddDateModal({ it, cat, key }) {
   const earPick = $("#earPick");
   if (earPick) {
     earPick.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick Earliest expiry",
         initialISO: d.earliestISO || todayISO(),
         minISO: blockPast,
@@ -1247,7 +1278,7 @@ function openAddDateModal({ it, cat, key }) {
   const latManual = $("#latManual");
   if (latManual) {
     latManual.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick Latest expiry",
         initialISO: d.latestISO || todayISO(),
         minISO: blockPast,
@@ -1261,7 +1292,7 @@ function openAddDateModal({ it, cat, key }) {
   const latPick = $("#latPick");
   if (latPick) {
     latPick.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick Latest expiry",
         initialISO: d.latestISO || todayISO(),
         minISO: blockPast,
@@ -1448,7 +1479,7 @@ function bindItemEditors(items, cat) {
     });
 
     if (pickBtn) pickBtn.addEventListener("click", () => {
-      openDateSliderModal({
+      openDateWheelModal({
         title: "Pick expiry date",
         initialISO: d.expDateISO || todayISO(),
         minISO: todayISO(),
