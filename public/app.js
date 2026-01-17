@@ -2252,13 +2252,12 @@ function openAddItemModal() {
 }
 
 /* =========================================================
-   STOCK ALERT — drawer label dot + route glue
+   STOCK ALERT — drawer label dot
    ========================================================= */
 function updateDrawerAlertLabel(hasDot) {
   const btn = $("#drawerAlerts");
   if (!btn) return;
 
-  // replace existing label "Alerts" -> "Stock Alert"
   btn.innerHTML = hasDot
     ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
     : `📦 Stock Alert`;
@@ -2285,41 +2284,6 @@ function doLogout() {
   renderRolePill();
   render();
 }
-
-/* =========================================================
-   FINAL FIXES / GLOBALS (must exist)
-   ========================================================= */
-
-// 7:00 AM to 11:00 PM only, 15-min steps
-function buildHourly7amTo11pm() {
-  const out = [];
-  for (let h = 7; h <= 23; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      // include 23:00, 23:15, 23:30, 23:45 (11pm hour)
-      const value = `${pad2(h)}:${pad2(m)}`;
-      out.push({ value, label: formatTime12(value) });
-    }
-  }
-  return out;
-}
-
-// Stock alert excludes
-const STOCK_ALERT_EXCLUDE_CATS = new Set(["Sauce", "Front counter"]);
-
-// Stock state (safe)
-state.stock = state.stock || { rows: [], hasDot: false };
-
-// Route glue: make drawer Alerts open Stock Alert screen
-// If your PART 1 render() still calls renderAlerts(), this will hijack it safely.
-function renderAlerts() {
-  return renderStockAlerts();
-}
-
-// Make sure drawer label is correct on load
-try {
-  updateDrawerAlertLabel(false);
-  refreshStockDot().catch(() => {});
-} catch {}
 
 /* =========================================================
    UTILS (must be last in your file)
