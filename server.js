@@ -1,16 +1,15 @@
 // =========================
-// PreCheck — server.js (FULL)
-// UTC timestamps in DB ✅
-// DAILY RESET uses Singapore day (Asia/Singapore) ✅
-// Store-separated: PDD vs SKH
-// Manager CRUD: items + categories (soft delete)
-// Supports BOTH /api/log (single) and /api/log/batch
-// Adds:
-//   ✅ items.is_hourly (hourly expiry toggle)
-//   ✅ /api/status + auto "done checking" after save
-//   ✅ /api/expiry returns TODAY ONLY (SG DAY)
-//   ✅ NEW: Add Date (2 batches) -> logs.quantity2 + logs.expiry2 + logs.expiry2_at
-//       /api/expiry returns earliest_expiry + latest_expiry + both qty
+// PreCheck — server.js (FINAL / CLEAN)
+// ✅ UTC timestamps in DB
+// ✅ Daily reset uses Singapore day (Asia/Singapore)
+// ✅ Store-separated: PDD vs SKH
+// ✅ Manager CRUD: items + categories (soft delete)
+// ✅ Staff logging: /api/log (single) + /api/log/batch
+// ✅ items.is_hourly (hourly expiry toggle)
+// ✅ /api/status + auto "done checking" after save
+// ✅ /api/expiry returns TODAY ONLY (SG DAY)
+// ✅ Add Date (2 batches): logs.quantity2 + logs.expiry2 + logs.expiry2_at
+//     /api/expiry returns: expiry_value, expiry2_value, earliest_expiry_value, latest_expiry_value
 // =========================
 
 import express from "express";
@@ -358,13 +357,13 @@ app.post("/api/log/batch", async (req, res) => {
 });
 
 // =========================
-// Summary (RESET DAILY - TODAY ONLY, SG DAY)
+// Summary (TODAY ONLY, SG DAY)
 // Latest entry per item_name+category+sub_category, but ONLY from today's logs (SG DAY).
 // Returns:
 //  - qty, expiry_value, expiry_at
 //  - qty2, expiry2_value, expiry2_at
-//  - earliest_expiry_value, latest_expiry_value  (date strings)
-// ✅ FIXED: handles expiry columns stored as TEXT or DATE (no COALESCE type crash)
+//  - earliest_expiry_value, latest_expiry_value
+// ✅ Handles expiry columns stored as TEXT or DATE safely
 // =========================
 app.get("/api/expiry", async (req, res) => {
   try {
@@ -406,7 +405,6 @@ app.get("/api/expiry", async (req, res) => {
           quantity as qty,
           expiry_at,
 
-          -- ✅ exp_date_1: always becomes DATE
           coalesce(
             nullif(expiry::text, '')::date,
             (expiry_at at time zone 'utc')::date
@@ -415,7 +413,6 @@ app.get("/api/expiry", async (req, res) => {
           quantity2 as qty2,
           expiry2_at,
 
-          -- ✅ exp_date_2: always becomes DATE
           coalesce(
             nullif(expiry2::text, '')::date,
             (expiry2_at at time zone 'utc')::date
@@ -470,7 +467,6 @@ app.get("/api/expiry", async (req, res) => {
 // =========================
 // Manager APIs
 // =========================
-
 app.post("/api/manager/login", async (req, res) => {
   try {
     const pin = String(req.body?.pin || "").trim();
