@@ -825,43 +825,26 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const today = todayISO();
   const min = (minISO || today).slice(0, 10);
   const max = (maxISO || addDaysISO(today, 365 * 5)).slice(0, 10);
+
   const init = (initialISO || min).slice(0, 10);
 
   const minDt = new Date(min + "T00:00:00");
   const maxDt = new Date(max + "T00:00:00");
 
-  function parseISO(iso) {
-    const d = new Date(String(iso).slice(0,10) + "T00:00:00");
-    return isNaN(d) ? null : d;
-  }
-
-  function clamp(dt) {
-    if (dt < minDt) return new Date(minDt);
-    if (dt > maxDt) return new Date(maxDt);
-    return dt;
-  }
-
-  let cur = clamp(parseISO(init) || parseISO(min) || new Date());
+  let cur = new Date(init + "T00:00:00");
+  if (isNaN(cur)) cur = new Date(min + "T00:00:00");
+  if (cur < minDt) cur = minDt;
+  if (cur > maxDt) cur = maxDt;
 
   const yearMin = minDt.getFullYear();
   const yearMax = maxDt.getFullYear();
+
   const years = [];
   for (let y = yearMin; y <= yearMax; y++) years.push(y);
 
   function daysInMonth(y, m) {
     return new Date(y, m, 0).getDate();
   }
-  function toISO(y, m, d) {
-    return `${y}-${pad2(m)}-${pad2(d)}`;
-  }
-  function inRangeISO(iso) {
-    return iso >= min && iso <= max;
-  }
-
-  // current parts
-  let y = cur.getFullYear();
-  let m = cur.getMonth() + 1;
-  let d = cur.getDate();
 
   openModal(
     title || "Select date",
@@ -869,7 +852,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     <div class="pc-wheel">
       <div class="pc-wheel-head">
         <div class="pc-wheel-title">${escapeHtml(title || "Select date")}</div>
-        <button class="pc-wheel-x" type="button" id="wheelX">✕</button>
+        <button class="pc-wheel-x" id="wheelX">✕</button>
       </div>
 
       <div class="pc-wheel-cols">
@@ -877,23 +860,20 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
           <div class="pc-wheel-label">Day</div>
           <div class="pc-wheel-list" id="wheelDay"></div>
         </div>
-
         <div class="pc-wheel-col">
           <div class="pc-wheel-label">Month</div>
           <div class="pc-wheel-list" id="wheelMon"></div>
         </div>
-
         <div class="pc-wheel-col">
           <div class="pc-wheel-label">Year</div>
           <div class="pc-wheel-list" id="wheelYear"></div>
         </div>
-
-        <div class="pc-wheel-highlight" aria-hidden="true"></div>
+        <div class="pc-wheel-highlight"></div>
       </div>
 
       <div class="pc-wheel-actions">
-        <button class="pc-wheel-btn cancel" type="button" id="wheelCancel">Cancel</button>
-        <button class="pc-wheel-btn ok" type="button" id="wheelOk">Set date</button>
+        <button class="pc-wheel-btn cancel" id="wheelCancel">Cancel</button>
+        <button class="pc-wheel-btn ok" id="wheelOk">Set date</button>
       </div>
     </div>
     `,
@@ -906,137 +886,65 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const dayEl = $("#wheelDay");
   const monEl = $("#wheelMon");
   const yearEl = $("#wheelYear");
-  const okEl = $("#wheelOk");
 
-  const monthLabel = (mm) => new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
-
-  function scrollToActive(container) {
-    const active = container.querySelector(".pc-wheel-item.active");
-    if (!active) return;
-    // center it
-    const top = active.offsetTop - (container.clientHeight / 2) + (active.clientHeight / 2);
-    container.scrollTo({ top, behavior: "smooth" });
-  }
-
-  function snapToClosest(container) {
-    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
-    if (!items.length) return;
-
-    const center = container.scrollTop + container.clientHeight / 2;
-    let best = null;
-    let bestDist = Infinity;
-
-    for (const it of items) {
-      if (it.classList.contains("dim")) continue; // don't snap to disabled
-      const itCenter = it.offsetTop + it.clientHeight / 2;
-      const dist = Math.abs(itCenter - center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = it;
-      }
-    }
-    if (!best) return;
-
-    best.click(); // selects + rerenders + will scroll again
-  }
-
-  function bindWheel(container, onPickVal) {
-    // click
-    $$(".pc-wheel-item", container).forEach(btn => {
-      btn.addEventListener("click", () => {
-        if (btn.classList.contains("dim")) return;
-        onPickVal(btn.dataset.v);
-        render();
-      });
-    });
-
-    // snap on scroll end
-    let t = null;
-    container.addEventListener("scroll", () => {
-      clearTimeout(t);
-      t = setTimeout(() => snapToClosest(container), 90);
-    });
-  }
-
-  function setOkEnabled() {
-    const iso = toISO(y, m, d);
-    okEl.disabled = !inRangeISO(iso);
-  }
+  let y = cur.getFullYear();
+  let m = cur.getMonth() + 1;
+  let d = cur.getDate();
 
   function render() {
-    // clamp day for month
     const dim = daysInMonth(y, m);
-    if (d > dim) d = dim;
-    if (d < 1) d = 1;
 
-    const isoNow = toISO(y, m, d);
-
-    // Day
     dayEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
-      ${Array.from({ length: dim }, (_, i) => {
-        const dd = i + 1;
-        const iso = toISO(y, m, dd);
-        const active = dd === d ? "active" : "";
-        const dimCls = inRangeISO(iso) ? "" : "dim";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${dd}">${dd}</button>`;
-      }).join("")}
+      ${Array.from({ length: dim }, (_, i) =>
+        `<button class="pc-wheel-item ${i+1===d?"active":""}" data-v="${i+1}">${i+1}</button>`
+      ).join("")}
       <div class="pc-wheel-pad"></div>
     `;
 
-    // Month
     monEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
-      ${Array.from({ length: 12 }, (_, i) => {
-        const mm = i + 1;
-        // check range using day 1 + last day
-        const isoStart = toISO(y, mm, 1);
-        const isoEnd = toISO(y, mm, daysInMonth(y, mm));
-        const dimCls = (isoEnd < min || isoStart > max) ? "dim" : "";
-        const active = mm === m ? "active" : "";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${mm}">${escapeHtml(monthLabel(mm))}</button>`;
-      }).join("")}
+      ${Array.from({ length: 12 }, (_, i) =>
+        `<button class="pc-wheel-item ${i+1===m?"active":""}" data-v="${i+1}">
+          ${new Date(2000, i, 1).toLocaleString("en",{month:"long"})}
+        </button>`
+      ).join("")}
       <div class="pc-wheel-pad"></div>
     `;
 
-    // Year
     yearEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
-      ${years.map(yy => {
-        const isoStart = toISO(yy, 1, 1);
-        const isoEnd = toISO(yy, 12, 31);
-        const dimCls = (isoEnd < min || isoStart > max) ? "dim" : "";
-        const active = yy === y ? "active" : "";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${yy}">${yy}</button>`;
-      }).join("")}
+      ${years.map(v =>
+        `<button class="pc-wheel-item ${v===y?"active":""}" data-v="${v}">${v}</button>`
+      ).join("")}
       <div class="pc-wheel-pad"></div>
     `;
 
     bindWheel(dayEl, v => d = Number(v));
-    bindWheel(monEl, v => { m = Number(v); });
-    bindWheel(yearEl, v => { y = Number(v); });
+    bindWheel(monEl, v => { m = Number(v); if (d > daysInMonth(y,m)) d = daysInMonth(y,m); });
+    bindWheel(yearEl, v => { y = Number(v); if (d > daysInMonth(y,m)) d = daysInMonth(y,m); });
+  }
 
-    setOkEnabled();
-
-    // center active after render
-    setTimeout(() => {
-      scrollToActive(dayEl);
-      scrollToActive(monEl);
-      scrollToActive(yearEl);
-    }, 0);
+  function bindWheel(el, onPickVal) {
+    $$(".pc-wheel-item", el).forEach(btn => {
+      btn.onclick = () => {
+        onPickVal(btn.dataset.v);
+        render();
+      };
+    });
   }
 
   render();
 
-  okEl.addEventListener("click", () => {
-    const iso = toISO(y, m, d);
-    if (!inRangeISO(iso)) return;
+  $("#wheelOk").addEventListener("click", () => {
+    const iso = `${y}-${pad2(m)}-${pad2(d)}`;
+    if (iso < min || iso > max) return;
     closeModal();
     onPick && onPick(iso);
   });
 }
 
-/* Backward compatible alias */
+/* BACKWARD COMPATIBILITY — DO NOT REMOVE */
 function openDateSliderModal(opts) {
   return openDateWheelModal(opts);
 }
