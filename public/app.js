@@ -2302,7 +2302,6 @@ function buildHourly7amTo11pm() {
   }
   return out;
 }
-const HOURLY_7AM_11PM = buildHourly7amTo11pm();
 
 // Stock alert excludes
 const STOCK_ALERT_EXCLUDE_CATS = new Set(["Sauce", "Front counter"]);
