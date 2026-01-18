@@ -1,22 +1,10 @@
 /* =========================
    PreCheck — public/app.js (FULL)
-   UPDATED / ADDED:
-   ✅ Popup ALWAYS after login (forced) + add "BakedWaffle"
-   ✅ Role pill solid colors (Manager red + white text, Staff yellow + black text)
-   ✅ Prevent swipe/back from closing app (back = goBack, home = confirm exit)
-   ✅ Shelf-life rules (same as your rules)
-   ✅ Hourly expiry items (manager toggles is_hourly) — time only (15-min steps)
-   ✅ Store buttons white default; highlight only selected (login + manager summary)
-   ✅ Summary "Done checking" indicator via /api/status
-   ✅ Summary shows AM + PM groups (if API returns shift)
-   ✅ Stock Alert page (drawer label changes + tiny dot when low stock)
-      - excludes Sauce + Front counter
-      - optional per-item min limit (manager sets)
-   ✅ Add Date (2nd expiry):
-      - small button on left "＋ Date"
-      - popup to set Earliest + Latest expiry + qty
-      - follows shelf-life rules, and blocks backdated dates
-   ✅ Manual date picker replaced with themed slider picker (day/month/year modal)
+   PATCHED:
+   ✅ Hourly expiry options: 7am / 11am / 3pm / 7pm / 11pm
+   ✅ Add 2nd date: single date + qty (no earliest/latest)
+   ✅ Done + Set date buttons: green (inline style, no CSS needed)
+   ✅ Removed duplicate updateDrawerAlertLabel (keep only one)
    ========================= */
 
 /* ---------- DOM helpers ---------- */
@@ -72,8 +60,9 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
-  drafts: {}, // per itemKey: { qty, expType, expDateISO, expTime15, extraOpen, earliestISO, latestISO, earliestQty, latestQty }
-  stock: { hasDot: false, rows: [] }, // low-stock results
+  // per itemKey: { qty, expType, expDateISO, expTimeShort, extraISO, extraQty }
+  drafts: {},
+  stock: { hasDot: false, rows: [] },
 };
 
 /* ---------- boot ---------- */
@@ -144,16 +133,6 @@ function addDaysISO(baseISO, n) {
   dt.setDate(dt.getDate() + n);
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
-function isoMin(a, b) {
-  if (!a) return b || "";
-  if (!b) return a || "";
-  return a <= b ? a : b;
-}
-function isoMax(a, b) {
-  if (!a) return b || "";
-  if (!b) return a || "";
-  return a >= b ? a : b;
-}
 function formatLongDMY(iso) {
   const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
   const day = dt.getDate();
@@ -164,30 +143,6 @@ function formatLongDMY(iso) {
 function isChickenBaconC(name) {
   const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
   return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
-}
-
-// 15-min time options (24h value, 12h label)
-function buildTime15Options() {
-  const out = [];
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      out.push({ value: `${pad2(h)}:${pad2(m)}`, label: formatTime12(`${pad2(h)}:${pad2(m)}`) });
-    }
-  }
-  return out;
-}
-const TIME_15 = buildTime15Options();
-
-// Hourly dropdown you requested (7am to 11pm only)
-const HOURLY_7AM_11PM = buildHourlyLimited();
-function buildHourlyLimited() {
-  const out = [];
-  for (let h = 7; h <= 23; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      out.push({ value: `${pad2(h)}:${pad2(m)}`, label: formatTime12(`${pad2(h)}:${pad2(m)}`) });
-    }
-  }
-  return out;
 }
 
 function formatTime12(hhmm) {
@@ -217,6 +172,19 @@ function timePartFromRow(row) {
     return "";
   }
 }
+
+/* =========================================================
+   HOURLY SHORT TIMES (NEW ✅)
+   Only: 7am, 11am, 3pm, 7pm, 11pm
+   ========================================================= */
+const HOURLY_SHORT = [
+  { value: "07:00", label: "7 AM" },
+  { value: "11:00", label: "11 AM" },
+  { value: "15:00", label: "3 PM" },
+  { value: "19:00", label: "7 PM" },
+  { value: "23:00", label: "11 PM" },
+];
+
 /* =========================================================
    API
    ========================================================= */
@@ -278,7 +246,6 @@ async function loadAllForCurrentStore() {
     ...it,
     sub_category: it.sub_category ? normalizeSub(it.sub_category) : null,
     is_hourly: !!it.is_hourly,
-    // stock alert fields (optional)
     stock_alert_enabled: !!it.stock_alert_enabled,
     stock_min: it.stock_min != null ? Number(it.stock_min) : null,
   }));
@@ -291,7 +258,6 @@ function normalizeSub(s) {
   if (t === "sandwich unit" || t === "sandwichunit") return "Sandwich Unit";
   return String(s || "").trim();
 }
-
 /* =========================================================
    TOPBAR
    ========================================================= */
@@ -360,13 +326,16 @@ function bindDrawer() {
 function openDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.remove("hidden"); }
 function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
 
-/* rename Alerts -> Stock Alert + dot */
+/* Stock Alert label + dot (single source of truth ✅) */
 function updateDrawerAlertLabel(hasDot) {
-  const el = $("#drawerAlerts");
-  if (!el) return;
-  const dot = hasDot ? " •" : "";
-  el.textContent = `📦 Stock Alert${dot}`;
+  const btn = $("#drawerAlerts");
+  if (!btn) return;
+
+  btn.innerHTML = hasDot
+    ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
+    : `📦 Stock Alert`;
 }
+
 /* =========================================================
    MODAL + TOAST
    ========================================================= */
@@ -538,6 +507,11 @@ function renderLoginPage() {
     }
   });
 }
+/* =========================
+   PART 3 / 5  (REPLACEMENT — USE THIS)
+   From: NAVIGATION → CATEGORY → shelfLifeModeFor → Date Wheel Picker (with green Set date)
+   ========================= */
+
 /* =========================================================
    NAVIGATION
    ========================================================= */
@@ -707,6 +681,7 @@ function tileToneFor(name) {
   };
   return map[name] || "t-pink";
 }
+
 /* =========================================================
    CATEGORY
    ========================================================= */
@@ -748,7 +723,8 @@ function renderCategory() {
 
   let items = (state.data.items || []).filter((x) => x.category === cat);
   if (cat === "Sauce" && sauceSub) {
-    items = items.filter((x) => normalizeSub(x.sub_category || "") === normalizeSub(sauceSub));
+   items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
+
   }
 
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
@@ -808,9 +784,10 @@ function shelfLifeModeFor(it, cat) {
 
   return { mode: "PRESET", life };
 }
+
 /* =========================================================
-   DATE WHEEL PICKER (iOS-style) — FIXED ✅
-   (Removed the old duplicated slider code that caused: Unexpected token '}')
+   DATE WHEEL PICKER (iOS-style)
+   - "Set date" button is GREEN ✅
    ========================================================= */
 function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const today = todayISO();
@@ -883,7 +860,9 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
 
       <div class="pc-wheel-actions">
         <button class="pc-wheel-btn cancel" type="button" id="wheelCancel">Cancel</button>
-        <button class="pc-wheel-btn ok" type="button" id="wheelOk">Set date</button>
+        <button class="pc-wheel-btn ok" type="button" id="wheelOk"
+          style="background:var(--green);color:#fff;border:0"
+        >Set date</button>
       </div>
     </div>
     `,
@@ -947,6 +926,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   function setOkEnabled() {
     const iso = toISO(y, m, d);
     okEl.disabled = !inRangeISO(iso);
+    okEl.style.opacity = okEl.disabled ? "0.5" : "1";
   }
 
   function renderWheel() {
@@ -954,7 +934,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     if (d > dim) d = dim;
     if (d < 1) d = 1;
 
-    // Day
     dayEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
       ${Array.from({ length: dim }, (_, i) => {
@@ -967,7 +946,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
       <div class="pc-wheel-pad"></div>
     `;
 
-    // Month
     monEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
       ${Array.from({ length: 12 }, (_, i) => {
@@ -981,7 +959,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
       <div class="pc-wheel-pad"></div>
     `;
 
-    // Year
     yearEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
       ${years.map((yy) => {
@@ -1017,95 +994,51 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   });
 }
 
-/* Backward compatible alias */
+/* alias */
 function openDateSliderModal(opts) {
   return openDateWheelModal(opts);
 }
+/* =========================
+   PART 4 / 5  (REQUESTED)
+   - Add 2nd date modal (single date + qty)
+   - Hourly expiry list short: 7am,11am,3pm,7pm,11pm
+   - renderItemEditor + bindItemEditors + saveCategory updated
+   ========================= */
 
-/* ---------- Add Date popup (Earliest + Latest) ---------- */
+/* ---------- Add 2nd date popup (single extra expiry) ---------- */
 function openAddDateModal({ it, cat, key }) {
   const d = state.drafts[key] || (state.drafts[key] = {});
-  d.earliestISO = d.earliestISO || "";
-  d.latestISO = d.latestISO || "";
-  d.earliestQty = d.earliestQty || 0;
-  d.latestQty = d.latestQty || 0;
+  d.extraISO = d.extraISO || "";
+  d.extraQty = d.extraQty || 0;
 
   const rule = shelfLifeModeFor(it, cat);
-
-  // allowed options
   const today = todayISO();
-  let presetMax = 1;
-  if (rule.mode === "PRESET") presetMax = Math.max(1, Math.min(7, Number(rule.life) || 1));
-
-  const presetOptions = Array.from({ length: presetMax }, (_, i) => {
-    const iso = addDaysISO(today, i);
-    return `<option value="${escapeHtml(iso)}">${escapeHtml(formatLongDMY(iso))}</option>`;
-  }).join("");
-
   const blockPast = today;
 
   openModal(
-    "Add Date (2nd Expiry)",
+    "Add 2nd date",
     `
       <div class="card">
         <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(it.name)}</div>
 
-        <div class="muted" style="font-weight:1000;margin-bottom:12px">
-          Set 2 expiry dates + quantities (Earliest & Latest).
-        </div>
-
         <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
-          <div style="font-weight:1200;margin-bottom:8px">Earliest expiry</div>
+          <div style="font-weight:1200;margin-bottom:8px">2nd expiry date</div>
 
-          ${rule.mode === "HOURLY"
-            ? `<div class="muted" style="font-weight:1000">Hourly items cannot use Add Date.</div>`
-            : rule.mode === "EOD_AUTO"
-            ? `<div class="muted" style="font-weight:1000">Chicken Bacon (c) is auto today (EOD).</div>`
-            : rule.mode === "MANUAL"
-            ? `
-              <button id="earPick" class="btn btn-yellow" style="width:100%">Pick date</button>
-              <div id="earShow" style="margin-top:8px;font-weight:1200">${d.earliestISO ? escapeHtml(formatLongDMY(d.earliestISO)) : "Not set"}</div>
-            `
-            : `
-              <select id="earSel" class="select">
-                <option value="">Select</option>
-                ${presetOptions}
-              </select>
-              <button id="earManual" class="btn btn-ghost" style="width:100%;margin-top:8px">Manual pick</button>
-              <div id="earShow" style="margin-top:8px;font-weight:1200">${d.earliestISO ? escapeHtml(formatLongDMY(d.earliestISO)) : "Not set"}</div>
-            `
+          ${
+            rule.mode === "HOURLY"
+              ? `<div class="muted" style="font-weight:1000">Hourly items cannot use Add 2nd date.</div>`
+              : rule.mode === "EOD_AUTO"
+              ? `<div class="muted" style="font-weight:1000">Chicken Bacon (c) is auto today (EOD).</div>`
+              : `
+                <button id="exPick" class="btn btn-yellow" style="width:100%">Pick date</button>
+                <div id="exShow" style="margin-top:8px;font-weight:1200">
+                  ${d.extraISO ? escapeHtml(formatLongDMY(d.extraISO)) : "Not set"}
+                </div>
+              `
           }
 
           <div style="margin-top:10px;font-weight:1200">Qty</div>
-          <input id="earQty" class="input" inputmode="numeric" value="${escapeHtml(d.earliestQty || 0)}">
-        </div>
-
-        <div style="height:12px"></div>
-
-        <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
-          <div style="font-weight:1200;margin-bottom:8px">Latest expiry</div>
-
-          ${rule.mode === "HOURLY"
-            ? ``
-            : rule.mode === "EOD_AUTO"
-            ? ``
-            : rule.mode === "MANUAL"
-            ? `
-              <button id="latPick" class="btn btn-yellow" style="width:100%">Pick date</button>
-              <div id="latShow" style="margin-top:8px;font-weight:1200">${d.latestISO ? escapeHtml(formatLongDMY(d.latestISO)) : "Not set"}</div>
-            `
-            : `
-              <select id="latSel" class="select">
-                <option value="">Select</option>
-                ${presetOptions}
-              </select>
-              <button id="latManual" class="btn btn-ghost" style="width:100%;margin-top:8px">Manual pick</button>
-              <div id="latShow" style="margin-top:8px;font-weight:1200">${d.latestISO ? escapeHtml(formatLongDMY(d.latestISO)) : "Not set"}</div>
-            `
-          }
-
-          <div style="margin-top:10px;font-weight:1200">Qty</div>
-          <input id="latQty" class="input" inputmode="numeric" value="${escapeHtml(d.latestQty || 0)}">
+          <input id="exQty" class="input" inputmode="numeric" value="${escapeHtml(d.extraQty || 0)}">
         </div>
 
         <div class="muted" style="margin-top:10px;font-weight:1100">
@@ -1113,142 +1046,58 @@ function openAddDateModal({ it, cat, key }) {
         </div>
 
         <div class="row" style="gap:12px;margin-top:14px">
-          <button id="adCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
-          <button id="adOk" class="btn btn-red" style="flex:1">Done</button>
+          <button id="exCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="exOk" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Done</button>
         </div>
       </div>
     `,
     { noBackdropClose: true }
   );
 
-  if (rule.mode === "HOURLY") {
-    $("#adCancel").addEventListener("click", closeModal);
-    $("#adOk").addEventListener("click", closeModal);
-    return;
-  }
-  if (rule.mode === "EOD_AUTO") {
-    // earliest/latest fixed today; only qty matters
-    $("#earQty").addEventListener("input", () => (d.earliestQty = Number($("#earQty").value || 0)));
-    $("#latQty").addEventListener("input", () => (d.latestQty = Number($("#latQty").value || 0)));
-    $("#adCancel").addEventListener("click", closeModal);
-    $("#adOk").addEventListener("click", () => {
-      d.earliestISO = todayISO();
-      d.latestISO = todayISO();
-      closeModal();
-      toast("Added date ✅");
-    });
-    return;
-  }
-
-  const setShow = (id, iso) => {
-    const el = $(id);
-    if (!el) return;
-    el.textContent = iso ? formatLongDMY(iso) : "Not set";
-  };
-
-  // Earliest bindings
-  const earSel = $("#earSel");
-  if (earSel) {
-    earSel.value = d.earliestISO || "";
-    earSel.addEventListener("change", () => {
-      d.earliestISO = String(earSel.value || "");
-      setShow("#earShow", d.earliestISO);
-    });
-  }
-  const earManual = $("#earManual");
-  if (earManual) {
-    earManual.addEventListener("click", () => {
-      openDateWheelModal({
-        title: "Pick Earliest expiry",
-        initialISO: d.earliestISO || todayISO(),
-        minISO: blockPast,
-        onPick: (iso) => {
-          d.earliestISO = iso;
-          setShow("#earShow", iso);
-        },
-      });
-    });
-  }
-  const earPick = $("#earPick");
-  if (earPick) {
-    earPick.addEventListener("click", () => {
-      openDateWheelModal({
-        title: "Pick Earliest expiry",
-        initialISO: d.earliestISO || todayISO(),
-        minISO: blockPast,
-        onPick: (iso) => {
-          d.earliestISO = iso;
-          setShow("#earShow", iso);
-        },
-      });
-    });
-  }
-
-  // Latest bindings
-  const latSel = $("#latSel");
-  if (latSel) {
-    latSel.value = d.latestISO || "";
-    latSel.addEventListener("change", () => {
-      d.latestISO = String(latSel.value || "");
-      setShow("#latShow", d.latestISO);
-    });
-  }
-  const latManual = $("#latManual");
-  if (latManual) {
-    latManual.addEventListener("click", () => {
-      openDateWheelModal({
-        title: "Pick Latest expiry",
-        initialISO: d.latestISO || todayISO(),
-        minISO: blockPast,
-        onPick: (iso) => {
-          d.latestISO = iso;
-          setShow("#latShow", iso);
-        },
-      });
-    });
-  }
-  const latPick = $("#latPick");
-  if (latPick) {
-    latPick.addEventListener("click", () => {
-      openDateWheelModal({
-        title: "Pick Latest expiry",
-        initialISO: d.latestISO || todayISO(),
-        minISO: blockPast,
-        onPick: (iso) => {
-          d.latestISO = iso;
-          setShow("#latShow", iso);
-        },
-      });
-    });
-  }
-
-  $("#earQty").addEventListener("input", () => (d.earliestQty = Number($("#earQty").value || 0)));
-  $("#latQty").addEventListener("input", () => (d.latestQty = Number($("#latQty").value || 0)));
-
-  $("#adCancel").addEventListener("click", closeModal);
-  $("#adOk").addEventListener("click", () => {
-    // validate
-    const eq = Number(d.earliestQty || 0);
-    const lq = Number(d.latestQty || 0);
-
-    if ((eq > 0 && !d.earliestISO) || (lq > 0 && !d.latestISO)) {
-      toast("Set date for qty > 0");
-      return;
-    }
-
-    // prevent past dates
-    if (d.earliestISO && d.earliestISO < blockPast) return toast("Earliest cannot be past");
-    if (d.latestISO && d.latestISO < blockPast) return toast("Latest cannot be past");
-
-    // also ensure earliest <= latest if both
-    if (d.earliestISO && d.latestISO && d.earliestISO > d.latestISO) {
-      toast("Earliest must be before Latest");
-      return;
-    }
-
-    closeModal();
-    toast("Added date ✅");
+  $("#exQty")?.addEventListener("input", () => {
+    d.extraQty = Number($("#exQty").value || 0);
   });
+
+  if (rule.mode === "HOURLY") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", closeModal);
+    return;
+  }
+
+  if (rule.mode === "EOD_AUTO") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", () => {
+      d.extraISO = todayISO();
+      closeModal();
+      toast("Added 2nd date ✅");
+    });
+    return;
+  }
+
+  $("#exPick")?.addEventListener("click", () => {
+    openDateWheelModal({
+      title: "Pick 2nd expiry date",
+      initialISO: d.extraISO || todayISO(),
+      minISO: blockPast,
+      onPick: (iso) => {
+        d.extraISO = iso;
+        const el = $("#exShow");
+        if (el) el.textContent = formatLongDMY(iso);
+      },
+    });
+  });
+
+  $("#exCancel")?.addEventListener("click", closeModal);
+
+ $("#exOk")?.addEventListener("click", () => {
+  const q = Number(d.extraQty || 0);
+  if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
+  if (d.extraISO && d.extraISO < blockPast) return toast("Past dates not allowed");
+  closeModal();
+  render(); // 🔥 refresh item card so "2nd date" badge appears
+  toast("Added 2nd date ✅");
+});
+
 }
 
 /* ---------- item editor card ---------- */
@@ -1259,12 +1108,9 @@ function renderItemEditor(it, cat) {
       qty: 0,
       expType: "",
       expDateISO: "",
-      expTime15: "",
-      extraOpen: false,
-      earliestISO: "",
-      latestISO: "",
-      earliestQty: 0,
-      latestQty: 0
+      expTimeShort: "",  // ✅ new
+      extraISO: "",      // ✅ new
+      extraQty: 0        // ✅ new
     };
   }
   const d = state.drafts[key];
@@ -1273,9 +1119,9 @@ function renderItemEditor(it, cat) {
   let expiryUI = "";
 
   if (rule.mode === "HOURLY") {
-    const opts = HOURLY_7AM_11PM.map(
-      (o) => `<option value="${escapeHtml(o.value)}"${d.expTime15 === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`
-    ).join("");
+    const opts = HOURLY_SHORT
+      .map((o) => `<option value="${escapeHtml(o.value)}"${d.expTimeShort === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`)
+      .join("");
 
     expiryUI = `
       <label class="label">Expiry time (Today)</label>
@@ -1322,8 +1168,8 @@ function renderItemEditor(it, cat) {
     ? ""
     : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
 
-  const extraBadge = (d.earliestQty > 0 || d.latestQty > 0)
-    ? `<div class="muted" style="font-weight:1100;margin-top:6px">Extra: ${d.earliestQty||0} / ${d.latestQty||0}</div>`
+  const extraBadge = (Number(d.extraQty) > 0)
+    ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(d.extraQty) || 0}</div>`
     : "";
 
   return `
@@ -1356,9 +1202,8 @@ function bindItemEditors(items, cat) {
   for (const it of items) {
     const key = itemKey(it);
     const d = state.drafts[key] || (state.drafts[key] = {
-      qty: 0, expType: "", expDateISO: "", expTime15: "",
-      extraOpen: false, earliestISO: "", latestISO: "",
-      earliestQty: 0, latestQty: 0
+      qty: 0, expType: "", expDateISO: "", expTimeShort: "",
+      extraISO: "", extraQty: 0
     });
 
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
@@ -1393,7 +1238,7 @@ function bindItemEditors(items, cat) {
     });
 
     if (timeSel) timeSel.addEventListener("change", () => {
-      d.expTime15 = String(timeSel.value || "");
+      d.expTimeShort = String(timeSel.value || "");
       d.expType = "HOURLY";
     });
 
@@ -1430,7 +1275,7 @@ function bindItemEditors(items, cat) {
   }
 }
 
-/* ---------- save category (includes Add Date rows) ---------- */
+/* ---------- save category (includes Add 2nd date row) ---------- */
 async function saveCategory(items, cat) {
   const store = state.session.store;
   const staff = state.session.staff;
@@ -1441,11 +1286,13 @@ async function saveCategory(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || { qty: 0, expType: "", expDateISO: "", expTime15: "", earliestISO: "", latestISO: "", earliestQty: 0, latestQty: 0 };
+    const d = state.drafts[key] || {
+      qty: 0, expType: "", expDateISO: "", expTimeShort: "",
+      extraISO: "", extraQty: 0
+    };
 
     const qty = Number(d.qty) || 0;
-    const eq = Number(d.earliestQty) || 0;
-    const lq = Number(d.latestQty) || 0;
+    const xq = Number(d.extraQty) || 0;
 
     const rule = shelfLifeModeFor(it, cat);
 
@@ -1455,18 +1302,25 @@ async function saveCategory(items, cat) {
       let expiry_at = null;
 
       if (rule.mode === "HOURLY") {
-        if (!d.expTime15) {
+        if (!d.expTimeShort) {
           toast(`Pick time for ${it.name}`);
           return;
         }
         expiry = today;
-        expiry_at = isoFromTodayAndTime(d.expTime15);
+        expiry_at = isoFromTodayAndTime(d.expTimeShort);
       } else if (rule.mode === "EOD_AUTO") {
         expiry = today;
-      } else {
-        expiry = d.expDateISO || null;
-        if (expiry && expiry < today) { toast("Past dates not allowed"); return; }
-      }
+     } else {
+  expiry = d.expDateISO || null;
+  if (!expiry) {
+    toast(`Pick expiry for ${it.name}`);
+    return;
+  }
+  if (expiry < today) {
+    toast("Past dates not allowed");
+    return;
+  }
+}
 
       rows.push({
         item_id: it.id ?? null,
@@ -1481,10 +1335,10 @@ async function saveCategory(items, cat) {
       });
     }
 
-    // extra earliest row
-    if (eq > 0) {
-      const expiry = (rule.mode === "EOD_AUTO") ? today : (d.earliestISO || "");
-      if (!expiry) { toast("Set earliest date"); return; }
+    // extra 2nd date row
+    if (xq > 0) {
+      const expiry = (rule.mode === "EOD_AUTO") ? today : (d.extraISO || "");
+      if (!expiry) { toast("Set 2nd date"); return; }
       if (expiry < today) { toast("Past dates not allowed"); return; }
 
       rows.push({
@@ -1492,32 +1346,12 @@ async function saveCategory(items, cat) {
         item_name: it.name,
         category: it.category,
         sub_category: it.sub_category || null,
-        quantity: eq,
+        quantity: xq,
         expiry,
         expiry_at: null,
         shift,
         is_extra: true,
-        extra_tag: "EARLIEST",
-      });
-    }
-
-    // extra latest row
-    if (lq > 0) {
-      const expiry = (rule.mode === "EOD_AUTO") ? today : (d.latestISO || "");
-      if (!expiry) { toast("Set latest date"); return; }
-      if (expiry < today) { toast("Past dates not allowed"); return; }
-
-      rows.push({
-        item_id: it.id ?? null,
-        item_name: it.name,
-        category: it.category,
-        sub_category: it.sub_category || null,
-        quantity: lq,
-        expiry,
-        expiry_at: null,
-        shift,
-        is_extra: true,
-        extra_tag: "LATEST",
+        extra_tag: "SECOND",
       });
     }
   }
@@ -1533,11 +1367,16 @@ async function saveCategory(items, cat) {
     toast("Save failed");
   }
 }
+/* =========================
+   PART 5 / 5
+   From: STOCK ALERT → SUMMARY → WISR → MANAGER → LOGOUT → UTILS
+   (No extra theme/logic changes)
+   ========================= */
+
 /* =========================================================
    STOCK ALERT PAGE
    ========================================================= */
 async function refreshStockDot() {
-  // expects endpoint: /api/stock/low?store=... -> rows
   const store = state.session.store;
   try {
     const r = await apiGet(`/api/stock/low?store=${encodeURIComponent(store)}`);
@@ -1844,6 +1683,7 @@ function bucketTitle(b) {
   if (b === "TOMORROW") return "Expiring Tomorrow";
   return "All Safe";
 }
+
 /* =========================================================
    WISR
    ========================================================= */
@@ -1864,6 +1704,7 @@ function renderWISR() {
 
 /* =========================================================
    MANAGER
+   (same as your original — unchanged)
    ========================================================= */
 function renderManagerHome() {
   if (!state.session.isManager) {
@@ -1952,6 +1793,7 @@ function openManagerLogin() {
     }
   });
 }
+
 /* ---------- manager: edit items ---------- */
 async function renderManagerEditItems() {
   if (!state.session.isManager) return openManagerLogin();
@@ -2328,17 +2170,6 @@ function openAddItemModal() {
   });
 }
 
-/* =========================================================
-   Stock Alert drawer label + dot (KEEP ONLY THIS ONE ✅)
-   ========================================================= */
-function updateDrawerAlertLabel(hasDot) {
-  const btn = $("#drawerAlerts");
-  if (!btn) return;
-
-  btn.innerHTML = hasDot
-    ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
-    : `📦 Stock Alert`;
-}
 /* =========================================================
    LOGOUT
    ========================================================= */
