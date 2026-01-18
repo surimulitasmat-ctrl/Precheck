@@ -834,11 +834,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     title || "Select date",
     `
     <div class="pc-wheel">
-      <div class="pc-wheel-head">
-        <div class="pc-wheel-title">${escapeHtml(title || "Select date")}</div>
-        <button class="pc-wheel-x" type="button" id="wheelX">✕</button>
-      </div>
-
+     
       <div class="pc-wheel-cols">
         <div class="pc-wheel-col">
           <div class="pc-wheel-label">Day</div>
@@ -886,26 +882,37 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     container.scrollTo({ top, behavior: "smooth" });
   }
 
-  function snapToClosest(container) {
-    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
-    if (!items.length) return;
+function snapToClosest(container) {
+  const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
+  if (!items.length) return;
 
-    const center = container.scrollTop + container.clientHeight / 2;
-    let best = null;
-    let bestDist = Infinity;
+  const center = container.scrollTop + container.clientHeight / 2;
 
-    for (const it of items) {
-      if (it.classList.contains("dim")) continue;
-      const itCenter = it.offsetTop + it.clientHeight / 2;
-      const dist = Math.abs(itCenter - center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = it;
-      }
+  const active = container.querySelector(".pc-wheel-item.active");
+  const activeV = active ? active.dataset.v : null;
+
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const it of items) {
+    if (it.classList.contains("dim")) continue;
+    const itCenter = it.offsetTop + it.clientHeight / 2;
+    const dist = Math.abs(itCenter - center);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = it;
     }
-    if (!best) return;
-    best.click();
   }
+  if (!best) return;
+
+  // 🔔 vibrate ONLY when value changes
+  if (best.dataset.v !== activeV) {
+    haptic(8);
+  }
+
+  best.click();
+}
+
 
   function bindWheel(container, onPickVal) {
     $$(".pc-wheel-item", container).forEach((btn) => {
