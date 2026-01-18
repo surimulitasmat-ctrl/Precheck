@@ -578,3 +578,16 @@ body{
   .tile .title{font-size:17px}
   .dash-title{font-size:17px}
 }
+/* Make Day/Month/Year labels more visible (no behavior change) */
+.pc-wheel-label{
+  font-weight: 1300;
+  font-size: 14px;
+  opacity: 1;
+  color: #111;
+  letter-spacing: 0.2px;
+}
+
+/* If your modal background is very white, this helps separation */
+.pc-wheel-col{
+  padding-top: 6px;
+}
