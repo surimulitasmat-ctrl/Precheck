@@ -888,6 +888,7 @@ function snapToClosest(container) {
 
   const center = container.scrollTop + container.clientHeight / 2;
 
+  // current active value (before snapping)
   const active = container.querySelector(".pc-wheel-item.active");
   const activeV = active ? active.dataset.v : null;
 
@@ -904,6 +905,13 @@ function snapToClosest(container) {
     }
   }
   if (!best) return;
+
+  // vibrate ONLY if value actually changes
+  if (best.dataset.v !== activeV) haptic(8);
+
+  best.click();
+}
+
 
   // 🔔 vibrate ONLY when value changes
   if (best.dataset.v !== activeV) {
