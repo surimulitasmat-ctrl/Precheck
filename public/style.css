@@ -598,3 +598,9 @@ body{
   color: #111;
   opacity: 1;
 }
+.pc-wheel-label{
+  font-weight: 1400;
+  font-size: 14px;
+  color: #111;
+  opacity: 1;
+}
