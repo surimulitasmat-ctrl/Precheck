@@ -865,7 +865,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     { noBackdropClose: true }
   );
 
-  $("#wheelX")?.addEventListener("click", closeModal);
+ 
   $("#wheelCancel")?.addEventListener("click", closeModal);
 
   const dayEl = $("#wheelDay");
@@ -911,16 +911,6 @@ function snapToClosest(container) {
 
   best.click();
 }
-
-
-  // 🔔 vibrate ONLY when value changes
-  if (best.dataset.v !== activeV) {
-    haptic(8);
-  }
-
-  best.click();
-}
-
 
   function bindWheel(container, onPickVal) {
     $$(".pc-wheel-item", container).forEach((btn) => {
