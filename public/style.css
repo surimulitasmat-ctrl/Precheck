@@ -591,3 +591,10 @@ body{
 .pc-wheel-col{
   padding-top: 6px;
 }
+/* Wheel labels more visible */
+.pc-wheel-label{
+  font-weight: 1400;
+  font-size: 14px;
+  color: #111;
+  opacity: 1;
+}
