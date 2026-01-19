@@ -1,10 +1,17 @@
 /* =========================
    PreCheck — public/app.js (FULL)
+   PART 1 / 3
+   Includes: helpers, constants, state, boot, storage, date/time, hourly times,
+            API helpers, loadAllForCurrentStore, normalizeSub, topbar, drawer,
+            modal/toast, popup, login page
    PATCHED:
    ✅ Hourly expiry options: 7am / 11am / 3pm / 7pm / 11pm
-   ✅ Add 2nd date: single date + qty (no earliest/latest)
-   ✅ Done + Set date buttons: green (inline style, no CSS needed)
-   ✅ Removed duplicate updateDrawerAlertLabel (keep only one)
+   ✅ Add 2nd date: single date + qty (wired in Part 2)
+   ✅ Done + Set date buttons: green (Part 2)
+   ✅ Removed duplicate updateDrawerAlertLabel (single source)
+   ✅ Date wheel: removed duplicate title + haptic tick on change (Part 2)
+   ✅ Summary: professional AM/PM completion + who did check (Part 3)
+   ✅ Manager: download log CSV (Part 3)
    ========================= */
 
 /* ---------- DOM helpers ---------- */
@@ -144,7 +151,6 @@ function isChickenBaconC(name) {
   const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
   return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
 }
-
 function formatTime12(hhmm) {
   const [hS, mS] = String(hhmm).split(":");
   let h = Number(hS);
@@ -154,11 +160,9 @@ function formatTime12(hhmm) {
   if (h === 0) h = 12;
   return `${h}:${pad2(m)} ${ampm}`;
 }
-
 function isoFromTodayAndTime(hhmm) {
   return `${todayISO()}T${String(hhmm)}:00`;
 }
-
 function datePartFromRow(row) {
   if (row?.expiry_at) return String(row.expiry_at).slice(0, 10);
   return String(row?.expiry_value || row?.expiry || "").slice(0, 10);
@@ -237,6 +241,9 @@ async function apiDel(path, token = "") {
   return t ? JSON.parse(t) : {};
 }
 
+/* =========================================================
+   DATA LOAD
+   ========================================================= */
 async function loadAllForCurrentStore() {
   const store = state.session.store;
   state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
@@ -258,6 +265,7 @@ function normalizeSub(s) {
   if (t === "sandwich unit" || t === "sandwichunit") return "Sandwich Unit";
   return String(s || "").trim();
 }
+
 /* =========================================================
    TOPBAR
    ========================================================= */
@@ -507,9 +515,16 @@ function renderLoginPage() {
     }
   });
 }
+
 /* =========================
-   PART 3 / 5  (REPLACEMENT — USE THIS)
-   From: NAVIGATION → CATEGORY → shelfLifeModeFor → Date Wheel Picker (with green Set date)
+   END PART 1 / 3
+   ========================= */
+/* =========================
+   PART 2 / 3
+   Includes: navigation, back/swipe guard, render root, home, category,
+             shelfLifeModeFor, date wheel picker (green Set date + haptic tick),
+             add 2nd date modal (single date + qty), item editor, bind editors,
+             saveCategory (blocks missing expiry)
    ========================= */
 
 /* =========================================================
@@ -525,7 +540,9 @@ function setView(next, push) {
 }
 function goBack() {
   const prev = state.navStack.pop();
-  state.view = prev ? prev : { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
+  state.view = prev
+    ? prev
+    : { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
   render();
 }
 function goHome() {
@@ -571,7 +588,9 @@ function bindAppBackGuard() {
   });
 }
 function safePushHistory() {
-  try { history.pushState({ pc: 1 }, ""); } catch {}
+  try {
+    history.pushState({ pc: 1 }, "");
+  } catch {}
 }
 function openConfirmExit() {
   openModal(
@@ -592,7 +611,10 @@ function openConfirmExit() {
   $("#exitNo").addEventListener("click", closeModal);
   $("#exitYes").addEventListener("click", () => {
     closeModal();
-    try { backGuardArmed = false; history.back(); } catch {}
+    try {
+      backGuardArmed = false;
+      history.back();
+    } catch {}
   });
 }
 
@@ -612,16 +634,26 @@ function render() {
   }
 
   switch (state.view.page) {
-    case "login": return renderLoginPage();
-    case "home": return renderHome();
-    case "category": return renderCategory();
-    case "stockAlerts": return renderStockAlerts();
-    case "summaryHome": return renderSummaryHome();
-    case "summaryList": return renderSummaryList();
-    case "wisr": return renderWISR();
-    case "manager": return renderManagerHome();
-    case "managerEditItems": return renderManagerEditItems();
-    case "managerCategories": return renderManagerCategories();
+    case "login":
+      return renderLoginPage();
+    case "home":
+      return renderHome();
+    case "category":
+      return renderCategory();
+    case "stockAlerts":
+      return renderStockAlerts();
+    case "summaryHome":
+      return renderSummaryHome();
+    case "summaryList":
+      return renderSummaryList();
+    case "wisr":
+      return renderWISR();
+    case "manager":
+      return renderManagerHome();
+    case "managerEditItems":
+      return renderManagerEditItems();
+    case "managerCategories":
+      return renderManagerCategories();
     default:
       main.innerHTML = `<div class="card">Unknown page</div>`;
   }
@@ -644,7 +676,9 @@ function renderHome() {
       const emoji = CAT_EMOJI[name] || "✅";
       const tone = tileToneFor(name);
       return `
-      <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(name)}" type="button">
+      <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(
+        name
+      )}" type="button">
         <div class="emoji" style="font-size:54px">${emoji}</div>
         <div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(name)}</div>
         <div class="sub">${counts[name] || 0} items</div>
@@ -677,7 +711,7 @@ function tileToneFor(name) {
     "Front counter": "t-red",
     "Back counter chiller": "t-teal",
     "Fountain Drinks": "t-green2",
-    "Sauce": "t-purple",
+    Sauce: "t-purple",
   };
   return map[name] || "t-pink";
 }
@@ -691,18 +725,19 @@ function renderCategory() {
 
   // Sauce sub-menu
   if (cat === "Sauce" && !state.view.sauceSub) {
-    const tiles = SAUCE_SUBS
-      .map((s, idx) => {
-        const tone = s.tone === "teal" ? "t-teal" : s.tone === "purple" ? "t-purple" : "t-orange";
-        return `
-        <button class="tile ${tone}" style="min-height:120px;animation-delay:${idx * 60}ms" data-sub="${escapeHtml(s.name)}" type="button">
+    const tiles = SAUCE_SUBS.map((s, idx) => {
+      const tone =
+        s.tone === "teal" ? "t-teal" : s.tone === "purple" ? "t-purple" : "t-orange";
+      return `
+        <button class="tile ${tone}" style="min-height:120px;animation-delay:${idx * 60}ms" data-sub="${escapeHtml(
+        s.name
+      )}" type="button">
           <div class="emoji" style="font-size:56px">${s.emoji}</div>
           <div class="title" style="font-size:20px">${escapeHtml(s.name)}</div>
           <div class="sub">Tap to open</div>
         </button>
       `;
-      })
-      .join("");
+    }).join("");
 
     main.innerHTML = `
       <div class="page-head">
@@ -723,8 +758,7 @@ function renderCategory() {
 
   let items = (state.data.items || []).filter((x) => x.category === cat);
   if (cat === "Sauce" && sauceSub) {
-   items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
-
+    items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
   }
 
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
@@ -786,8 +820,10 @@ function shelfLifeModeFor(it, cat) {
 }
 
 /* =========================================================
-   DATE WHEEL PICKER (iOS-style)
-   - "Set date" button is GREEN ✅
+   DATE WHEEL PICKER
+   - No duplicate title
+   - Green "Set date"
+   - Haptic tick when value changes
    ========================================================= */
 function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const today = todayISO();
@@ -834,7 +870,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     title || "Select date",
     `
     <div class="pc-wheel">
-     
       <div class="pc-wheel-cols">
         <div class="pc-wheel-col">
           <div class="pc-wheel-label">Day</div>
@@ -865,7 +900,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     { noBackdropClose: true }
   );
 
- 
   $("#wheelCancel")?.addEventListener("click", closeModal);
 
   const dayEl = $("#wheelDay");
@@ -873,44 +907,45 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const yearEl = $("#wheelYear");
   const okEl = $("#wheelOk");
 
-  const monthLabel = (mm) => new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
+  const monthLabel = (mm) =>
+    new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
 
   function scrollToActive(container) {
     const active = container.querySelector(".pc-wheel-item.active");
     if (!active) return;
-    const top = active.offsetTop - (container.clientHeight / 2) + (active.clientHeight / 2);
+    const top = active.offsetTop - container.clientHeight / 2 + active.clientHeight / 2;
     container.scrollTo({ top, behavior: "smooth" });
   }
 
-function snapToClosest(container) {
-  const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
-  if (!items.length) return;
+  function snapToClosest(container) {
+    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
+    if (!items.length) return;
 
-  const center = container.scrollTop + container.clientHeight / 2;
+    const center = container.scrollTop + container.clientHeight / 2;
 
-  // current active value (before snapping)
-  const active = container.querySelector(".pc-wheel-item.active");
-  const activeV = active ? active.dataset.v : null;
+    // current active value (before snapping)
+    const active = container.querySelector(".pc-wheel-item.active");
+    const activeV = active ? active.dataset.v : null;
 
-  let best = null;
-  let bestDist = Infinity;
+    let best = null;
+    let bestDist = Infinity;
 
-  for (const it of items) {
-    if (it.classList.contains("dim")) continue;
-    const itCenter = it.offsetTop + it.clientHeight / 2;
-    const dist = Math.abs(itCenter - center);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = it;
+    for (const it of items) {
+      if (it.classList.contains("dim")) continue;
+      const itCenter = it.offsetTop + it.clientHeight / 2;
+      const dist = Math.abs(itCenter - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
     }
+    if (!best) return;
+
+    // vibrate ONLY if value actually changes
+    if (best.dataset.v !== activeV) haptic(8);
+
+    best.click();
   }
-  if (!best) return;
-
-  // vibrate ONLY if value actually changes
-  if (best.dataset.v !== activeV) haptic(8);
-
-  best.click();
-}
 
   function bindWheel(container, onPickVal) {
     $$(".pc-wheel-item", container).forEach((btn) => {
@@ -957,22 +992,26 @@ function snapToClosest(container) {
         const mm = i + 1;
         const isoStart = toISO(y, mm, 1);
         const isoEnd = toISO(y, mm, daysInMonth(y, mm));
-        const dimCls = (isoEnd < min || isoStart > max) ? "dim" : "";
+        const dimCls = isoEnd < min || isoStart > max ? "dim" : "";
         const active = mm === m ? "active" : "";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${mm}">${escapeHtml(monthLabel(mm))}</button>`;
+        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${mm}">${escapeHtml(
+          monthLabel(mm)
+        )}</button>`;
       }).join("")}
       <div class="pc-wheel-pad"></div>
     `;
 
     yearEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
-      ${years.map((yy) => {
-        const isoStart = toISO(yy, 1, 1);
-        const isoEnd = toISO(yy, 12, 31);
-        const dimCls = (isoEnd < min || isoStart > max) ? "dim" : "";
-        const active = yy === y ? "active" : "";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${yy}">${yy}</button>`;
-      }).join("")}
+      ${years
+        .map((yy) => {
+          const isoStart = toISO(yy, 1, 1);
+          const isoEnd = toISO(yy, 12, 31);
+          const dimCls = isoEnd < min || isoStart > max ? "dim" : "";
+          const active = yy === y ? "active" : "";
+          return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${yy}">${yy}</button>`;
+        })
+        .join("")}
       <div class="pc-wheel-pad"></div>
     `;
 
@@ -1003,14 +1042,10 @@ function snapToClosest(container) {
 function openDateSliderModal(opts) {
   return openDateWheelModal(opts);
 }
-/* =========================
-   PART 4 / 5  (REQUESTED)
-   - Add 2nd date modal (single date + qty)
-   - Hourly expiry list short: 7am,11am,3pm,7pm,11pm
-   - renderItemEditor + bindItemEditors + saveCategory updated
-   ========================= */
 
-/* ---------- Add 2nd date popup (single extra expiry) ---------- */
+/* =========================================================
+   Add 2nd date popup (single extra expiry)
+   ========================================================= */
 function openAddDateModal({ it, cat, key }) {
   const d = state.drafts[key] || (state.drafts[key] = {});
   d.extraISO = d.extraISO || "";
@@ -1074,6 +1109,7 @@ function openAddDateModal({ it, cat, key }) {
     $("#exOk")?.addEventListener("click", () => {
       d.extraISO = todayISO();
       closeModal();
+      render();
       toast("Added 2nd date ✅");
     });
     return;
@@ -1094,18 +1130,19 @@ function openAddDateModal({ it, cat, key }) {
 
   $("#exCancel")?.addEventListener("click", closeModal);
 
- $("#exOk")?.addEventListener("click", () => {
-  const q = Number(d.extraQty || 0);
-  if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
-  if (d.extraISO && d.extraISO < blockPast) return toast("Past dates not allowed");
-  closeModal();
-  render(); // 🔥 refresh item card so "2nd date" badge appears
-  toast("Added 2nd date ✅");
-});
-
+  $("#exOk")?.addEventListener("click", () => {
+    const q = Number(d.extraQty || 0);
+    if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
+    if (d.extraISO && d.extraISO < blockPast) return toast("Past dates not allowed");
+    closeModal();
+    render(); // refresh badge immediately
+    toast("Added 2nd date ✅");
+  });
 }
 
-/* ---------- item editor card ---------- */
+/* =========================================================
+   Item editor
+   ========================================================= */
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
   if (!state.drafts[key]) {
@@ -1113,9 +1150,9 @@ function renderItemEditor(it, cat) {
       qty: 0,
       expType: "",
       expDateISO: "",
-      expTimeShort: "",  // ✅ new
-      extraISO: "",      // ✅ new
-      extraQty: 0        // ✅ new
+      expTimeShort: "",
+      extraISO: "",
+      extraQty: 0,
     };
   }
   const d = state.drafts[key];
@@ -1124,9 +1161,12 @@ function renderItemEditor(it, cat) {
   let expiryUI = "";
 
   if (rule.mode === "HOURLY") {
-    const opts = HOURLY_SHORT
-      .map((o) => `<option value="${escapeHtml(o.value)}"${d.expTimeShort === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`)
-      .join("");
+    const opts = HOURLY_SHORT.map(
+      (o) =>
+        `<option value="${escapeHtml(o.value)}"${
+          d.expTimeShort === o.value ? " selected" : ""
+        }>${escapeHtml(o.label)}</option>`
+    ).join("");
 
     expiryUI = `
       <label class="label">Expiry time (Today)</label>
@@ -1141,7 +1181,9 @@ function renderItemEditor(it, cat) {
   } else if (rule.mode === "MANUAL") {
     expiryUI = `
       <label class="label">Expiry date</label>
-      <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
+      <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
+        key
+      )}" style="width:100%">Pick date</button>
       <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Manual date"}</div>
     `;
   } else {
@@ -1158,24 +1200,31 @@ function renderItemEditor(it, cat) {
       <select class="select" data-exppreset="${escapeHtml(key)}">
         <option value="">Select</option>
         ${opts}
-        <option value="MANUAL"${d.expType==="MANUAL"?" selected":""}>Manual (pick date)</option>
+        <option value="MANUAL"${d.expType === "MANUAL" ? " selected" : ""}>Manual (pick date)</option>
       </select>
-      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType==="MANUAL" ? "" : "hidden"}" style="margin-top:8px">
-        <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
+      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType === "MANUAL" ? "" : "hidden"}" style="margin-top:8px">
+        <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
+          key
+        )}" style="width:100%">Pick date</button>
         <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : ""}</div>
       </div>
       <div class="edit-helper">Preset dates (from shelf life)</div>
     `;
   }
 
-  // "+ Date" button (not for HOURLY)
-  const addDateBtn = (rule.mode === "HOURLY")
-    ? ""
-    : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
+  const addDateBtn =
+    rule.mode === "HOURLY"
+      ? ""
+      : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(
+          key
+        )}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
 
-  const extraBadge = (Number(d.extraQty) > 0)
-    ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(d.extraQty) || 0}</div>`
-    : "";
+  const extraBadge =
+    Number(d.extraQty) > 0
+      ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(
+          d.extraQty
+        ) || 0}</div>`
+      : "";
 
   return `
     <div class="edit-card" data-key="${escapeHtml(key)}">
@@ -1188,7 +1237,9 @@ function renderItemEditor(it, cat) {
       <div class="edit-row">
         <div class="qty-stepper">
           <button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button>
-          <input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(d.qty || 0)}" />
+          <input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(
+    d.qty || 0
+  )}" />
           <button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button>
         </div>
 
@@ -1206,10 +1257,16 @@ function bindItemEditors(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || (state.drafts[key] = {
-      qty: 0, expType: "", expDateISO: "", expTimeShort: "",
-      extraISO: "", extraQty: 0
-    });
+    const d =
+      state.drafts[key] ||
+      (state.drafts[key] = {
+        qty: 0,
+        expType: "",
+        expDateISO: "",
+        expTimeShort: "",
+        extraISO: "",
+        extraQty: 0,
+      });
 
     const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
     const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
@@ -1222,65 +1279,71 @@ function bindItemEditors(items, cat) {
 
     updateQtyUI(root, key);
 
-    if (inc) inc.addEventListener("click", () => {
-      d.qty = (Number(d.qty) || 0) + 1;
-      updateQtyUI(root, key);
-      pulseBtn(inc);
-      haptic(12);
-    });
-
-    if (dec) dec.addEventListener("click", () => {
-      d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
-      updateQtyUI(root, key);
-      pulseBtn(dec);
-      haptic(10);
-    });
-
-    if (qty) qty.addEventListener("input", () => {
-      const n = Number(qty.value || 0);
-      d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
-      updateQtyUI(root, key);
-    });
-
-    if (timeSel) timeSel.addEventListener("change", () => {
-      d.expTimeShort = String(timeSel.value || "");
-      d.expType = "HOURLY";
-    });
-
-    if (presetSel) presetSel.addEventListener("change", () => {
-      const v = String(presetSel.value || "");
-      const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
-
-      if (v === "MANUAL") {
-        d.expType = "MANUAL";
-        if (wrap) wrap.classList.remove("hidden");
-      } else {
-        d.expType = "PRESET";
-        d.expDateISO = v || "";
-        if (wrap) wrap.classList.add("hidden");
-      }
-    });
-
-    if (pickBtn) pickBtn.addEventListener("click", () => {
-      openDateWheelModal({
-        title: "Pick expiry date",
-        initialISO: d.expDateISO || todayISO(),
-        minISO: todayISO(),
-        onPick: (iso) => {
-          d.expDateISO = iso;
-          if (!d.expType) d.expType = "MANUAL";
-          render();
-        },
+    if (inc)
+      inc.addEventListener("click", () => {
+        d.qty = (Number(d.qty) || 0) + 1;
+        updateQtyUI(root, key);
+        pulseBtn(inc);
+        haptic(12);
       });
-    });
 
-    if (addDate) addDate.addEventListener("click", () => {
-      openAddDateModal({ it, cat, key });
-    });
+    if (dec)
+      dec.addEventListener("click", () => {
+        d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
+        updateQtyUI(root, key);
+        pulseBtn(dec);
+        haptic(10);
+      });
+
+    if (qty)
+      qty.addEventListener("input", () => {
+        const n = Number(qty.value || 0);
+        d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
+        updateQtyUI(root, key);
+      });
+
+    if (timeSel)
+      timeSel.addEventListener("change", () => {
+        d.expTimeShort = String(timeSel.value || "");
+        d.expType = "HOURLY";
+      });
+
+    if (presetSel)
+      presetSel.addEventListener("change", () => {
+        const v = String(presetSel.value || "");
+        const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
+
+        if (v === "MANUAL") {
+          d.expType = "MANUAL";
+          if (wrap) wrap.classList.remove("hidden");
+        } else {
+          d.expType = "PRESET";
+          d.expDateISO = v || "";
+          if (wrap) wrap.classList.add("hidden");
+        }
+      });
+
+    if (pickBtn)
+      pickBtn.addEventListener("click", () => {
+        openDateWheelModal({
+          title: "Pick expiry date",
+          initialISO: d.expDateISO || todayISO(),
+          minISO: todayISO(),
+          onPick: (iso) => {
+            d.expDateISO = iso;
+            if (!d.expType) d.expType = "MANUAL";
+            render();
+          },
+        });
+      });
+
+    if (addDate) addDate.addEventListener("click", () => openAddDateModal({ it, cat, key }));
   }
 }
 
-/* ---------- save category (includes Add 2nd date row) ---------- */
+/* =========================================================
+   Save category (blocks missing expiry + supports extra date)
+   ========================================================= */
 async function saveCategory(items, cat) {
   const store = state.session.store;
   const staff = state.session.staff;
@@ -1291,10 +1354,15 @@ async function saveCategory(items, cat) {
 
   for (const it of items) {
     const key = itemKey(it);
-    const d = state.drafts[key] || {
-      qty: 0, expType: "", expDateISO: "", expTimeShort: "",
-      extraISO: "", extraQty: 0
-    };
+    const d =
+      state.drafts[key] || {
+        qty: 0,
+        expType: "",
+        expDateISO: "",
+        expTimeShort: "",
+        extraISO: "",
+        extraQty: 0,
+      };
 
     const qty = Number(d.qty) || 0;
     const xq = Number(d.extraQty) || 0;
@@ -1315,17 +1383,17 @@ async function saveCategory(items, cat) {
         expiry_at = isoFromTodayAndTime(d.expTimeShort);
       } else if (rule.mode === "EOD_AUTO") {
         expiry = today;
-     } else {
-  expiry = d.expDateISO || null;
-  if (!expiry) {
-    toast(`Pick expiry for ${it.name}`);
-    return;
-  }
-  if (expiry < today) {
-    toast("Past dates not allowed");
-    return;
-  }
-}
+      } else {
+        expiry = d.expDateISO || null;
+        if (!expiry) {
+          toast(`Pick expiry for ${it.name}`);
+          return;
+        }
+        if (expiry < today) {
+          toast("Past dates not allowed");
+          return;
+        }
+      }
 
       rows.push({
         item_id: it.id ?? null,
@@ -1342,9 +1410,15 @@ async function saveCategory(items, cat) {
 
     // extra 2nd date row
     if (xq > 0) {
-      const expiry = (rule.mode === "EOD_AUTO") ? today : (d.extraISO || "");
-      if (!expiry) { toast("Set 2nd date"); return; }
-      if (expiry < today) { toast("Past dates not allowed"); return; }
+      const expiry = rule.mode === "EOD_AUTO" ? today : d.extraISO || "";
+      if (!expiry) {
+        toast("Set 2nd date");
+        return;
+      }
+      if (expiry < today) {
+        toast("Past dates not allowed");
+        return;
+      }
 
       rows.push({
         item_id: it.id ?? null,
@@ -1372,10 +1446,15 @@ async function saveCategory(items, cat) {
     toast("Save failed");
   }
 }
+
 /* =========================
-   PART 5 / 5
-   From: STOCK ALERT → SUMMARY → WISR → MANAGER → LOGOUT → UTILS
-   (No extra theme/logic changes)
+   END PART 2 / 3
+   ========================= */
+/* =========================
+   PART 3 / 3
+   Includes: Stock Alert page, Professional Summary (AM + PM who did check),
+             Summary List, WISR, Manager pages + Download Log CSV,
+             Logout, Utils (must be last)
    ========================= */
 
 /* =========================================================
@@ -1385,7 +1464,9 @@ async function refreshStockDot() {
   const store = state.session.store;
   try {
     const r = await apiGet(`/api/stock/low?store=${encodeURIComponent(store)}`);
-    const rows = enforceArray(r).filter((x) => !STOCK_ALERT_EXCLUDE_CATS.has(String(x.category || "")));
+    const rows = enforceArray(r).filter(
+      (x) => !STOCK_ALERT_EXCLUDE_CATS.has(String(x.category || ""))
+    );
     state.stock.rows = rows;
     state.stock.hasDot = rows.length > 0;
     updateDrawerAlertLabel(state.stock.hasDot);
@@ -1464,14 +1545,63 @@ async function renderStockAlerts() {
 }
 
 /* =========================================================
-   SUMMARY
+   SUMMARY (Professional)
+   - Shows AM + PM separately: Done/Not done, who, time, rows
    ========================================================= */
+async function getStatusByShift(store, shift) {
+  return await apiGet(
+    `/api/status?store=${encodeURIComponent(store)}&shift=${encodeURIComponent(shift)}`
+  );
+}
+
+function statusToUI(s) {
+  if (!s || !s.last_saved_by) return { done: false, who: "", hhmm: "", count: 0 };
+  const when = s.last_saved_at ? new Date(s.last_saved_at) : null;
+  const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
+  const who = String(s.last_saved_by || "");
+  const count = Number(s.total_rows || 0);
+  return { done: true, who, hhmm, count };
+}
+
+function renderShiftCardUI(shift, info) {
+  const badgeBg = info.done ? "var(--green)" : "var(--red)";
+  const badgeText = info.done ? "DONE" : "NOT DONE";
+
+  return `
+    <div style="flex:1;min-width:240px;border:1px solid var(--line);border-radius:18px;padding:14px 14px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="font-weight:1400;font-size:18px">${shift}</div>
+        <div style="background:${badgeBg};color:#fff;border-radius:999px;padding:6px 10px;font-weight:1200;font-size:12px">
+          ${badgeText}
+        </div>
+      </div>
+
+      ${
+        info.done
+          ? `
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          Done by <b>${escapeHtml(info.who)}</b>${info.hhmm ? ` at <b>${escapeHtml(info.hhmm)}</b>` : ""}
+        </div>
+        <div class="muted" style="margin-top:6px;font-weight:1100">
+          Items saved: <b>${info.count}</b>
+        </div>
+      `
+          : `
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          No save recorded for this shift.
+        </div>
+      `
+      }
+    </div>
+  `;
+}
+
 async function renderSummaryHome() {
   const main = $("#main");
 
   const isMgr = !!state.session.isManager;
-  const defaultMode = isMgr ? (state.view.summaryMode || "PDD") : state.session.store;
-  state.view.summaryMode = defaultMode;
+  const storeView = isMgr ? state.view.summaryMode || "PDD" : state.session.store;
+  state.view.summaryMode = storeView;
 
   main.innerHTML = `
     <div class="page-head">
@@ -1479,18 +1609,29 @@ async function renderSummaryHome() {
       <div class="page-title">Summary</div>
     </div>
 
-    ${isMgr ? `
+    ${
+      isMgr
+        ? `
       <div class="card">
         <div style="font-weight:1200;margin-bottom:8px">Store view</div>
         <div class="row" style="gap:12px">
           <button id="mPDD" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">PDD</button>
           <button id="mSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
         </div>
-        <div id="doneLine" class="muted" style="margin-top:10px;font-weight:1000"></div>
       </div>
-    ` : ""}
+    `
+        : ""
+    }
 
-    <div id="sumWrap" class="col"></div>
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Shift completion</div>
+      <div id="shiftGrid" class="row" style="gap:12px;flex-wrap:wrap"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Expiry overview</div>
+      <div id="sumWrap" class="col"></div>
+    </div>
   `;
 
   $("#btnBack").addEventListener("click", goBack);
@@ -1498,49 +1639,67 @@ async function renderSummaryHome() {
   if (isMgr) {
     $("#mPDD").addEventListener("click", () => setSummaryMode("PDD"));
     $("#mSKH").addEventListener("click", () => setSummaryMode("SKH"));
+    updateSummaryModeButtons();
   }
 
-  updateSummaryModeButtons();
-  await updateDoneIndicator();
-  drawSummaryCards().catch(console.error);
+  // Shift completion
+  const grid = $("#shiftGrid");
+  if (grid) {
+    grid.innerHTML = `<div class="muted" style="font-weight:1100">Loading…</div>`;
+    let am = null,
+      pm = null;
+    try {
+      am = await getStatusByShift(storeView, "AM");
+    } catch {}
+    try {
+      pm = await getStatusByShift(storeView, "PM");
+    } catch {}
+
+    const amUI = statusToUI(am);
+    const pmUI = statusToUI(pm);
+
+    grid.innerHTML = `
+      ${renderShiftCardUI("AM", amUI)}
+      ${renderShiftCardUI("PM", pmUI)}
+    `;
+  }
+
+  // Expiry overview cards
+  await drawSummaryCards().catch(console.error);
 }
 
 function setSummaryMode(mode) {
   state.view.summaryMode = mode;
   updateSummaryModeButtons();
-  updateDoneIndicator().catch(() => {});
-  drawSummaryCards().catch(console.error);
+  renderSummaryHome().catch(console.error);
 }
 
 function updateSummaryModeButtons() {
   if (!state.session.isManager) return;
   const m = state.view.summaryMode;
-  const a = $("#mPDD"), b = $("#mSKH");
+  const a = $("#mPDD"),
+    b = $("#mSKH");
 
-  if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
-  if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
+  if (a) {
+    a.style.background = "#fff";
+    a.style.color = "#111";
+    a.style.border = "1px solid var(--line)";
+  }
+  if (b) {
+    b.style.background = "#fff";
+    b.style.color = "#111";
+    b.style.border = "1px solid var(--line)";
+  }
 
-  if (m === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
-  if (m === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
-}
-
-async function updateDoneIndicator() {
-  if (!state.session.isManager) return;
-  const mode = state.view.summaryMode || "PDD";
-  const line = $("#doneLine");
-  if (!line) return;
-
-  try {
-    const s = await apiGet(`/api/status?store=${encodeURIComponent(mode)}`);
-    if (!s) {
-      line.innerHTML = `⏳ <b>${mode}</b> not done yet today`;
-      return;
-    }
-    const when = s.last_saved_at ? new Date(s.last_saved_at) : null;
-    const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
-    line.innerHTML = `✅ <b>${mode}</b> done — last saved by <b>${escapeHtml(s.last_saved_by || "")}</b>${hhmm ? ` at <b>${hhmm}</b>` : ""}`;
-  } catch {
-    line.textContent = "";
+  if (m === "PDD" && a) {
+    a.style.background = "var(--pdd)";
+    a.style.color = "#fff";
+    a.style.border = "0";
+  }
+  if (m === "SKH" && b) {
+    b.style.background = "var(--skh)";
+    b.style.color = "#fff";
+    b.style.border = "0";
   }
 }
 
@@ -1549,7 +1708,7 @@ async function drawSummaryCards() {
   if (!wrap) return;
   wrap.innerHTML = `<div class="card">Loading…</div>`;
 
-  const mode = state.session.isManager ? (state.view.summaryMode || "PDD") : state.session.store;
+  const mode = state.session.isManager ? state.view.summaryMode || "PDD" : state.session.store;
 
   const today = todayISO();
   const tomorrow = addDaysISO(today, 1);
@@ -1606,7 +1765,7 @@ async function drawSummaryCards() {
 
 async function renderSummaryList() {
   const main = $("#main");
-  const mode = state.session.isManager ? (state.view.summaryMode || "PDD") : state.session.store;
+  const mode = state.session.isManager ? state.view.summaryMode || "PDD" : state.session.store;
   const bucket = state.view.bucket || "TODAY";
 
   main.innerHTML = `
@@ -1654,13 +1813,12 @@ async function renderSummaryList() {
         <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
         <div class="col" style="gap:8px">
           ${list
-            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+            .sort((a, b) => String(a.name || a.item_name).localeCompare(String(b.name || b.item_name)))
             .map((rr) => {
               const dt = formatLongDMY(datePartFromRow(rr));
               const tm = timePartFromRow(rr);
-              const qty = rr.qty != null ? Number(rr.qty) : (rr.quantity != null ? Number(rr.quantity) : null);
+              const qty = rr.qty != null ? Number(rr.qty) : rr.quantity != null ? Number(rr.quantity) : null;
               const sh = rr.shift ? String(rr.shift) : "";
-
               return `
               <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
                 <div style="display:flex;justify-content:space-between;gap:10px">
@@ -1708,8 +1866,7 @@ function renderWISR() {
 }
 
 /* =========================================================
-   MANAGER
-   (same as your original — unchanged)
+   MANAGER + DOWNLOAD LOG
    ========================================================= */
 function renderManagerHome() {
   if (!state.session.isManager) {
@@ -1746,7 +1903,7 @@ function renderManagerHome() {
       <button class="tile t-orange" style="animation-delay:135ms" id="tLog" type="button">
         <div class="emoji">⬇️</div>
         <div class="title">Download Log</div>
-        <div class="sub">Placeholder</div>
+        <div class="sub">CSV export</div>
       </button>
     </div>
   `;
@@ -1755,9 +1912,123 @@ function renderManagerHome() {
   $("#tAdd").addEventListener("click", () => openAddItemModal());
   $("#tEdit").addEventListener("click", () => setView({ page: "managerEditItems" }, true));
   $("#tCats").addEventListener("click", () => setView({ page: "managerCategories" }, true));
-  $("#tLog").addEventListener("click", () => toast("Download Log: add server endpoint later"));
+  $("#tLog").addEventListener("click", () => openDownloadLogModal());
 }
 
+/* ---------- Download Log Modal + CSV download ---------- */
+function openDownloadLogModal() {
+  openModal(
+    "Download Log",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Export (CSV)</div>
+
+        <div class="muted" style="font-weight:1100;margin-bottom:12px">
+          Choose date range. Export includes AM + PM.
+        </div>
+
+        <div class="col" style="gap:10px">
+          <div style="font-weight:1200">From</div>
+          <button id="dlFromBtn" class="btn btn-yellow" style="width:100%">Pick date</button>
+          <div id="dlFromShow" class="muted" style="font-weight:1100">Not set</div>
+
+          <div style="font-weight:1200;margin-top:8px">To</div>
+          <button id="dlToBtn" class="btn btn-yellow" style="width:100%">Pick date</button>
+          <div id="dlToShow" class="muted" style="font-weight:1100">Not set</div>
+
+          <div class="row" style="gap:12px;margin-top:14px">
+            <button id="dlCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+            <button id="dlGo" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Download</button>
+          </div>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  const memKey = "__dl_range__";
+  if (!state[memKey]) {
+    const t = todayISO();
+    state[memKey] = { from: addDaysISO(t, -7), to: t };
+  }
+
+  const redraw = () => {
+    $("#dlFromShow").textContent = state[memKey].from ? formatLongDMY(state[memKey].from) : "Not set";
+    $("#dlToShow").textContent = state[memKey].to ? formatLongDMY(state[memKey].to) : "Not set";
+  };
+  redraw();
+
+  $("#dlFromBtn").addEventListener("click", () => {
+    openDateWheelModal({
+      title: "From date",
+      initialISO: state[memKey].from || todayISO(),
+      minISO: addDaysISO(todayISO(), -365 * 5),
+      maxISO: todayISO(),
+      onPick: (iso) => {
+        state[memKey].from = iso;
+        redraw();
+      },
+    });
+  });
+
+  $("#dlToBtn").addEventListener("click", () => {
+    openDateWheelModal({
+      title: "To date",
+      initialISO: state[memKey].to || todayISO(),
+      minISO: addDaysISO(todayISO(), -365 * 5),
+      maxISO: todayISO(),
+      onPick: (iso) => {
+        state[memKey].to = iso;
+        redraw();
+      },
+    });
+  });
+
+  $("#dlCancel").addEventListener("click", closeModal);
+
+  $("#dlGo").addEventListener("click", async () => {
+    const from = state[memKey].from;
+    const to = state[memKey].to;
+    if (!from || !to) return toast("Pick From + To");
+    if (from > to) return toast("From cannot be after To");
+
+    try {
+      await downloadManagerLogCSV({ from, to });
+      closeModal();
+    } catch (e) {
+      console.error(e);
+      toast("Download failed");
+    }
+  });
+}
+
+async function downloadManagerLogCSV({ from, to }) {
+  const store = state.session.store; // downloads current store log
+  const token = state.session.managerToken || "";
+  if (!token) return toast("Manager login required");
+
+  const url = `/api/manager/log/export.csv?store=${encodeURIComponent(store)}&from=${encodeURIComponent(
+    from
+  )}&to=${encodeURIComponent(to)}`;
+
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(await r.text());
+
+  const blob = await r.blob();
+  const filename = `PreCheck_${store}_log_${from}_to_${to}.csv`;
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+
+  toast("Download started ✅");
+}
+
+/* ---------- manager login (same logic) ---------- */
 function openManagerLogin() {
   openModal(
     "Manager Login",
@@ -1970,10 +2241,7 @@ async function renderManagerCategories() {
   const main = $("#main");
   let cats = [];
   try {
-    cats = await apiGet(
-      `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`,
-      state.session.managerToken
-    );
+    cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
   } catch (e) {
     console.error(e);
     toast("Failed loading categories");
@@ -1984,7 +2252,9 @@ async function renderManagerCategories() {
     .map((c, idx) => {
       const tone = tileToneFor(c.name);
       return `
-        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx*45}ms" data-cid="${c.id}" data-cname="${escapeHtml(c.name)}" type="button">
+        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx*45}ms" data-cid="${c.id}" data-cname="${escapeHtml(
+        c.name
+      )}" type="button">
           <div class="title" style="font-size:20px">${escapeHtml(c.name)}</div>
           <div class="sub">Tap to edit</div>
         </button>
@@ -2035,11 +2305,7 @@ function openAddCategoryModal() {
     if (!name) return toast("Name required");
 
     try {
-      await apiPost(
-        "/api/manager/categories",
-        { store: state.session.store, name, sort_order },
-        state.session.managerToken
-      );
+      await apiPost("/api/manager/categories", { store: state.session.store, name, sort_order }, state.session.managerToken);
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2079,11 +2345,7 @@ function openEditCategoryModal(id, currentName) {
     if (!name) return toast("Name required");
 
     try {
-      await apiPatch(
-        `/api/manager/categories/${id}`,
-        { store: state.session.store, name, is_active, sort_order: 100 },
-        state.session.managerToken
-      );
+      await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken);
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2097,10 +2359,7 @@ function openEditCategoryModal(id, currentName) {
   $("#catDelete").addEventListener("click", async () => {
     if (!confirm("Delete this category?")) return;
     try {
-      await apiDel(
-        `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`,
-        state.session.managerToken
-      );
+      await apiDel(`/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
       toast("Deleted ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2159,11 +2418,7 @@ function openAddItemModal() {
     if (!name || !category) return toast("Missing name/category");
 
     try {
-      await apiPost(
-        "/api/manager/items",
-        { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly },
-        state.session.managerToken
-      );
+      await apiPost("/api/manager/items", { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly }, state.session.managerToken);
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2198,7 +2453,7 @@ function doLogout() {
 }
 
 /* =========================================================
-   UTILS (must be last in your file)
+   UTILS (must be last)
    ========================================================= */
 function escapeHtml(s) {
   return String(s ?? "")
@@ -2215,9 +2470,9 @@ function enforceArray(v) {
   return Array.isArray(v) ? v : [];
 }
 
-/* =========================
+/* =========================================================
    QTY UX helpers
-   ========================= */
+   ========================================================= */
 function haptic(ms = 12) {
   try {
     if (navigator && typeof navigator.vibrate === "function") {
@@ -2246,3 +2501,7 @@ function updateQtyUI(root, key) {
     dec.classList.toggle("is-disabled", disabled);
   }
 }
+
+/* =========================
+   END PART 3 / 3
+   ========================= */
