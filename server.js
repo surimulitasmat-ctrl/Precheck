@@ -1,15 +1,6 @@
 // =========================
-// PreCheck — server.js (FINAL / CLEAN)
-// ✅ UTC timestamps in DB
-// ✅ Daily reset uses Singapore day (Asia/Singapore)
-// ✅ Store-separated: PDD vs SKH
-// ✅ Manager CRUD: items + categories (soft delete)
-// ✅ Staff logging: /api/log (single) + /api/log/batch
-// ✅ items.is_hourly (hourly expiry toggle)
-// ✅ /api/status + auto "done checking" after save
-// ✅ /api/expiry returns TODAY ONLY (SG DAY)
-// ✅ Add Date (2 batches): logs.quantity2 + logs.expiry2 + logs.expiry2_at
-//     /api/expiry returns: expiry_value, expiry2_value, earliest_expiry_value, latest_expiry_value
+// PreCheck — server.js (FINAL / CLEAN) — PART 1 / 3
+// (From top → end of /api/log/batch)
 // =========================
 
 import express from "express";
@@ -355,6 +346,10 @@ app.post("/api/log/batch", async (req, res) => {
     err(res, 500, e?.message || "Failed");
   }
 });
+// =========================
+// PreCheck — server.js (FINAL / CLEAN) — PART 2 / 3
+// (From /api/expiry → manager login)
+// =========================
 
 // =========================
 // Summary (TODAY ONLY, SG DAY)
@@ -482,6 +477,10 @@ app.post("/api/manager/login", async (req, res) => {
     err(res, 500, e?.message || "Failed");
   }
 });
+// =========================
+// PreCheck — server.js (FINAL / CLEAN) — PART 3 / 3
+// (Manager routes → serve index.html → start server)
+// =========================
 
 // ----- Items -----
 app.get("/api/manager/items", requireManager, async (req, res) => {
