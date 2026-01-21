@@ -73,7 +73,26 @@ bindDrawer();
 bindModal();
 bindAppBackGuard();
 startMidnightWatcher();
+/* ---------- boot ---------- */
+bindTopbar();
+bindDrawer();
+bindModal();
+bindAppBackGuard();
+startMidnightWatcher();
+
+/* =========================================================
+   STOCK DOT (TEMP FIX so app doesn't crash)
+   ========================================================= */
+async function refreshStockDot() {
+  // If you haven't wired stock alerts yet, just keep UI stable.
+  updateDrawerAlertLabel(false);
+  state.stock.hasDot = false;
+  state.stock.rows = [];
+  return;
+}
+
 boot().catch(console.error);
+
 
 async function boot() {
   ensureSessionDayKey();
