@@ -67,12 +67,7 @@ const state = {
   stock: { hasDot: false, rows: [] },
 };
 
-/* ---------- boot ---------- */
-bindTopbar();
-bindDrawer();
-bindModal();
-bindAppBackGuard();
-startMidnightWatcher();
+
 /* ---------- boot ---------- */
 bindTopbar();
 bindDrawer();
@@ -92,6 +87,7 @@ async function refreshStockDot() {
 }
 
 boot().catch(console.error);
+
 
 
 async function boot() {
