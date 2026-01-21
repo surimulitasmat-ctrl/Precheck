@@ -378,30 +378,60 @@ function bindModal() {
     });
   }
 }
+/* =========================================================
+   Modal system (safe, reusable)
+   ========================================================= */
 function openModal(title, html, opts = {}) {
-  const t = $("#modalTitle");
-  const b = $("#modalBody");
-  const back = $("#modalBackdrop");
-  if (!t || !b || !back) return;
+  closeModal(); // ensure only one modal
 
-  t.textContent = title || "Modal";
-  b.innerHTML = html || "";
-  back.classList.remove("hidden");
+  const backdrop = document.createElement("div");
+  backdrop.id = "modalBackdrop";
+  backdrop.style.cssText = `
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.45);
+    z-index:9998;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
+  `;
 
-  if (opts.noBackdropClose) {
-    back.onclick = (e) => {
-      if (e.target === back) e.stopPropagation();
-    };
-  } else {
-    back.onclick = null;
+  const box = document.createElement("div");
+  box.id = "modalBox";
+  box.style.cssText = `
+    width:100%;
+    max-width:420px;
+    background:#fff;
+    border-radius:18px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+    overflow:hidden;
+  `;
+
+  box.innerHTML = `
+    <div style="padding:14px 16px;border-bottom:1px solid #eee;font-weight:1200">
+      ${title || ""}
+    </div>
+    <div style="padding:16px">
+      ${html || ""}
+    </div>
+  `;
+
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
+
+  if (!opts.noBackdropClose) {
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) closeModal();
+    });
   }
 }
+
 function closeModal() {
-  const back = $("#modalBackdrop");
-  const b = $("#modalBody");
-  if (back) back.classList.add("hidden");
-  if (b) b.innerHTML = "";
+  const el = document.getElementById("modalBackdrop");
+  if (el) el.remove();
 }
+
 
 /* =========================================================
    SESSION POPUP + MIDNIGHT RESET
