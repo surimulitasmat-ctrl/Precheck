@@ -80,20 +80,22 @@ function dbCategoryFromUi(cat) {
 }
 
 // -------- Daily "done" marker (SG day) --------
-async function markDoneSG(store, staff) {
+async function markDoneSG(store, staff, shift) {
   if (!store) return;
   const who = String(staff || "").trim() || null;
+  const sh = String(shift || "").trim().toUpperCase() === "PM" ? "PM" : "AM";
 
   await q(
     `
-    insert into public.daily_status (store, day_key, last_saved_at, last_saved_by)
-    values ($1, (now() at time zone $3)::date, now(), $2)
-    on conflict (store, day_key)
+    insert into public.daily_status (store, day_key, shift, last_saved_at, last_saved_by)
+    values ($1, (now() at time zone $4)::date, $3, now(), $2)
+    on conflict (store, day_key, shift)
     do update set last_saved_at=excluded.last_saved_at, last_saved_by=excluded.last_saved_by
-  `,
-    [store, who, DAY_TZ]
+    `,
+    [store, who, sh, DAY_TZ]
   );
 }
+
 
 // =========================
 // Health
