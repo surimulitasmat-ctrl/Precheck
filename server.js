@@ -149,12 +149,14 @@ app.post("/api/status/mark-done", async (req, res) => {
     const store = normStore(req.body?.store);
     if (!store) return err(res, 400, "Invalid store");
     const staff = String(req.body?.staff || "").trim();
-    await markDoneSG(store, staff);
+    const shift = String(req.body?.shift || "AM").trim();  // ✅ add this
+    await markDoneSG(store, staff, shift);                 // ✅ add shift
     res.json({ ok: true });
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
 });
+
 
 // =========================
 // Public APIs (Staff)
