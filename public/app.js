@@ -2,16 +2,15 @@
    PreCheck — public/app.js (FULL)
    PART 1 / 3
    Includes: helpers, constants, state, boot, storage, date/time, hourly times,
-            API helpers, loadAllForCurrentStore, normalizeSub, topbar, drawer,
-            modal/toast, popup, login page
-   PATCHED:
-   ✅ Hourly expiry options: 7am / 11am / 3pm / 7pm / 11pm
-   ✅ Add 2nd date: single date + qty (wired in Part 2)
-   ✅ Done + Set date buttons: green (Part 2)
-   ✅ Removed duplicate updateDrawerAlertLabel (single source)
-   ✅ Date wheel: removed duplicate title + haptic tick on change (Part 2)
-   ✅ Summary: professional AM/PM completion + who did check (Part 3)
-   ✅ Manager: download log CSV (Part 3)
+            API helpers, Render wakeServer (NEW ✅), loadAllForCurrentStore,
+            normalizeSub, topbar, drawer, modal/toast, popup, login page
+
+   MERGED (from 2–8):
+   ✅ (6) Render sleep handling: wakeServer() + called in boot() + login Start
+   ✅ (8) Stability: keep app from crashing on wake failures (best-effort)
+   NOTE:
+   - Progress/Resume (2), Saving state (3), Summary polish (4), Manager CSV (5)
+     are wired in PART 2 & PART 3 to keep file clean.
    ========================= */
 
 /* ---------- DOM helpers ---------- */
@@ -85,6 +84,9 @@ async function boot() {
 
   // update drawer label on load
   updateDrawerAlertLabel(false);
+
+  // ✅ (6) Render free tier sleep: wake server first (best-effort)
+  await wakeServer().catch(() => {});
 
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
@@ -178,7 +180,7 @@ function timePartFromRow(row) {
 }
 
 /* =========================================================
-   HOURLY SHORT TIMES (NEW ✅)
+   HOURLY SHORT TIMES
    Only: 7am, 11am, 3pm, 7pm, 11pm
    ========================================================= */
 const HOURLY_SHORT = [
@@ -239,6 +241,22 @@ async function apiDel(path, token = "") {
   const t = await r.text();
   if (!r.ok) throw new Error(t);
   return t ? JSON.parse(t) : {};
+}
+
+/* =========================================================
+   (6) Render sleep handling — Wake server
+   - Calls a cheap endpoint to "wake" Render free tier
+   - Best-effort: never blocks the whole app forever
+   ========================================================= */
+async function wakeServer() {
+  // If you already have /api/health, great. If not, create it in server.js.
+  // This is safe: failures are ignored (we show a toast).
+  try {
+    await apiGet("/api/health");
+  } catch {
+    // don’t crash; just inform user
+    toast("Waking server… try again in 5–10s");
+  }
 }
 
 /* =========================================================
@@ -334,7 +352,7 @@ function bindDrawer() {
 function openDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.remove("hidden"); }
 function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
 
-/* Stock Alert label + dot (single source of truth ✅) */
+/* Stock Alert label + dot (single source of truth) */
 function updateDrawerAlertLabel(hasDot) {
   const btn = $("#drawerAlerts");
   if (!btn) return;
@@ -499,6 +517,9 @@ function renderLoginPage() {
     saveSession();
 
     try {
+      // ✅ (6) wake server on login too
+      await wakeServer().catch(() => {});
+
       await loadAllForCurrentStore();
       await refreshStockDot().catch(() => {});
       renderRolePill();
@@ -520,11 +541,30 @@ function renderLoginPage() {
    END PART 1 / 3
    ========================= */
 /* =========================
+   PreCheck — public/app.js (FULL)
    PART 2 / 3
-   Includes: navigation, back/swipe guard, render root, home, category,
-             shelfLifeModeFor, date wheel picker (green Set date + haptic tick),
-             add 2nd date modal (single date + qty), item editor, bind editors,
-             saveCategory (blocks missing expiry)
+
+   Includes:
+   - navigation
+   - back/swipe guard
+   - render root
+   - home + category
+   - shelfLifeModeFor
+   - date wheel picker (green Set date + haptic tick)
+   - add 2nd date modal (single date + qty)
+   - item editor + bind editors
+   - saveCategory (blocks missing expiry)
+
+   MERGED (from 2–8) IN THIS PART:
+   ✅ (2) “In progress vs Done” (staff progress tracker):
+      - Auto track per-category progress (% items filled)
+      - Show small progress pill on category page header
+      - Save button shows “Done checking ✅” when all required filled
+   ✅ (3) Restore drafts after refresh:
+      - drafts persisted per store+shift+day
+   ✅ (7) Button color rules:
+      - Set date + Done buttons green (already)
+      - Keep Save button consistent and show state
    ========================= */
 
 /* =========================================================
@@ -619,6 +659,36 @@ function openConfirmExit() {
 }
 
 /* =========================================================
+   (3) Draft persistence (store+shift+day scoped)
+   ========================================================= */
+function draftsKey() {
+  const s = state.session;
+  const store = s.store || "NA";
+  const shift = s.shift || "AM";
+  const day = s.sessionDayKey || dayKeyNow();
+  return `drafts_${store}_${shift}_${day}`;
+}
+function loadDraftsFromStorage() {
+  try {
+    const raw = localStorage.getItem(draftsKey());
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object") state.drafts = obj;
+  } catch {}
+}
+function saveDraftsToStorage() {
+  try {
+    localStorage.setItem(draftsKey(), JSON.stringify(state.drafts || {}));
+  } catch {}
+}
+
+/* call once when session exists */
+(function hydrateDraftsOnce() {
+  // Only hydrate if logged in (store+staff exist), else keep empty
+  if (state.session?.store && state.session?.staff) loadDraftsFromStorage();
+})();
+
+/* =========================================================
    RENDER ROOT
    ========================================================= */
 function render() {
@@ -631,6 +701,12 @@ function render() {
   if (!state.session.store || !state.session.staff) {
     renderLoginPage();
     return;
+  }
+
+  // ensure drafts hydrated if user logged in mid-session
+  if (!state.__draftsHydrated) {
+    state.__draftsHydrated = true;
+    loadDraftsFromStorage();
   }
 
   switch (state.view.page) {
@@ -761,6 +837,10 @@ function renderCategory() {
     items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
   }
 
+  // (2) progress % for this category
+  const prog = categoryProgress(items, cat);
+  const progText = prog.total === 0 ? "" : `${prog.done}/${prog.total} (${prog.pct}%)`;
+
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
   const emptyHint = items.length
     ? ""
@@ -773,10 +853,21 @@ function renderCategory() {
     </div>
   `;
 
+  const doneAll = prog.total > 0 && prog.done === prog.total;
+
   main.innerHTML = `
     <div class="page-head">
       <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title">${escapeHtml(title)}</div>
+      <div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span>${escapeHtml(title)}</span>
+        ${
+          prog.total
+            ? `<span style="font-weight:1200;font-size:12px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)">
+                ${escapeHtml(progText)}
+              </span>`
+            : ""
+        }
+      </div>
     </div>
 
     ${emptyHint}
@@ -786,10 +877,10 @@ function renderCategory() {
     <div class="save-bar">
       <button
         id="saveBtn"
-        class="btn-yellow"
         type="button"
-        style="width:min(92%,520px); margin:0 auto; padding:14px 18px; border-radius:999px; font-weight:1200; font-size:16px;"
-      >Save</button>
+        style="width:min(92%,520px); margin:0 auto; padding:14px 18px; border-radius:999px; font-weight:1200; font-size:16px;
+               background:var(--green); color:#fff; border:0"
+      >${doneAll ? "Done checking ✅ (Save)" : "Save"}</button>
     </div>
   `;
 
@@ -817,6 +908,42 @@ function shelfLifeModeFor(it, cat) {
   if (life > 7) return { mode: "MANUAL", life };
 
   return { mode: "PRESET", life };
+}
+
+/* =========================================================
+   (2) Category progress tracker
+   “done” means:
+   - qty > 0 AND valid expiry selected (or auto/hourly ok)
+   - qty == 0 is considered “not required”, so it does NOT count as done
+   We count only items where qty>0 (staff decided to log it).
+   ========================================================= */
+function categoryProgress(items, cat) {
+  let total = 0;
+  let done = 0;
+  const today = todayISO();
+
+  for (const it of items || []) {
+    const key = itemKey(it);
+    const d = state.drafts[key] || {};
+    const qty = Number(d.qty) || 0;
+    if (qty <= 0) continue; // ignore blank items
+    total++;
+
+    const rule = shelfLifeModeFor(it, cat);
+    if (rule.mode === "HOURLY") {
+      if (d.expTimeShort) done++;
+      continue;
+    }
+    if (rule.mode === "EOD_AUTO") {
+      done++;
+      continue;
+    }
+    const exp = String(d.expDateISO || "");
+    if (exp && exp >= today) done++;
+  }
+
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return { total, done, pct };
 }
 
 /* =========================================================
@@ -1096,6 +1223,7 @@ function openAddDateModal({ it, cat, key }) {
 
   $("#exQty")?.addEventListener("input", () => {
     d.extraQty = Number($("#exQty").value || 0);
+    saveDraftsToStorage();
   });
 
   if (rule.mode === "HOURLY") {
@@ -1108,6 +1236,7 @@ function openAddDateModal({ it, cat, key }) {
     $("#exCancel")?.addEventListener("click", closeModal);
     $("#exOk")?.addEventListener("click", () => {
       d.extraISO = todayISO();
+      saveDraftsToStorage();
       closeModal();
       render();
       toast("Added 2nd date ✅");
@@ -1122,6 +1251,7 @@ function openAddDateModal({ it, cat, key }) {
       minISO: blockPast,
       onPick: (iso) => {
         d.extraISO = iso;
+        saveDraftsToStorage();
         const el = $("#exShow");
         if (el) el.textContent = formatLongDMY(iso);
       },
@@ -1134,8 +1264,9 @@ function openAddDateModal({ it, cat, key }) {
     const q = Number(d.extraQty || 0);
     if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
     if (d.extraISO && d.extraISO < blockPast) return toast("Past dates not allowed");
+    saveDraftsToStorage();
     closeModal();
-    render(); // refresh badge immediately
+    render();
     toast("Added 2nd date ✅");
   });
 }
@@ -1282,30 +1413,38 @@ function bindItemEditors(items, cat) {
     if (inc)
       inc.addEventListener("click", () => {
         d.qty = (Number(d.qty) || 0) + 1;
+        saveDraftsToStorage();
         updateQtyUI(root, key);
         pulseBtn(inc);
         haptic(12);
+        render(); // refresh progress pill + save label
       });
 
     if (dec)
       dec.addEventListener("click", () => {
         d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
+        saveDraftsToStorage();
         updateQtyUI(root, key);
         pulseBtn(dec);
         haptic(10);
+        render();
       });
 
     if (qty)
       qty.addEventListener("input", () => {
         const n = Number(qty.value || 0);
         d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
+        saveDraftsToStorage();
         updateQtyUI(root, key);
+        render();
       });
 
     if (timeSel)
       timeSel.addEventListener("change", () => {
         d.expTimeShort = String(timeSel.value || "");
         d.expType = "HOURLY";
+        saveDraftsToStorage();
+        render();
       });
 
     if (presetSel)
@@ -1321,6 +1460,8 @@ function bindItemEditors(items, cat) {
           d.expDateISO = v || "";
           if (wrap) wrap.classList.add("hidden");
         }
+        saveDraftsToStorage();
+        render();
       });
 
     if (pickBtn)
@@ -1332,6 +1473,7 @@ function bindItemEditors(items, cat) {
           onPick: (iso) => {
             d.expDateISO = iso;
             if (!d.expType) d.expType = "MANUAL";
+            saveDraftsToStorage();
             render();
           },
         });
@@ -1441,9 +1583,30 @@ async function saveCategory(items, cat) {
     await apiPost("/api/log/batch", { store, staff, shift, rows });
     toast("Saved ✅");
     await refreshStockDot().catch(() => {});
+
+    // optional: keep drafts (so staff can adjust) OR clear after save
+    // If you want auto-clear after save, uncomment:
+    // clearDraftsForCategory(items);
+    // saveDraftsToStorage();
+
   } catch (e) {
     console.error(e);
     toast("Save failed");
+  }
+}
+
+/* optional helper if you later want to clear after save */
+function clearDraftsForCategory(items) {
+  for (const it of items || []) {
+    const key = itemKey(it);
+    if (state.drafts[key]) {
+      state.drafts[key].qty = 0;
+      state.drafts[key].expType = "";
+      state.drafts[key].expDateISO = "";
+      state.drafts[key].expTimeShort = "";
+      state.drafts[key].extraISO = "";
+      state.drafts[key].extraQty = 0;
+    }
   }
 }
 
@@ -1451,10 +1614,24 @@ async function saveCategory(items, cat) {
    END PART 2 / 3
    ========================= */
 /* =========================
+   PreCheck — public/app.js (FULL)
    PART 3 / 3
-   Includes: Stock Alert page, Professional Summary (AM + PM who did check),
-             Summary List, WISR, Manager pages + Download Log CSV,
-             Logout, Utils (must be last)
+
+   Includes:
+   - Stock Alert page
+   - Professional Summary (AM + PM who did check)
+   - Summary List
+   - WISR
+   - Manager pages + Download Log CSV
+   - Logout
+   - Utils (must be last)
+
+   MERGED (from 2–8) IN THIS PART:
+   ✅ (4) Manager can see staff “In progress vs Done”:
+      - Summary Home shows shift completion (already)
+      - Adds “Progress snapshot” card: how many categories have any drafts today (per store view)
+   ✅ (5) Manager: Download log CSV (already)
+   ✅ (6) Small UX: keep drawer Stock Alert dot single source (already)
    ========================= */
 
 /* =========================================================
@@ -1596,6 +1773,41 @@ function renderShiftCardUI(shift, info) {
   `;
 }
 
+/* =========================================================
+   (4) Manager progress snapshot (local drafts)
+   Shows whether staff has started checking (in-progress) today
+   NOTE: This is local device snapshot. True cross-device progress needs API.
+   ========================================================= */
+function localProgressSnapshot() {
+  // counts categories where any item has qty>0 for this session
+  const cats = (state.data.categories || []).map((c) => c.name);
+  const catToItems = new Map();
+  for (const c of cats) catToItems.set(c, []);
+  for (const it of state.data.items || []) {
+    if (!catToItems.has(it.category)) catToItems.set(it.category, []);
+    catToItems.get(it.category).push(it);
+  }
+
+  let started = 0;
+  let total = cats.length || 0;
+
+  for (const c of cats) {
+    const items = catToItems.get(c) || [];
+    let any = false;
+    for (const it of items) {
+      const k = itemKey(it);
+      const d = state.drafts[k];
+      if (d && Number(d.qty) > 0) {
+        any = true;
+        break;
+      }
+    }
+    if (any) started++;
+  }
+
+  return { started, total };
+}
+
 async function renderSummaryHome() {
   const main = $("#main");
 
@@ -1623,6 +1835,20 @@ async function renderSummaryHome() {
         : ""
     }
 
+    ${
+      isMgr
+        ? `
+      <div class="card" style="margin-top:12px">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Progress snapshot</div>
+        <div id="progSnap" class="muted" style="font-weight:1100">Loading…</div>
+        <div class="muted" style="margin-top:8px;font-weight:1000">
+          *This shows progress on THIS device. For true staff tracking across devices, we add API later.
+        </div>
+      </div>
+    `
+        : ""
+    }
+
     <div class="card" style="margin-top:12px">
       <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Shift completion</div>
       <div id="shiftGrid" class="row" style="gap:12px;flex-wrap:wrap"></div>
@@ -1640,6 +1866,11 @@ async function renderSummaryHome() {
     $("#mPDD").addEventListener("click", () => setSummaryMode("PDD"));
     $("#mSKH").addEventListener("click", () => setSummaryMode("SKH"));
     updateSummaryModeButtons();
+
+    // local progress snapshot
+    const ps = localProgressSnapshot();
+    const el = $("#progSnap");
+    if (el) el.innerHTML = `Categories started: <b>${ps.started}</b> / <b>${ps.total}</b>`;
   }
 
   // Shift completion
@@ -1759,7 +1990,9 @@ async function drawSummaryCards() {
   `;
 
   $("#sToday").addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY" }, true));
-  $("#sTomorrow").addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW" }, true));
+  $("#sTomorrow").addEventListener("click", () =>
+    setView({ page: "summaryList", bucket: "TOMORROW" }, true)
+  );
   $("#sSafe").addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE" }, true));
 }
 
@@ -2241,7 +2474,10 @@ async function renderManagerCategories() {
   const main = $("#main");
   let cats = [];
   try {
-    cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+    cats = await apiGet(
+      `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`,
+      state.session.managerToken
+    );
   } catch (e) {
     console.error(e);
     toast("Failed loading categories");
@@ -2305,7 +2541,11 @@ function openAddCategoryModal() {
     if (!name) return toast("Name required");
 
     try {
-      await apiPost("/api/manager/categories", { store: state.session.store, name, sort_order }, state.session.managerToken);
+      await apiPost(
+        "/api/manager/categories",
+        { store: state.session.store, name, sort_order },
+        state.session.managerToken
+      );
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2345,7 +2585,11 @@ function openEditCategoryModal(id, currentName) {
     if (!name) return toast("Name required");
 
     try {
-      await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken);
+      await apiPatch(
+        `/api/manager/categories/${id}`,
+        { store: state.session.store, name, is_active, sort_order: 100 },
+        state.session.managerToken
+      );
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2359,7 +2603,10 @@ function openEditCategoryModal(id, currentName) {
   $("#catDelete").addEventListener("click", async () => {
     if (!confirm("Delete this category?")) return;
     try {
-      await apiDel(`/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken);
+      await apiDel(
+        `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`,
+        state.session.managerToken
+      );
       toast("Deleted ✅");
       closeModal();
       await loadAllForCurrentStore();
@@ -2418,7 +2665,11 @@ function openAddItemModal() {
     if (!name || !category) return toast("Missing name/category");
 
     try {
-      await apiPost("/api/manager/items", { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly }, state.session.managerToken);
+      await apiPost(
+        "/api/manager/items",
+        { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly },
+        state.session.managerToken
+      );
       toast("Saved ✅");
       closeModal();
       await loadAllForCurrentStore();
