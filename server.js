@@ -121,19 +121,27 @@ app.get("/api/status", async (req, res) => {
 
     const r = await q(
       `
-      select store, day_key, last_saved_at, last_saved_by
+      select store, day_key, shift, last_saved_at, last_saved_by
       from public.daily_status
       where store=$1 and day_key=(now() at time zone $2)::date
-      limit 1
-    `,
+      order by shift asc
+      `,
       [store, DAY_TZ]
     );
 
-    res.json(r.rows[0] || null);
+    const out = { AM: null, PM: null };
+    for (const row of r.rows) {
+      const sh = String(row.shift || "").toUpperCase();
+      if (sh === "AM") out.AM = row;
+      if (sh === "PM") out.PM = row;
+    }
+
+    res.json(out);
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
 });
+
 
 // Optional: allow frontend to mark done explicitly if you want
 app.post("/api/status/mark-done", async (req, res) => {
@@ -268,7 +276,8 @@ app.post("/api/log", async (req, res) => {
     );
 
     // ✅ Mark store "done" today (SG DAY)
-    await markDoneSG(store, staff);
+  await markDoneSG(store, staff, shift);
+
 
     res.json({ ok: true });
   } catch (e) {
@@ -341,7 +350,8 @@ app.post("/api/log/batch", async (req, res) => {
     }
 
     // ✅ Mark store "done" today (SG DAY)
-    await markDoneSG(store, staff);
+    await markDoneSG(store, staff, shift);
+
 
     res.json({ ok: true });
   } catch (e) {
