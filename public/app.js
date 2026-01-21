@@ -1440,7 +1440,7 @@ async function saveCategory(items, cat) {
   try {
     await apiPost("/api/log/batch", { store, staff, shift, rows });
     toast("Saved ✅");
-    await refreshStockDot().catch(() => {});
+    a().catch(() => {});
   } catch (e) {
     console.error(e);
     toast("Save failed");
@@ -2148,18 +2148,31 @@ async function renderManagerEditItems() {
         const shelf_life_days = Number(lifeInp.value || 0);
         const is_hourly = !!hourlyChk?.checked;
 
-        try {
-          await apiPatch(
-            `/api/manager/items/${id}`,
-            { store: state.session.store, category, sub_category, shelf_life_days, is_hourly },
-            token
-          );
-          toast("Saved ✅");
-          await loadAllForCurrentStore();
-        } catch (e) {
-          console.error(e);
-          toast("Save failed");
-        }
+       const btn = $("#saveBtn");
+const oldText = btn ? btn.textContent : "";
+
+try {
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    btn.style.opacity = "0.7";
+  }
+
+  await apiPost("/api/log/batch", { store, staff, shift, rows });
+
+  toast("Saved ✅");
+  await refreshStockDot().catch(() => {});
+} catch (e) {
+  console.error(e);
+  toast("Save failed");
+} finally {
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = oldText || "Save";
+    btn.style.opacity = "1";
+  }
+}
+
       });
 
       del.addEventListener("click", async () => {
