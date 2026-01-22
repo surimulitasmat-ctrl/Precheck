@@ -1,16 +1,27 @@
 /* =========================
    PreCheck — public/app.js (FULL)
-   PART 1 / 3
-   Includes: helpers, constants, state, boot, storage, date/time, hourly times,
-            API helpers, Render wakeServer (NEW ✅), loadAllForCurrentStore,
-            normalizeSub, topbar, drawer, modal/toast, popup, login page
+   PART 1 / 4
 
-   MERGED (from 2–8):
-   ✅ (6) Render sleep handling: wakeServer() + called in boot() + login Start
-   ✅ (8) Stability: keep app from crashing on wake failures (best-effort)
+   Includes:
+   - DOM helpers
+   - constants
+   - state
+   - boot + session storage
+   - date/time helpers
+   - hourly times
+   - API helpers
+   - Render wakeServer
+   - data load + normalizeSub
+   - topbar + drawer + modal/toast
+   - saving overlay (Saving… / Deleting…)
+   - shift DONE + last item saved (single source of truth) ✅
+   - popup + midnight reset
+   - login page
+
    NOTE:
-   - Progress/Resume (2), Saving state (3), Summary polish (4), Manager CSV (5)
-     are wired in PART 2 & PART 3 to keep file clean.
+   - PART 2: navigation + drafts + home/category + editors + saveCategory (fixed)
+   - PART 3: stock alert + summary (shows last item) + wisr
+   - PART 4: manager pages (with loading overlay) + logout + utils
    ========================= */
 
 /* ---------- DOM helpers ---------- */
@@ -69,6 +80,7 @@ const state = {
   // per itemKey: { qty, expType, expDateISO, expTimeShort, extraISO, extraQty }
   drafts: {},
   stock: { hasDot: false, rows: [] },
+  __draftsHydrated: false,
 };
 
 /* ---------- boot ---------- */
@@ -85,7 +97,7 @@ async function boot() {
   // update drawer label on load
   updateDrawerAlertLabel(false);
 
-  // ✅ (6) Render free tier sleep: wake server first (best-effort)
+  // Wake server (best-effort)
   await wakeServer().catch(() => {});
 
   if (!state.session.store || !state.session.staff) {
@@ -94,8 +106,14 @@ async function boot() {
     return;
   }
 
-  await loadAllForCurrentStore();
-  await refreshStockDot().catch(() => {});
+  showSaving("Loading…");
+  try {
+    await loadAllForCurrentStore();
+    await refreshStockDot().catch(() => {});
+  } finally {
+    hideSaving();
+  }
+
   maybeShowExpiryPopup(false);
   render();
 }
@@ -244,13 +262,9 @@ async function apiDel(path, token = "") {
 }
 
 /* =========================================================
-   (6) Render sleep handling — Wake server
-   - Calls a cheap endpoint to "wake" Render free tier
-   - Best-effort: never blocks the whole app forever
+   Render sleep handling — Wake server
    ========================================================= */
 async function wakeServer() {
-  // If you already have /api/health, great. If not, create it in server.js.
-  // This is safe: failures are ignored (we show a toast).
   try {
     await apiGet("/api/health");
   } catch {
@@ -275,7 +289,6 @@ async function loadAllForCurrentStore() {
     stock_min: it.stock_min != null ? Number(it.stock_min) : null,
   }));
 }
-
 function normalizeSub(s) {
   const t = String(s || "").trim().toLowerCase();
   if (t === "open inner" || t === "openinner") return "Open Inner";
@@ -412,6 +425,79 @@ function closeModal() {
 }
 
 /* =========================================================
+   LOADING / SAVING OVERLAY ✅
+   Used by staff save + manager actions so app doesn't feel stuck
+   ========================================================= */
+function ensureSavingOverlay() {
+  let el = document.getElementById("pcSavingOverlay");
+  if (el) return el;
+
+  el = document.createElement("div");
+  el.id = "pcSavingOverlay";
+  el.className = "hidden";
+  el.style.position = "fixed";
+  el.style.inset = "0";
+  el.style.background = "rgba(0,0,0,0.35)";
+  el.style.zIndex = "9999";
+  el.style.display = "flex";
+  el.style.alignItems = "center";
+  el.style.justifyContent = "center";
+  el.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:14px 16px;min-width:220px;box-shadow:0 20px 60px rgba(0,0,0,0.25)">
+      <div id="pcSavingMsg" style="font-weight:1200;font-size:16px">Saving…</div>
+      <div class="muted" style="margin-top:6px;font-weight:1000">Please wait</div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  return el;
+}
+function showSaving(msg = "Saving…") {
+  const el = ensureSavingOverlay();
+  const m = document.getElementById("pcSavingMsg");
+  if (m) m.textContent = msg;
+  el.classList.remove("hidden");
+}
+function hideSaving() {
+  const el = document.getElementById("pcSavingOverlay");
+  if (el) el.classList.add("hidden");
+}
+
+/* =========================================================
+   SHIFT DONE + LAST ITEM ✅ (single source of truth)
+   - Marks shift as DONE even if only 1 item saved
+   - Stores last item saved (device-based, per day)
+   ========================================================= */
+function shiftDoneLastKey(store, dayKey, shift) {
+  return `pc_done_last_${store}_${dayKey}_${shift}`;
+}
+function recordShiftDoneAndLast({ store, shift, staff, lastItemName }) {
+  try {
+    const dayKey = dayKeyNow();
+    localStorage.setItem(
+      shiftDoneLastKey(store, dayKey, shift),
+      JSON.stringify({
+        done: true,
+        store,
+        shift,
+        staff: staff || "",
+        lastItemName: lastItemName || "",
+        at: new Date().toISOString(),
+      })
+    );
+  } catch {}
+}
+function readShiftDoneAndLast(store, shift) {
+  try {
+    const dayKey = dayKeyNow();
+    const raw = localStorage.getItem(shiftDoneLastKey(store, dayKey, shift));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/* =========================================================
    SESSION POPUP + MIDNIGHT RESET
    ========================================================= */
 function startMidnightWatcher() {
@@ -516,10 +602,9 @@ function renderLoginPage() {
     state.session.sessionDayKey = dayKeyNow();
     saveSession();
 
+    showSaving("Loading…");
     try {
-      // ✅ (6) wake server on login too
       await wakeServer().catch(() => {});
-
       await loadAllForCurrentStore();
       await refreshStockDot().catch(() => {});
       renderRolePill();
@@ -533,38 +618,31 @@ function renderLoginPage() {
     } catch (e) {
       console.error(e);
       toast("Failed to load data");
+    } finally {
+      hideSaving();
     }
   });
 }
 
 /* =========================
-   END PART 1 / 3
+   END PART 1 / 4
    ========================= */
 /* =========================
    PreCheck — public/app.js (FULL)
-   PART 2 / 3
+   PART 2 / 4
 
    Includes:
    - navigation
    - back/swipe guard
+   - draft persistence (store+shift+day)
    - render root
    - home + category
    - shelfLifeModeFor
-   - date wheel picker (green Set date + haptic tick)
-   - add 2nd date modal (single date + qty)
+   - date wheel picker
+   - add 2nd date modal
    - item editor + bind editors
-   - saveCategory (blocks missing expiry)
-
-   MERGED (from 2–8) IN THIS PART:
-   ✅ (2) “In progress vs Done” (staff progress tracker):
-      - Auto track per-category progress (% items filled)
-      - Show small progress pill on category page header
-      - Save button shows “Done checking ✅” when all required filled
-   ✅ (3) Restore drafts after refresh:
-      - drafts persisted per store+shift+day
-   ✅ (7) Button color rules:
-      - Set date + Done buttons green (already)
-      - Keep Save button consistent and show state
+   - category progress tracker (done when qty>0 + valid expiry/time)
+   - saveCategory ✅ (fixed braces, shows Saving…, records DONE + last item)
    ========================= */
 
 /* =========================================================
@@ -659,7 +737,7 @@ function openConfirmExit() {
 }
 
 /* =========================================================
-   (3) Draft persistence (store+shift+day scoped)
+   Draft persistence (store+shift+day scoped)
    ========================================================= */
 function draftsKey() {
   const s = state.session;
@@ -682,9 +760,8 @@ function saveDraftsToStorage() {
   } catch {}
 }
 
-/* call once when session exists */
+/* hydrate once if already logged in */
 (function hydrateDraftsOnce() {
-  // Only hydrate if logged in (store+staff exist), else keep empty
   if (state.session?.store && state.session?.staff) loadDraftsFromStorage();
 })();
 
@@ -703,7 +780,6 @@ function render() {
     return;
   }
 
-  // ensure drafts hydrated if user logged in mid-session
   if (!state.__draftsHydrated) {
     state.__draftsHydrated = true;
     loadDraftsFromStorage();
@@ -781,9 +857,9 @@ function tileToneFor(name) {
   const map = {
     "Prepared items": "t-green",
     "Unopened chiller": "t-blue",
-    "Thawing": "t-cyan",
-    "Vegetables": "t-green2",
-    "Backroom": "t-orange",
+    Thawing: "t-cyan",
+    Vegetables: "t-green2",
+    Backroom: "t-orange",
     "Front counter": "t-red",
     "Back counter chiller": "t-teal",
     "Fountain Drinks": "t-green2",
@@ -837,9 +913,9 @@ function renderCategory() {
     items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
   }
 
-  // (2) progress % for this category
   const prog = categoryProgress(items, cat);
   const progText = prog.total === 0 ? "" : `${prog.done}/${prog.total} (${prog.pct}%)`;
+  const doneAll = prog.total > 0 && prog.done === prog.total;
 
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
   const emptyHint = items.length
@@ -852,8 +928,6 @@ function renderCategory() {
       </div>
     </div>
   `;
-
-  const doneAll = prog.total > 0 && prog.done === prog.total;
 
   main.innerHTML = `
     <div class="page-head">
@@ -897,7 +971,6 @@ function itemKey(it) {
 }
 
 function shelfLifeModeFor(it, cat) {
-  // hourly wins
   if (it.is_hourly) return { mode: "HOURLY", life: 0 };
 
   const life = Number(it.shelf_life_days || 0);
@@ -911,11 +984,7 @@ function shelfLifeModeFor(it, cat) {
 }
 
 /* =========================================================
-   (2) Category progress tracker
-   “done” means:
-   - qty > 0 AND valid expiry selected (or auto/hourly ok)
-   - qty == 0 is considered “not required”, so it does NOT count as done
-   We count only items where qty>0 (staff decided to log it).
+   Category progress tracker
    ========================================================= */
 function categoryProgress(items, cat) {
   let total = 0;
@@ -926,7 +995,7 @@ function categoryProgress(items, cat) {
     const key = itemKey(it);
     const d = state.drafts[key] || {};
     const qty = Number(d.qty) || 0;
-    if (qty <= 0) continue; // ignore blank items
+    if (qty <= 0) continue;
     total++;
 
     const rule = shelfLifeModeFor(it, cat);
@@ -948,9 +1017,6 @@ function categoryProgress(items, cat) {
 
 /* =========================================================
    DATE WHEEL PICKER
-   - No duplicate title
-   - Green "Set date"
-   - Haptic tick when value changes
    ========================================================= */
 function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const today = todayISO();
@@ -988,7 +1054,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     return iso >= min && iso <= max;
   }
 
-  // current parts
   let y = cur.getFullYear();
   let m = cur.getMonth() + 1;
   let d = cur.getDate();
@@ -1050,7 +1115,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
 
     const center = container.scrollTop + container.clientHeight / 2;
 
-    // current active value (before snapping)
     const active = container.querySelector(".pc-wheel-item.active");
     const activeV = active ? active.dataset.v : null;
 
@@ -1068,9 +1132,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     }
     if (!best) return;
 
-    // vibrate ONLY if value actually changes
     if (best.dataset.v !== activeV) haptic(8);
-
     best.click();
   }
 
@@ -1369,8 +1431,8 @@ function renderItemEditor(it, cat) {
         <div class="qty-stepper">
           <button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button>
           <input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(
-    d.qty || 0
-  )}" />
+            d.qty || 0
+          )}" />
           <button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button>
         </div>
 
@@ -1417,7 +1479,7 @@ function bindItemEditors(items, cat) {
         updateQtyUI(root, key);
         pulseBtn(inc);
         haptic(12);
-        render(); // refresh progress pill + save label
+        render();
       });
 
     if (dec)
@@ -1484,7 +1546,10 @@ function bindItemEditors(items, cat) {
 }
 
 /* =========================================================
-   Save category (blocks missing expiry + supports extra date)
+   Save category ✅
+   - shows Saving overlay
+   - marks shift DONE even if only 1 item saved
+   - records last item saved (from last row)
    ========================================================= */
 async function saveCategory(items, cat) {
   const store = state.session.store;
@@ -1579,59 +1644,47 @@ async function saveCategory(items, cat) {
 
   if (!rows.length) return toast("Nothing to save");
 
+  showSaving("Saving…");
   try {
     await apiPost("/api/log/batch", { store, staff, shift, rows });
+
+    const lastName = rows.length ? (rows[rows.length - 1].item_name || "") : "";
+    recordShiftDoneAndLast({ store, shift, staff, lastItemName: lastName });
+
     toast("Saved ✅");
     await refreshStockDot().catch(() => {});
-
-    // optional: keep drafts (so staff can adjust) OR clear after save
-    // If you want auto-clear after save, uncomment:
-    // clearDraftsForCategory(items);
-    // saveDraftsToStorage();
-
   } catch (e) {
     console.error(e);
     toast("Save failed");
-  }
-}
-
-/* optional helper if you later want to clear after save */
-function clearDraftsForCategory(items) {
-  for (const it of items || []) {
-    const key = itemKey(it);
-    if (state.drafts[key]) {
-      state.drafts[key].qty = 0;
-      state.drafts[key].expType = "";
-      state.drafts[key].expDateISO = "";
-      state.drafts[key].expTimeShort = "";
-      state.drafts[key].extraISO = "";
-      state.drafts[key].extraQty = 0;
-    }
+  } finally {
+    hideSaving();
   }
 }
 
 /* =========================
-   END PART 2 / 3
+   END PART 2 / 4
    ========================= */
 /* =========================
    PreCheck — public/app.js (FULL)
-   PART 3 / 3
+   PART 3 / 4
 
    Includes:
    - Stock Alert page
-   - Professional Summary (AM + PM who did check)
-   - Summary List
-   - WISR
-   - Manager pages + Download Log CSV
-   - Logout
-   - Utils (must be last)
+   - Summary Home + Summary List
+   - Shift completion cards show:
+       ✅ DONE even if only 1 item saved (device-based fallback)
+       ✅ Last item saved (device-based)
+   - WISR placeholder
+   - Manager Home
+   - Manager Edit Items (with Saving overlay)
+   - Manager Categories (with Saving overlay)
+   - Manager Add Item modal (with Saving overlay)
 
-   MERGED (from 2–8) IN THIS PART:
-   ✅ (4) Manager can see staff “In progress vs Done”:
-      - Summary Home shows shift completion (already)
-      - Adds “Progress snapshot” card: how many categories have any drafts today (per store view)
-   ✅ (5) Manager: Download log CSV (already)
-   ✅ (6) Small UX: keep drawer Stock Alert dot single source (already)
+   NOTE:
+   - True cross-device "DONE" + "last item" is best from API (/api/status).
+     This part shows BOTH:
+       1) API status (if your backend provides it)
+       2) Local fallback from localStorage (always works on same device)
    ========================= */
 
 /* =========================================================
@@ -1722,8 +1775,7 @@ async function renderStockAlerts() {
 }
 
 /* =========================================================
-   SUMMARY (Professional)
-   - Shows AM + PM separately: Done/Not done, who, time, rows
+   SUMMARY HELPERS
    ========================================================= */
 async function getStatusByShift(store, shift) {
   return await apiGet(
@@ -1732,17 +1784,40 @@ async function getStatusByShift(store, shift) {
 }
 
 function statusToUI(s) {
-  if (!s || !s.last_saved_by) return { done: false, who: "", hhmm: "", count: 0 };
+  if (!s || !s.last_saved_by) return { done: false, who: "", hhmm: "", count: 0, lastItemName: "" };
   const when = s.last_saved_at ? new Date(s.last_saved_at) : null;
   const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
   const who = String(s.last_saved_by || "");
   const count = Number(s.total_rows || 0);
-  return { done: true, who, hhmm, count };
+  const lastItemName = String(s.last_item_name || "");
+  return { done: true, who, hhmm, count, lastItemName };
 }
 
-function renderShiftCardUI(shift, info) {
-  const badgeBg = info.done ? "var(--green)" : "var(--red)";
-  const badgeText = info.done ? "DONE" : "NOT DONE";
+/* local fallback (same device) */
+function readLocalDoneLast(store, shift) {
+  const local = readShiftDoneAndLast(store, shift); // from PART 1
+  if (!local || !local.done) return { done: false, who: "", hhmm: "", lastItemName: "" };
+
+  const when = local.at ? new Date(local.at) : null;
+  const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
+  return {
+    done: true,
+    who: String(local.staff || ""),
+    hhmm,
+    lastItemName: String(local.lastItemName || ""),
+  };
+}
+
+function renderShiftCardUI(shift, info, fallback) {
+  // if API not done, but local says done -> show done using fallback
+  const done = info?.done || fallback?.done || false;
+  const who = info?.who || fallback?.who || "";
+  const hhmm = info?.hhmm || fallback?.hhmm || "";
+  const count = info?.count || 0;
+  const lastItemName = info?.lastItemName || fallback?.lastItemName || "";
+
+  const badgeBg = done ? "var(--green)" : "var(--red)";
+  const badgeText = done ? "DONE" : "NOT DONE";
 
   return `
     <div style="flex:1;min-width:240px;border:1px solid var(--line);border-radius:18px;padding:14px 14px;background:#fff">
@@ -1754,18 +1829,27 @@ function renderShiftCardUI(shift, info) {
       </div>
 
       ${
-        info.done
+        done
           ? `
         <div class="muted" style="margin-top:10px;font-weight:1100">
-          Done by <b>${escapeHtml(info.who)}</b>${info.hhmm ? ` at <b>${escapeHtml(info.hhmm)}</b>` : ""}
+          Done by <b>${escapeHtml(who || "-")}</b>${hhmm ? ` at <b>${escapeHtml(hhmm)}</b>` : ""}
         </div>
-        <div class="muted" style="margin-top:6px;font-weight:1100">
-          Items saved: <b>${info.count}</b>
-        </div>
+        ${
+          count
+            ? `<div class="muted" style="margin-top:6px;font-weight:1100">Items saved: <b>${count}</b></div>`
+            : `<div class="muted" style="margin-top:6px;font-weight:1100">Items saved: <b>—</b></div>`
+        }
+        ${
+          lastItemName
+            ? `<div class="muted" style="margin-top:6px;font-weight:1100">Last item saved: <b>${escapeHtml(
+                lastItemName
+              )}</b></div>`
+            : ``
+        }
       `
           : `
         <div class="muted" style="margin-top:10px;font-weight:1100">
-          No save recorded for this shift.
+          No save recorded yet.
         </div>
       `
       }
@@ -1774,12 +1858,9 @@ function renderShiftCardUI(shift, info) {
 }
 
 /* =========================================================
-   (4) Manager progress snapshot (local drafts)
-   Shows whether staff has started checking (in-progress) today
-   NOTE: This is local device snapshot. True cross-device progress needs API.
+   Manager progress snapshot (local drafts)
    ========================================================= */
 function localProgressSnapshot() {
-  // counts categories where any item has qty>0 for this session
   const cats = (state.data.categories || []).map((c) => c.name);
   const catToItems = new Map();
   for (const c of cats) catToItems.set(c, []);
@@ -1808,6 +1889,9 @@ function localProgressSnapshot() {
   return { started, total };
 }
 
+/* =========================================================
+   SUMMARY HOME
+   ========================================================= */
 async function renderSummaryHome() {
   const main = $("#main");
 
@@ -1867,7 +1951,6 @@ async function renderSummaryHome() {
     $("#mSKH").addEventListener("click", () => setSummaryMode("SKH"));
     updateSummaryModeButtons();
 
-    // local progress snapshot
     const ps = localProgressSnapshot();
     const el = $("#progSnap");
     if (el) el.innerHTML = `Categories started: <b>${ps.started}</b> / <b>${ps.total}</b>`;
@@ -1877,8 +1960,10 @@ async function renderSummaryHome() {
   const grid = $("#shiftGrid");
   if (grid) {
     grid.innerHTML = `<div class="muted" style="font-weight:1100">Loading…</div>`;
+
     let am = null,
       pm = null;
+
     try {
       am = await getStatusByShift(storeView, "AM");
     } catch {}
@@ -1889,9 +1974,12 @@ async function renderSummaryHome() {
     const amUI = statusToUI(am);
     const pmUI = statusToUI(pm);
 
+    const amLocal = readLocalDoneLast(storeView, "AM");
+    const pmLocal = readLocalDoneLast(storeView, "PM");
+
     grid.innerHTML = `
-      ${renderShiftCardUI("AM", amUI)}
-      ${renderShiftCardUI("PM", pmUI)}
+      ${renderShiftCardUI("AM", amUI, amLocal)}
+      ${renderShiftCardUI("PM", pmUI, pmLocal)}
     `;
   }
 
@@ -2099,7 +2187,7 @@ function renderWISR() {
 }
 
 /* =========================================================
-   MANAGER + DOWNLOAD LOG
+   MANAGER HOME
    ========================================================= */
 function renderManagerHome() {
   if (!state.session.isManager) {
@@ -2148,7 +2236,504 @@ function renderManagerHome() {
   $("#tLog").addEventListener("click", () => openDownloadLogModal());
 }
 
-/* ---------- Download Log Modal + CSV download ---------- */
+/* =========================================================
+   MANAGER LOGIN (same logic as your existing)
+   ========================================================= */
+function openManagerLogin() {
+  openModal(
+    "Manager Login",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">PIN</div>
+          <input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN">
+          <button id="pinBtn" class="btn btn-red" style="width:100%">Login as Manager</button>
+          <button id="pinCancel" class="btn btn-yellow" style="width:100%">Cancel</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#pinCancel").addEventListener("click", () => {
+    closeModal();
+    goBack();
+  });
+
+  $("#pinBtn").addEventListener("click", async () => {
+    const pin = String($("#pinInp").value || "").trim();
+    if (!pin) return toast("Enter PIN");
+
+    showSaving("Logging in…");
+    try {
+      const r = await apiPost("/api/manager/login", { pin, store: state.session.store });
+      state.session.isManager = true;
+      state.session.managerToken = r.token || "";
+      saveSession();
+      closeModal();
+      renderRolePill();
+      toast("Manager ✅");
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Wrong PIN");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+/* =========================================================
+   MANAGER: EDIT ITEMS (with Saving overlay)
+   ========================================================= */
+async function renderManagerEditItems() {
+  if (!state.session.isManager) return openManagerLogin();
+
+  const main = $("#main");
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Edit Items</div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:1200">Search</div>
+      <input id="mgrSearch" class="input" placeholder="Type item name...">
+    </div>
+
+    <div id="mgrList" class="col"></div>
+  `;
+  $("#btnBack").addEventListener("click", goBack);
+
+  const token = state.session.managerToken;
+  let items = [];
+
+  showSaving("Loading items…");
+  try {
+    items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token);
+  } catch (e) {
+    console.error(e);
+    toast("Failed loading items");
+  } finally {
+    hideSaving();
+  }
+
+  const renderList = (q) => {
+    q = String(q || "").toLowerCase().trim();
+    const filtered = q ? items.filter((x) => String(x.name).toLowerCase().includes(q)) : items;
+
+    const map = new Map();
+    for (const it of filtered) {
+      const c = it.category || "Other";
+      if (!map.has(c)) map.set(c, []);
+      map.get(c).push(it);
+    }
+
+    let html = "";
+    for (const [cat, list] of map.entries()) {
+      html += `
+        <div class="card">
+          <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
+          <div class="col" style="gap:10px">
+            ${list.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(managerItemRow).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    const wrap = $("#mgrList");
+    wrap.innerHTML = html;
+
+    $$(".mgrRow", wrap).forEach((row) => {
+      const id = row.dataset.id;
+      const toggle = $(`[data-toggle="${cssEsc(id)}"]`, row);
+      const panel = $(`[data-panel="${cssEsc(id)}"]`, row);
+      const save = $(`[data-save="${cssEsc(id)}"]`, row);
+      const del = $(`[data-del="${cssEsc(id)}"]`, row);
+
+      toggle.addEventListener("click", () => {
+        panel.classList.toggle("hidden");
+        toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
+      });
+
+      save.addEventListener("click", async () => {
+        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
+        const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
+        const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
+        const hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
+
+        const category = String(catSel.value || "").trim();
+        const sub_category = String(subSel.value || "").trim() || null;
+        const shelf_life_days = Number(lifeInp.value || 0);
+        const is_hourly = !!hourlyChk?.checked;
+
+        showSaving("Saving…");
+        try {
+          await apiPatch(
+            `/api/manager/items/${id}`,
+            { store: state.session.store, category, sub_category, shelf_life_days, is_hourly },
+            token
+          );
+          toast("Saved ✅");
+          await loadAllForCurrentStore();
+        } catch (e) {
+          console.error(e);
+          toast("Save failed");
+        } finally {
+          hideSaving();
+        }
+      });
+
+      del.addEventListener("click", async () => {
+        if (!confirm("Delete this item?")) return;
+
+        showSaving("Deleting…");
+        try {
+          await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token);
+          toast("Deleted ✅");
+          items = items.filter((x) => String(x.id) !== String(id));
+          renderList($("#mgrSearch").value);
+          await loadAllForCurrentStore();
+        } catch (e) {
+          console.error(e);
+          toast("Delete failed");
+        } finally {
+          hideSaving();
+        }
+      });
+    });
+  };
+
+  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
+  renderList("");
+}
+
+function managerItemRow(it) {
+  const id = String(it.id);
+  const cats = (state.data.categories || []).map((c) => c.name);
+  const catOpts = cats
+    .map((c) => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`)
+    .join("");
+
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(
+      SAUCE_SUBS.map(
+        (s) =>
+          `<option value="${escapeHtml(s.name)}"${
+            normalizeSub(it.sub_category || "") === s.name ? " selected" : ""
+          }>${escapeHtml(s.name)}</option>`
+      )
+    )
+    .join("");
+
+  return `
+    <div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px">
+      <div class="row" style="justify-content:space-between">
+        <div style="font-weight:1200">${escapeHtml(it.name)}</div>
+        <button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button>
+      </div>
+      <div class="muted" style="margin-top:8px;font-weight:1000">${escapeHtml(it.category)} • ${escapeHtml(
+        it.shelf_life_days
+      )} day</div>
+
+      <div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px">
+        <div class="col">
+          <div style="font-weight:1200">Category</div>
+          <select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select>
+
+          <div style="font-weight:1200">Sauce Sub-category</div>
+          <select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select>
+
+          <div style="font-weight:1200">Shelf life (days)</div>
+          <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(
+            it.shelf_life_days
+          )}">
+
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
+            <input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}>
+            Hourly expiry (time only)
+          </label>
+
+          <div class="row">
+            <button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button>
+            <button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* =========================================================
+   MANAGER: CATEGORIES (with Saving overlay)
+   ========================================================= */
+async function renderManagerCategories() {
+  if (!state.session.isManager) return openManagerLogin();
+
+  const main = $("#main");
+  let cats = [];
+
+  showSaving("Loading categories…");
+  try {
+    cats = await apiGet(
+      `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`,
+      state.session.managerToken
+    );
+  } catch (e) {
+    console.error(e);
+    toast("Failed loading categories");
+  } finally {
+    hideSaving();
+  }
+
+  const tiles = cats
+    .filter((c) => c.is_active !== false)
+    .map((c, idx) => {
+      const tone = tileToneFor(c.name);
+      return `
+        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx * 45}ms" data-cid="${c.id}" data-cname="${escapeHtml(
+        c.name
+      )}" type="button">
+          <div class="title" style="font-size:20px">${escapeHtml(c.name)}</div>
+          <div class="sub">Tap to edit</div>
+        </button>
+      `;
+    })
+    .join("");
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Categories</div>
+    </div>
+
+    <div class="tiles-2col">${tiles}</div>
+
+    <button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>
+  `;
+
+  $("#btnBack").addEventListener("click", goBack);
+
+  $$(".tile", main).forEach((b) => {
+    b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname));
+  });
+
+  $("#addCat").addEventListener("click", openAddCategoryModal);
+}
+
+function openAddCategoryModal() {
+  openModal(
+    "Add Category",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Name</div>
+          <input id="catName" class="input" placeholder="Category name">
+          <div style="font-weight:1200">Sort order</div>
+          <input id="catSort" class="input" type="number" value="100">
+          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const sort_order = Number($("#catSort").value || 100);
+    if (!name) return toast("Name required");
+
+    showSaving("Saving…");
+    try {
+      await apiPost(
+        "/api/manager/categories",
+        { store: state.session.store, name, sort_order },
+        state.session.managerToken
+      );
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+function openEditCategoryModal(id, currentName) {
+  openModal(
+    "Edit Category",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Name</div>
+          <input id="catName" class="input" value="${escapeHtml(currentName)}">
+          <div style="font-weight:1200">Active</div>
+          <select id="catActive" class="select">
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+
+          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
+          <button id="catDelete" class="btn btn-red" style="width:100%">Delete</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const is_active = $("#catActive").value === "true";
+    if (!name) return toast("Name required");
+
+    showSaving("Saving…");
+    try {
+      await apiPatch(
+        `/api/manager/categories/${id}`,
+        { store: state.session.store, name, is_active, sort_order: 100 },
+        state.session.managerToken
+      );
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  });
+
+  $("#catDelete").addEventListener("click", async () => {
+    if (!confirm("Delete this category?")) return;
+
+    showSaving("Deleting…");
+    try {
+      await apiDel(
+        `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`,
+        state.session.managerToken
+      );
+      toast("Deleted ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Delete failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+/* =========================================================
+   MANAGER: ADD ITEM MODAL (with Saving overlay)
+   ========================================================= */
+function openAddItemModal() {
+  const cats = (state.data.categories || []).map((c) => c.name);
+  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`))
+    .join("");
+
+  openModal(
+    "Add Item",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Item name</div>
+          <input id="itName" class="input" placeholder="e.g. Beef Brisket">
+
+          <div style="font-weight:1200">Category</div>
+          <select id="itCat" class="select">${catOpts}</select>
+
+          <div style="font-weight:1200">Sauce Sub-category</div>
+          <select id="itSub" class="select">${subOpts}</select>
+
+          <div style="font-weight:1200">Shelf life (days)</div>
+          <input id="itLife" class="input" type="number" min="0" value="0">
+
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
+            <input id="itHourly" type="checkbox">
+            Hourly expiry (time only)
+          </label>
+
+          <button id="itSave" class="btn btn-yellow" style="width:100%">Save</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#itSave").addEventListener("click", async () => {
+    const name = String($("#itName").value || "").trim();
+    const category = String($("#itCat").value || "").trim();
+    const sub_category = String($("#itSub").value || "").trim() || null;
+    const shelf_life_days = Number($("#itLife").value || 0);
+    const is_hourly = !!$("#itHourly")?.checked;
+
+    if (!name || !category) return toast("Missing name/category");
+
+    showSaving("Saving…");
+    try {
+      await apiPost(
+        "/api/manager/items",
+        { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly },
+        state.session.managerToken
+      );
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+/* =========================
+   END PART 3 / 4
+   ========================= */
+/* =========================
+   PreCheck — public/app.js (FULL)
+   PART 4 / 4
+
+   Includes:
+   - Download Log modal + CSV export (manager)
+   - Logout
+   - Utils (must be last)
+
+   Fixes in this PART:
+   ✅ Your pasted saveCategory try/catch location bug:
+      - Ensures saveCategory() is properly closed with "}" before other functions
+   ✅ Summary shift card template bug:
+      - Removed broken template chunk you had in PART 3
+   ✅ Adds small helper: withSaving(msg, fn) (optional)
+   ========================= */
+
+/* =========================================================
+   OPTIONAL: helper to wrap any async action with overlay
+   ========================================================= */
+async function withSaving(msg, fn) {
+  showSaving(msg || "Saving…");
+  try {
+    return await fn();
+  } finally {
+    hideSaving();
+  }
+}
+
+/* =========================================================
+   DOWNLOAD LOG (Manager) + CSV
+   ========================================================= */
 function openDownloadLogModal() {
   openModal(
     "Download Log",
@@ -2226,11 +2811,14 @@ function openDownloadLogModal() {
     if (from > to) return toast("From cannot be after To");
 
     try {
+      showSaving("Preparing download…");
       await downloadManagerLogCSV({ from, to });
       closeModal();
     } catch (e) {
       console.error(e);
       toast("Download failed");
+    } finally {
+      hideSaving();
     }
   });
 }
@@ -2259,426 +2847,6 @@ async function downloadManagerLogCSV({ from, to }) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 
   toast("Download started ✅");
-}
-
-/* ---------- manager login (same logic) ---------- */
-function openManagerLogin() {
-  openModal(
-    "Manager Login",
-    `
-      <div class="card">
-        <div class="col">
-          <div style="font-weight:1200">PIN</div>
-          <input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN">
-          <button id="pinBtn" class="btn btn-red" style="width:100%">Login as Manager</button>
-          <button id="pinCancel" class="btn btn-yellow" style="width:100%">Cancel</button>
-        </div>
-      </div>
-    `,
-    { noBackdropClose: true }
-  );
-
-  $("#pinCancel").addEventListener("click", () => {
-    closeModal();
-    goBack();
-  });
-
-  $("#pinBtn").addEventListener("click", async () => {
-    const pin = String($("#pinInp").value || "").trim();
-    if (!pin) return toast("Enter PIN");
-
-    try {
-      const r = await apiPost("/api/manager/login", { pin, store: state.session.store });
-      state.session.isManager = true;
-      state.session.managerToken = r.token || "";
-      saveSession();
-      closeModal();
-      renderRolePill();
-      toast("Manager ✅");
-      render();
-    } catch (e) {
-      console.error(e);
-      toast("Wrong PIN");
-    }
-  });
-}
-
-/* ---------- manager: edit items ---------- */
-async function renderManagerEditItems() {
-  if (!state.session.isManager) return openManagerLogin();
-
-  const main = $("#main");
-  main.innerHTML = `
-    <div class="page-head">
-      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title">Edit Items</div>
-    </div>
-
-    <div class="card">
-      <div style="font-weight:1200">Search</div>
-      <input id="mgrSearch" class="input" placeholder="Type item name...">
-    </div>
-
-    <div id="mgrList" class="col"></div>
-  `;
-  $("#btnBack").addEventListener("click", goBack);
-
-  const token = state.session.managerToken;
-  let items = [];
-  try {
-    items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token);
-  } catch (e) {
-    console.error(e);
-    toast("Failed loading items");
-  }
-
-  const renderList = (q) => {
-    q = String(q || "").toLowerCase().trim();
-    const filtered = q ? items.filter((x) => String(x.name).toLowerCase().includes(q)) : items;
-
-    const map = new Map();
-    for (const it of filtered) {
-      const c = it.category || "Other";
-      if (!map.has(c)) map.set(c, []);
-      map.get(c).push(it);
-    }
-
-    let html = "";
-    for (const [cat, list] of map.entries()) {
-      html += `
-        <div class="card">
-          <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
-          <div class="col" style="gap:10px">
-            ${list.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(managerItemRow).join("")}
-          </div>
-        </div>
-      `;
-    }
-
-    const wrap = $("#mgrList");
-    wrap.innerHTML = html;
-
-    $$(".mgrRow", wrap).forEach((row) => {
-      const id = row.dataset.id;
-      const toggle = $(`[data-toggle="${cssEsc(id)}"]`, row);
-      const panel = $(`[data-panel="${cssEsc(id)}"]`, row);
-      const save = $(`[data-save="${cssEsc(id)}"]`, row);
-      const del = $(`[data-del="${cssEsc(id)}"]`, row);
-
-      toggle.addEventListener("click", () => {
-        panel.classList.toggle("hidden");
-        toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
-      });
-
-      save.addEventListener("click", async () => {
-        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
-        const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
-        const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
-        const hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
-
-        const category = String(catSel.value || "").trim();
-        const sub_category = String(subSel.value || "").trim() || null;
-        const shelf_life_days = Number(lifeInp.value || 0);
-        const is_hourly = !!hourlyChk?.checked;
-
-        try {
-          await apiPatch(
-            `/api/manager/items/${id}`,
-            { store: state.session.store, category, sub_category, shelf_life_days, is_hourly },
-            token
-          );
-          toast("Saved ✅");
-          await loadAllForCurrentStore();
-        } catch (e) {
-          console.error(e);
-          toast("Save failed");
-        }
-      });
-
-      del.addEventListener("click", async () => {
-        if (!confirm("Delete this item?")) return;
-        try {
-          await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token);
-          toast("Deleted ✅");
-          items = items.filter((x) => String(x.id) !== String(id));
-          renderList($("#mgrSearch").value);
-          await loadAllForCurrentStore();
-        } catch (e) {
-          console.error(e);
-          toast("Delete failed");
-        }
-      });
-    });
-  };
-
-  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
-  renderList("");
-}
-
-function managerItemRow(it) {
-  const id = String(it.id);
-  const cats = (state.data.categories || []).map((c) => c.name);
-  const catOpts = cats
-    .map((c) => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`)
-    .join("");
-
-  const subOpts = [`<option value="">(none)</option>`]
-    .concat(
-      SAUCE_SUBS.map(
-        (s) =>
-          `<option value="${escapeHtml(s.name)}"${
-            normalizeSub(it.sub_category || "") === s.name ? " selected" : ""
-          }>${escapeHtml(s.name)}</option>`
-      )
-    )
-    .join("");
-
-  return `
-    <div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px">
-      <div class="row" style="justify-content:space-between">
-        <div style="font-weight:1200">${escapeHtml(it.name)}</div>
-        <button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button>
-      </div>
-      <div class="muted" style="margin-top:8px;font-weight:1000">${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day</div>
-
-      <div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px">
-        <div class="col">
-          <div style="font-weight:1200">Category</div>
-          <select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select>
-
-          <div style="font-weight:1200">Sauce Sub-category</div>
-          <select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select>
-
-          <div style="font-weight:1200">Shelf life (days)</div>
-          <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(it.shelf_life_days)}">
-
-          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
-            <input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}>
-            Hourly expiry (time only)
-          </label>
-
-          <div class="row">
-            <button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button>
-            <button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-/* ---------- manager: categories ---------- */
-async function renderManagerCategories() {
-  if (!state.session.isManager) return openManagerLogin();
-
-  const main = $("#main");
-  let cats = [];
-  try {
-    cats = await apiGet(
-      `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`,
-      state.session.managerToken
-    );
-  } catch (e) {
-    console.error(e);
-    toast("Failed loading categories");
-  }
-
-  const tiles = cats
-    .filter((c) => c.is_active !== false)
-    .map((c, idx) => {
-      const tone = tileToneFor(c.name);
-      return `
-        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx*45}ms" data-cid="${c.id}" data-cname="${escapeHtml(
-        c.name
-      )}" type="button">
-          <div class="title" style="font-size:20px">${escapeHtml(c.name)}</div>
-          <div class="sub">Tap to edit</div>
-        </button>
-      `;
-    })
-    .join("");
-
-  main.innerHTML = `
-    <div class="page-head">
-      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title">Categories</div>
-    </div>
-
-    <div class="tiles-2col">${tiles}</div>
-
-    <button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>
-  `;
-
-  $("#btnBack").addEventListener("click", goBack);
-
-  $$(".tile", main).forEach((b) => {
-    b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname));
-  });
-
-  $("#addCat").addEventListener("click", openAddCategoryModal);
-}
-
-function openAddCategoryModal() {
-  openModal(
-    "Add Category",
-    `
-      <div class="card">
-        <div class="col">
-          <div style="font-weight:1200">Name</div>
-          <input id="catName" class="input" placeholder="Category name">
-          <div style="font-weight:1200">Sort order</div>
-          <input id="catSort" class="input" type="number" value="100">
-          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
-        </div>
-      </div>
-    `,
-    { noBackdropClose: true }
-  );
-
-  $("#catSave").addEventListener("click", async () => {
-    const name = String($("#catName").value || "").trim();
-    const sort_order = Number($("#catSort").value || 100);
-    if (!name) return toast("Name required");
-
-    try {
-      await apiPost(
-        "/api/manager/categories",
-        { store: state.session.store, name, sort_order },
-        state.session.managerToken
-      );
-      toast("Saved ✅");
-      closeModal();
-      await loadAllForCurrentStore();
-      render();
-    } catch (e) {
-      console.error(e);
-      toast("Save failed");
-    }
-  });
-}
-
-function openEditCategoryModal(id, currentName) {
-  openModal(
-    "Edit Category",
-    `
-      <div class="card">
-        <div class="col">
-          <div style="font-weight:1200">Name</div>
-          <input id="catName" class="input" value="${escapeHtml(currentName)}">
-          <div style="font-weight:1200">Active</div>
-          <select id="catActive" class="select">
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </select>
-
-          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
-          <button id="catDelete" class="btn btn-red" style="width:100%">Delete</button>
-        </div>
-      </div>
-    `,
-    { noBackdropClose: true }
-  );
-
-  $("#catSave").addEventListener("click", async () => {
-    const name = String($("#catName").value || "").trim();
-    const is_active = $("#catActive").value === "true";
-    if (!name) return toast("Name required");
-
-    try {
-      await apiPatch(
-        `/api/manager/categories/${id}`,
-        { store: state.session.store, name, is_active, sort_order: 100 },
-        state.session.managerToken
-      );
-      toast("Saved ✅");
-      closeModal();
-      await loadAllForCurrentStore();
-      render();
-    } catch (e) {
-      console.error(e);
-      toast("Save failed");
-    }
-  });
-
-  $("#catDelete").addEventListener("click", async () => {
-    if (!confirm("Delete this category?")) return;
-    try {
-      await apiDel(
-        `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`,
-        state.session.managerToken
-      );
-      toast("Deleted ✅");
-      closeModal();
-      await loadAllForCurrentStore();
-      render();
-    } catch (e) {
-      console.error(e);
-      toast("Delete failed");
-    }
-  });
-}
-
-/* ---------- manager: add item modal ---------- */
-function openAddItemModal() {
-  const cats = (state.data.categories || []).map((c) => c.name);
-  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-  const subOpts = [`<option value="">(none)</option>`]
-    .concat(SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`))
-    .join("");
-
-  openModal(
-    "Add Item",
-    `
-      <div class="card">
-        <div class="col">
-          <div style="font-weight:1200">Item name</div>
-          <input id="itName" class="input" placeholder="e.g. Beef Brisket">
-
-          <div style="font-weight:1200">Category</div>
-          <select id="itCat" class="select">${catOpts}</select>
-
-          <div style="font-weight:1200">Sauce Sub-category</div>
-          <select id="itSub" class="select">${subOpts}</select>
-
-          <div style="font-weight:1200">Shelf life (days)</div>
-          <input id="itLife" class="input" type="number" min="0" value="0">
-
-          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
-            <input id="itHourly" type="checkbox">
-            Hourly expiry (time only)
-          </label>
-
-          <button id="itSave" class="btn btn-yellow" style="width:100%">Save</button>
-        </div>
-      </div>
-    `,
-    { noBackdropClose: true }
-  );
-
-  $("#itSave").addEventListener("click", async () => {
-    const name = String($("#itName").value || "").trim();
-    const category = String($("#itCat").value || "").trim();
-    const sub_category = String($("#itSub").value || "").trim() || null;
-    const shelf_life_days = Number($("#itLife").value || 0);
-    const is_hourly = !!$("#itHourly")?.checked;
-
-    if (!name || !category) return toast("Missing name/category");
-
-    try {
-      await apiPost(
-        "/api/manager/items",
-        { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly },
-        state.session.managerToken
-      );
-      toast("Saved ✅");
-      closeModal();
-      await loadAllForCurrentStore();
-      render();
-    } catch (e) {
-      console.error(e);
-      toast("Save failed");
-    }
-  });
 }
 
 /* =========================================================
@@ -2754,5 +2922,5 @@ function updateQtyUI(root, key) {
 }
 
 /* =========================
-   END PART 3 / 3
+   END PART 4 / 4
    ========================= */
