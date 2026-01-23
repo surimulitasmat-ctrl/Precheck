@@ -1777,11 +1777,24 @@ async function renderStockAlerts() {
 /* =========================================================
    SUMMARY HELPERS
    ========================================================= */
+// ✅ Cross-device status: use /api/status (server truth)
 async function getStatusByShift(store, shift) {
-  return await apiGet(
-    `/api/status?store=${encodeURIComponent(store)}&shift=${encodeURIComponent(shift)}`
-  );
+  const data = await apiGet(`/api/status?store=${encodeURIComponent(store)}`);
+  const sh = String(shift || "AM").toUpperCase() === "PM" ? "PM" : "AM";
+  const row = data?.[sh] || null;
+
+  // Normalize to the shape your statusToUI() expects
+  return row
+    ? {
+        last_saved_at: row.last_saved_at,
+        last_saved_by: row.last_saved_by,
+        total_rows: row.total_rows || 0,
+        last_item_name: row.last_item_name || "",
+      }
+    : null;
 }
+
+
 
 function statusToUI(s) {
   if (!s || !s.last_saved_by) return { done: false, who: "", hhmm: "", count: 0, lastItemName: "" };
