@@ -936,9 +936,10 @@ function renderCategory() {
         <span>${escapeHtml(title)}</span>
         ${
           prog.total
-            ? `<span style="font-weight:1200;font-size:12px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)">
-                ${escapeHtml(progText)}
-              </span>`
+            ? `<span id="catProgPill" style="font-weight:1200;font-size:12px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)">
+    ${escapeHtml(progText)}
+  </span>`
+
             : ""
         }
       </div>
@@ -1013,6 +1014,21 @@ function categoryProgress(items, cat) {
 
   const pct = total ? Math.round((done / total) * 100) : 0;
   return { total, done, pct };
+}
+function refreshCategoryProgressUI(items, cat) {
+  const prog = categoryProgress(items, cat);
+  const pill = document.getElementById("catProgPill");
+  const saveBtn = document.getElementById("saveBtn");
+
+  if (pill) {
+    pill.textContent = prog.total ? `${prog.done}/${prog.total} (${prog.pct}%)` : "";
+    pill.classList.toggle("hidden", !prog.total);
+  }
+
+  if (saveBtn) {
+    const doneAll = prog.total > 0 && prog.done === prog.total;
+    saveBtn.textContent = doneAll ? "Done checking ✅ (Save)" : "Save";
+  }
 }
 
 /* =========================================================
@@ -1448,6 +1464,15 @@ function bindItemEditors(items, cat) {
   const root = $("#editList");
   if (!root) return;
 
+  // helper: update only progress pill + save button (no full re-render)
+  const refreshProg = () => {
+    try {
+      if (typeof refreshCategoryProgressUI === "function") {
+        refreshCategoryProgressUI(items, cat);
+      }
+    } catch {}
+  };
+
   for (const it of items) {
     const key = itemKey(it);
     const d =
@@ -1471,7 +1496,9 @@ function bindItemEditors(items, cat) {
     const addDate = $(`[data-adddate="${cssEsc(key)}"]`, root);
 
     updateQtyUI(root, key);
+    refreshProg();
 
+    // ✅ FIX: do NOT call render() on +/- / qty typing (prevents jumping)
     if (inc)
       inc.addEventListener("click", () => {
         d.qty = (Number(d.qty) || 0) + 1;
@@ -1479,7 +1506,7 @@ function bindItemEditors(items, cat) {
         updateQtyUI(root, key);
         pulseBtn(inc);
         haptic(12);
-        render();
+        refreshProg();
       });
 
     if (dec)
@@ -1489,7 +1516,7 @@ function bindItemEditors(items, cat) {
         updateQtyUI(root, key);
         pulseBtn(dec);
         haptic(10);
-        render();
+        refreshProg();
       });
 
     if (qty)
@@ -1498,14 +1525,17 @@ function bindItemEditors(items, cat) {
         d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
         saveDraftsToStorage();
         updateQtyUI(root, key);
-        render();
+        refreshProg();
       });
 
+    // These can still render (they change layout / picker / manual wrap)
     if (timeSel)
       timeSel.addEventListener("change", () => {
         d.expTimeShort = String(timeSel.value || "");
         d.expType = "HOURLY";
         saveDraftsToStorage();
+        refreshProg(); // optional
+        // render not strictly needed here, but safe if your UI depends on it
         render();
       });
 
@@ -1523,6 +1553,7 @@ function bindItemEditors(items, cat) {
           if (wrap) wrap.classList.add("hidden");
         }
         saveDraftsToStorage();
+        refreshProg();
         render();
       });
 
@@ -1536,6 +1567,7 @@ function bindItemEditors(items, cat) {
             d.expDateISO = iso;
             if (!d.expType) d.expType = "MANUAL";
             saveDraftsToStorage();
+            refreshProg();
             render();
           },
         });
@@ -1544,6 +1576,7 @@ function bindItemEditors(items, cat) {
     if (addDate) addDate.addEventListener("click", () => openAddDateModal({ it, cat, key }));
   }
 }
+
 
 /* =========================================================
    Save category ✅
