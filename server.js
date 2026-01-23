@@ -1,6 +1,5 @@
 // =========================
-// PreCheck — server.js (FINAL / CLEAN) — PART 1 / 3
-// (From top → end of /api/log/batch)
+// PreCheck — server.js (FULL / CLEAN)
 // =========================
 
 import express from "express";
@@ -96,7 +95,6 @@ async function markDoneSG(store, staff, shift) {
   );
 }
 
-
 // =========================
 // Health
 // =========================
@@ -110,16 +108,17 @@ app.get("/api/health", async (req, res) => {
 });
 
 // =========================
-// Status (Manager Summary indicator)
+// Status (Summary indicator) — CROSS DEVICE ✅
+// Returns: { AM: {...}, PM: {...} }
+// includes last_item_name + total_rows for today SG day ✅
 // =========================
-
-// GET /api/status?store=PDD  -> today's status (SG DAY)
 app.get("/api/status", async (req, res) => {
   try {
     const store = normStore(req.query.store);
     if (!store) return err(res, 400, "Invalid store");
 
-    const r = await q(
+    // daily_status base
+    const base = await q(
       `
       select store, day_key, shift, last_saved_at, last_saved_by
       from public.daily_status
@@ -129,11 +128,79 @@ app.get("/api/status", async (req, res) => {
       [store, DAY_TZ]
     );
 
+    // logs summary for today (per shift): count + last item
+    const logs = await q(
+      `
+      with today_logs as (
+        select *
+        from public.logs
+        where store=$1
+          and (created_at at time zone $2)::date = (now() at time zone $2)::date
+      ),
+      per_shift as (
+        select
+          shift,
+          count(*)::int as total_rows
+        from today_logs
+        group by shift
+      ),
+      last_item as (
+        select distinct on (shift)
+          shift,
+          item_name as last_item_name
+        from today_logs
+        order by shift, created_at desc
+      )
+      select
+        coalesce(p.shift, l.shift) as shift,
+        coalesce(p.total_rows, 0) as total_rows,
+        coalesce(l.last_item_name, '') as last_item_name
+      from per_shift p
+      full join last_item l on l.shift = p.shift
+      `,
+      [store, DAY_TZ]
+    );
+
+    const shiftExtra = new Map();
+    for (const r of logs.rows) {
+      const sh = String(r.shift || "").toUpperCase();
+      if (!sh) continue;
+      shiftExtra.set(sh, {
+        total_rows: Number(r.total_rows || 0),
+        last_item_name: String(r.last_item_name || ""),
+      });
+    }
+
     const out = { AM: null, PM: null };
-    for (const row of r.rows) {
+    for (const row of base.rows) {
       const sh = String(row.shift || "").toUpperCase();
-      if (sh === "AM") out.AM = row;
-      if (sh === "PM") out.PM = row;
+      const extra = shiftExtra.get(sh) || { total_rows: 0, last_item_name: "" };
+      const merged = { ...row, ...extra };
+      if (sh === "AM") out.AM = merged;
+      if (sh === "PM") out.PM = merged;
+    }
+
+    // If no daily_status yet, still return logs-based info (so cross device works even if you didn’t markDone)
+    // But your /api/log already calls markDoneSG, so usually daily_status exists.
+    if (!out.AM && shiftExtra.has("AM")) {
+      out.AM = {
+        store,
+        day_key: null,
+        shift: "AM",
+        last_saved_at: null,
+        last_saved_by: null,
+        ...shiftExtra.get("AM"),
+      };
+    }
+    if (!out.PM && shiftExtra.has("PM")) {
+      out.PM = {
+        store,
+        day_key: null,
+        shift: "PM",
+        last_saved_at: null,
+        last_saved_by: null,
+        ...shiftExtra.get("PM"),
+      };
     }
 
     res.json(out);
@@ -142,21 +209,19 @@ app.get("/api/status", async (req, res) => {
   }
 });
 
-
 // Optional: allow frontend to mark done explicitly if you want
 app.post("/api/status/mark-done", async (req, res) => {
   try {
     const store = normStore(req.body?.store);
     if (!store) return err(res, 400, "Invalid store");
     const staff = String(req.body?.staff || "").trim();
-    const shift = String(req.body?.shift || "AM").trim();  // ✅ add this
-    await markDoneSG(store, staff, shift);                 // ✅ add shift
+    const shift = String(req.body?.shift || "AM").trim();
+    await markDoneSG(store, staff, shift);
     res.json({ ok: true });
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
 });
-
 
 // =========================
 // Public APIs (Staff)
@@ -174,16 +239,11 @@ app.get("/api/categories", async (req, res) => {
       from public.categories
       where store=$1 and deleted_at is null and is_active=true
       order by sort_order asc, name asc
-    `,
+      `,
       [store]
     );
 
-    res.json(
-      r.rows.map((x) => ({
-        ...x,
-        name: uiCategoryFromDb(x.name),
-      }))
-    );
+    res.json(r.rows.map((x) => ({ ...x, name: uiCategoryFromDb(x.name) })));
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
@@ -197,11 +257,14 @@ app.get("/api/items", async (req, res) => {
 
     const r = await q(
       `
-      select id, store, name, category, sub_category, shelf_life_days, is_hourly
+      select
+        id, store, name, category, sub_category,
+        shelf_life_days, is_hourly,
+        stock_alert_enabled, stock_min
       from public.items
       where store=$1 and deleted_at is null and is_active=true
       order by category asc, name asc
-    `,
+      `,
       [store]
     );
 
@@ -211,6 +274,8 @@ app.get("/api/items", async (req, res) => {
         category: uiCategoryFromDb(x.category),
         sub_category: x.sub_category,
         is_hourly: !!x.is_hourly,
+        stock_alert_enabled: !!x.stock_alert_enabled,
+        stock_min: x.stock_min == null ? null : Number(x.stock_min),
       }))
     );
   } catch (e) {
@@ -244,8 +309,10 @@ app.post("/api/log", async (req, res) => {
 
     if (!staff || !shift) return err(res, 400, "Missing staff/shift");
     if (!item_name || !category) return err(res, 400, "Missing item/category");
-    if (quantity != null && (!Number.isFinite(quantity) || quantity < 0)) return err(res, 400, "Invalid quantity");
-    if (quantity2 != null && (!Number.isFinite(quantity2) || quantity2 < 0)) return err(res, 400, "Invalid quantity2");
+    if (quantity != null && (!Number.isFinite(quantity) || quantity < 0))
+      return err(res, 400, "Invalid quantity");
+    if (quantity2 != null && (!Number.isFinite(quantity2) || quantity2 < 0))
+      return err(res, 400, "Invalid quantity2");
 
     await q(
       `
@@ -259,7 +326,7 @@ app.post("/api/log", async (req, res) => {
        $8,$9,$10,
        $11,$12,$13,
        now())
-    `,
+      `,
       [
         store,
         staff,
@@ -277,9 +344,7 @@ app.post("/api/log", async (req, res) => {
       ]
     );
 
-    // ✅ Mark store "done" today (SG DAY)
-  await markDoneSG(store, staff, shift);
-
+    await markDoneSG(store, staff, shift);
 
     res.json({ ok: true });
   } catch (e) {
@@ -332,7 +397,7 @@ app.post("/api/log/batch", async (req, res) => {
          $8,$9,$10,
          $11,$12,$13,
          now())
-      `,
+        `,
         [
           store,
           staff,
@@ -351,28 +416,16 @@ app.post("/api/log/batch", async (req, res) => {
       );
     }
 
-    // ✅ Mark store "done" today (SG DAY)
     await markDoneSG(store, staff, shift);
-
 
     res.json({ ok: true });
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
 });
-// =========================
-// PreCheck — server.js (FINAL / CLEAN) — PART 2 / 3
-// (From /api/expiry → manager login)
-// =========================
 
 // =========================
-// Summary (TODAY ONLY, SG DAY)
-// Latest entry per item_name+category+sub_category, but ONLY from today's logs (SG DAY).
-// Returns:
-//  - qty, expiry_value, expiry_at
-//  - qty2, expiry2_value, expiry2_at
-//  - earliest_expiry_value, latest_expiry_value
-// ✅ Handles expiry columns stored as TEXT or DATE safely
+// Summary Expiry (TODAY ONLY, SG DAY)
 // =========================
 app.get("/api/expiry", async (req, res) => {
   try {
@@ -458,8 +511,64 @@ app.get("/api/expiry", async (req, res) => {
       from picked
       where (exp_date_1 is not null or exp_date_2 is not null)
       order by name asc
-    `,
+      `,
       [store, DAY_TZ]
+    );
+
+    res.json(
+      r.rows.map((x) => ({
+        ...x,
+        category: uiCategoryFromDb(x.category),
+      }))
+    );
+  } catch (e) {
+    err(res, 500, e?.message || "Failed");
+  }
+});
+
+// =========================
+// Stock Alert — LOW STOCK ✅
+// Uses latest log quantity per item as "current_qty"
+// Compares to items.stock_min where stock_alert_enabled=true
+// =========================
+app.get("/api/stock/low", async (req, res) => {
+  try {
+    const store = normStore(req.query.store);
+    if (!store) return err(res, 400, "Invalid store");
+
+    const r = await q(
+      `
+      with latest as (
+        select distinct on (coalesce(item_id, 0), item_name, category, coalesce(sub_category,''))
+          item_id,
+          item_name,
+          category,
+          sub_category,
+          quantity,
+          created_at
+        from public.logs
+        where store=$1
+        order by coalesce(item_id, 0), item_name, category, coalesce(sub_category,''), created_at desc
+      )
+      select
+        i.id as item_id,
+        i.name,
+        i.category,
+        i.sub_category,
+        i.stock_min as min_qty,
+        coalesce(l.quantity, 0) as current_qty
+      from public.items i
+      left join latest l
+        on (l.item_id = i.id)
+      where i.store=$1
+        and i.deleted_at is null
+        and i.is_active=true
+        and coalesce(i.stock_alert_enabled,false)=true
+        and i.stock_min is not null
+        and coalesce(l.quantity, 0) <= i.stock_min
+      order by i.category asc, i.name asc
+      `,
+      [store]
     );
 
     res.json(
@@ -491,10 +600,6 @@ app.post("/api/manager/login", async (req, res) => {
     err(res, 500, e?.message || "Failed");
   }
 });
-// =========================
-// PreCheck — server.js (FINAL / CLEAN) — PART 3 / 3
-// (Manager routes → serve index.html → start server)
-// =========================
 
 // ----- Items -----
 app.get("/api/manager/items", requireManager, async (req, res) => {
@@ -504,11 +609,14 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
 
     const r = await q(
       `
-      select id, store, name, category, sub_category, shelf_life_days, is_active, is_hourly
+      select
+        id, store, name, category, sub_category,
+        shelf_life_days, is_active, is_hourly,
+        stock_alert_enabled, stock_min
       from public.items
       where store=$1 and deleted_at is null
       order by category asc, name asc
-    `,
+      `,
       [store]
     );
 
@@ -517,6 +625,8 @@ app.get("/api/manager/items", requireManager, async (req, res) => {
         ...x,
         category: uiCategoryFromDb(x.category),
         is_hourly: !!x.is_hourly,
+        stock_alert_enabled: !!x.stock_alert_enabled,
+        stock_min: x.stock_min == null ? null : Number(x.stock_min),
       }))
     );
   } catch (e) {
@@ -536,14 +646,15 @@ app.post("/api/manager/items", requireManager, async (req, res) => {
     const is_hourly = !!req.body?.is_hourly;
 
     if (!name || !category) return err(res, 400, "Missing name/category");
-    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return err(res, 400, "Invalid shelf life");
+    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0)
+      return err(res, 400, "Invalid shelf life");
 
     const r = await q(
       `
       insert into public.items (store, name, category, sub_category, shelf_life_days, is_hourly, is_active)
       values ($1,$2,$3,$4,$5,$6,true)
       returning id
-    `,
+      `,
       [store, name, category, sub_category, shelf_life_days, is_hourly]
     );
 
@@ -566,8 +677,16 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
     const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
     const is_hourly = req.body?.is_hourly == null ? null : !!req.body.is_hourly;
 
+    // Optional stock fields (if you later add UI)
+    const stock_alert_enabled =
+      req.body?.stock_alert_enabled == null ? null : !!req.body.stock_alert_enabled;
+    const stock_min = req.body?.stock_min == null ? null : Number(req.body.stock_min);
+
     if (!category) return err(res, 400, "Missing category");
-    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0) return err(res, 400, "Invalid shelf life");
+    if (!Number.isFinite(shelf_life_days) || shelf_life_days < 0)
+      return err(res, 400, "Invalid shelf life");
+    if (stock_min != null && (!Number.isFinite(stock_min) || stock_min < 0))
+      return err(res, 400, "Invalid stock_min");
 
     await q(
       `
@@ -576,10 +695,12 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
           sub_category=$2,
           shelf_life_days=$3,
           is_hourly=coalesce($4, is_hourly),
+          stock_alert_enabled=coalesce($5, stock_alert_enabled),
+          stock_min=coalesce($6, stock_min),
           updated_at=now()
-      where id=$5 and store=$6 and deleted_at is null
-    `,
-      [category, sub_category, shelf_life_days, is_hourly, id, store]
+      where id=$7 and store=$8 and deleted_at is null
+      `,
+      [category, sub_category, shelf_life_days, is_hourly, stock_alert_enabled, stock_min, id, store]
     );
 
     res.json({ ok: true });
@@ -601,7 +722,7 @@ app.delete("/api/manager/items/:id", requireManager, async (req, res) => {
       update public.items
       set deleted_at=now(), is_active=false
       where id=$1 and store=$2 and deleted_at is null
-    `,
+      `,
       [id, store]
     );
 
@@ -623,16 +744,11 @@ app.get("/api/manager/categories", requireManager, async (req, res) => {
       from public.categories
       where store=$1 and deleted_at is null
       order by sort_order asc, name asc
-    `,
+      `,
       [store]
     );
 
-    res.json(
-      r.rows.map((x) => ({
-        ...x,
-        name: uiCategoryFromDb(x.name),
-      }))
-    );
+    res.json(r.rows.map((x) => ({ ...x, name: uiCategoryFromDb(x.name) })));
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
@@ -653,7 +769,7 @@ app.post("/api/manager/categories", requireManager, async (req, res) => {
       `
       insert into public.categories(store, name, sort_order, is_active)
       values($1,$2,$3,true)
-    `,
+      `,
       [store, name, Number.isFinite(sort_order) ? sort_order : 100]
     );
 
@@ -683,7 +799,7 @@ app.patch("/api/manager/categories/:id", requireManager, async (req, res) => {
       update public.categories
       set name=$1, sort_order=$2, is_active=$3, updated_at=now()
       where id=$4 and store=$5 and deleted_at is null
-    `,
+      `,
       [name, Number.isFinite(sort_order) ? sort_order : 100, is_active, id, store]
     );
 
@@ -706,11 +822,91 @@ app.delete("/api/manager/categories/:id", requireManager, async (req, res) => {
       update public.categories
       set deleted_at=now(), is_active=false
       where id=$1 and store=$2 and deleted_at is null
-    `,
+      `,
       [id, store]
     );
 
     res.json({ ok: true });
+  } catch (e) {
+    err(res, 500, e?.message || "Failed");
+  }
+});
+
+// =========================
+// Manager: Export logs CSV ✅
+// GET /api/manager/log/export.csv?store=PDD&from=YYYY-MM-DD&to=YYYY-MM-DD
+// =========================
+app.get("/api/manager/log/export.csv", requireManager, async (req, res) => {
+  try {
+    const store = normStore(req.query.store || req.manager?.store);
+    const from = String(req.query.from || "").slice(0, 10);
+    const to = String(req.query.to || "").slice(0, 10);
+
+    if (!store) return err(res, 400, "Invalid store");
+    if (!from || !to) return err(res, 400, "Missing from/to");
+    if (from > to) return err(res, 400, "from > to");
+
+    const r = await q(
+      `
+      select
+        created_at,
+        store,
+        staff,
+        shift,
+        item_id,
+        item_name,
+        category,
+        sub_category,
+        quantity,
+        expiry,
+        expiry_at,
+        quantity2,
+        expiry2,
+        expiry2_at
+      from public.logs
+      where store=$1
+        and (created_at at time zone $4)::date between $2::date and $3::date
+      order by created_at asc
+      `,
+      [store, from, to, DAY_TZ]
+    );
+
+    const headers = [
+      "created_at",
+      "store",
+      "staff",
+      "shift",
+      "item_id",
+      "item_name",
+      "category",
+      "sub_category",
+      "quantity",
+      "expiry",
+      "expiry_at",
+      "quantity2",
+      "expiry2",
+      "expiry2_at",
+    ];
+
+    function csvEscape(v) {
+      const s = v == null ? "" : String(v);
+      if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+      return s;
+    }
+
+    const lines = [];
+    lines.push(headers.join(","));
+    for (const row of r.rows) {
+      const out = {
+        ...row,
+        category: uiCategoryFromDb(row.category),
+      };
+      lines.push(headers.map((h) => csvEscape(out[h])).join(","));
+    }
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="PreCheck_${store}_${from}_to_${to}.csv"`);
+    res.send(lines.join("\n"));
   } catch (e) {
     err(res, 500, e?.message || "Failed");
   }
