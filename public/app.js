@@ -1061,7 +1061,7 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   for (let yy = yearMin; yy <= yearMax; yy++) years.push(yy);
 
   function daysInMonth(y, m) {
-    return new Date(y, m, 0).getDate(); // m = 1..12
+    return new Date(y, m, 0).getDate(); // m=1..12
   }
   function toISO(y, m, d) {
     return `${y}-${pad2(m)}-${pad2(d)}`;
@@ -1069,6 +1069,8 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   function inRangeISO(iso) {
     return iso >= min && iso <= max;
   }
+  const monthLabel = (mm) =>
+    new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
 
   let y = cur.getFullYear();
   let m = cur.getMonth() + 1;
@@ -1115,66 +1117,8 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   const yearEl = $("#wheelYear");
   const okEl = $("#wheelOk");
 
-  const monthLabel = (mm) =>
-    new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
-
-  function scrollToActive(container) {
-    const active = container.querySelector(".pc-wheel-item.active");
-    if (!active) return;
-    const top = active.offsetTop - container.clientHeight / 2 + active.clientHeight / 2;
-    container.scrollTo({ top, behavior: "smooth" });
-  }
-
-  function snapToClosest(container) {
-    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
-    if (!items.length) return;
-
-    const center = container.scrollTop + container.clientHeight / 2;
-
-    const active = container.querySelector(".pc-wheel-item.active");
-    const activeV = active ? active.dataset.v : null;
-
-    let best = null;
-    let bestDist = Infinity;
-
-    for (const it of items) {
-      if (it.classList.contains("dim")) continue;
-      const itCenter = it.offsetTop + it.clientHeight / 2;
-      const dist = Math.abs(itCenter - center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = it;
-      }
-    }
-    if (!best) return;
-
-    if (best.dataset.v !== activeV) haptic(8);
-    best.click();
-  }
-
-  function bindWheel(container, onPickVal) {
-    $$(".pc-wheel-item", container).forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.classList.contains("dim")) return;
-        onPickVal(btn.dataset.v);
-        renderWheel();
-      });
-    });
-
-    let t = null;
-    container.addEventListener("scroll", () => {
-      clearTimeout(t);
-      t = setTimeout(() => snapToClosest(container), 90);
-    });
-  }
-
-  function setOkEnabled() {
-    const iso = toISO(y, m, d);
-    okEl.disabled = !inRangeISO(iso);
-    okEl.style.opacity = okEl.disabled ? "0.5" : "1";
-  }
-
-  function renderWheel() {
+  // ---- Build lists (NO re-binding listeners repeatedly) ----
+  function buildDay() {
     const dim = daysInMonth(y, m);
     if (d > dim) d = dim;
     if (d < 1) d = 1;
@@ -1190,7 +1134,9 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
       }).join("")}
       <div class="pc-wheel-pad"></div>
     `;
+  }
 
+  function buildMon() {
     monEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
       ${Array.from({ length: 12 }, (_, i) => {
@@ -1205,7 +1151,9 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
       }).join("")}
       <div class="pc-wheel-pad"></div>
     `;
+  }
 
+  function buildYear() {
     yearEl.innerHTML = `
       <div class="pc-wheel-pad"></div>
       ${years
@@ -1219,21 +1167,125 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
         .join("")}
       <div class="pc-wheel-pad"></div>
     `;
-
-    bindWheel(dayEl, (v) => (d = Number(v)));
-    bindWheel(monEl, (v) => (m = Number(v)));
-    bindWheel(yearEl, (v) => (y = Number(v)));
-
-    setOkEnabled();
-
-    setTimeout(() => {
-      scrollToActive(dayEl);
-      scrollToActive(monEl);
-      scrollToActive(yearEl);
-    }, 0);
   }
 
-  renderWheel();
+  function setOkEnabled() {
+    const iso = toISO(y, m, d);
+    okEl.disabled = !inRangeISO(iso);
+    okEl.style.opacity = okEl.disabled ? "0.5" : "1";
+  }
+
+  function scrollToActive(container) {
+    const active = container.querySelector(".pc-wheel-item.active");
+    if (!active) return;
+    const top = active.offsetTop - container.clientHeight / 2 + active.clientHeight / 2;
+    // IMPORTANT: no "smooth" here (smooth fights user scrolling)
+    container.scrollTo({ top, behavior: "auto" });
+  }
+
+  // ---- ONE-TIME event delegation (no duplicate listeners) ----
+  function bindOnce(container, onPickVal) {
+    if (container.dataset.bound === "1") return;
+    container.dataset.bound = "1";
+
+    container.addEventListener("click", (e) => {
+      const btn = e.target.closest(".pc-wheel-item");
+      if (!btn) return;
+      if (btn.classList.contains("dim")) return;
+      onPickVal(btn.dataset.v);
+    });
+
+    let t = null;
+    container.addEventListener(
+      "scroll",
+      () => {
+        clearTimeout(t);
+        t = setTimeout(() => snapToClosest(container, onPickVal), 80);
+      },
+      { passive: true }
+    );
+  }
+
+  function snapToClosest(container, onPickVal) {
+    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
+    if (!items.length) return;
+
+    const center = container.scrollTop + container.clientHeight / 2;
+
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const it of items) {
+      if (it.classList.contains("dim")) continue;
+      const itCenter = it.offsetTop + it.clientHeight / 2;
+      const dist = Math.abs(itCenter - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+    if (!best) return;
+
+    onPickVal(best.dataset.v, true); // true = from snap
+  }
+
+  // ---- Update selection without rebuilding everything (less jitter) ----
+  function setDay(v, fromSnap) {
+    d = Number(v);
+    // only update active classes (no rebuild)
+    dayEl.querySelectorAll(".pc-wheel-item.active").forEach((x) => x.classList.remove("active"));
+    const btn = dayEl.querySelector(`.pc-wheel-item[data-v="${cssEsc(String(d))}"]`);
+    if (btn) btn.classList.add("active");
+    setOkEnabled();
+    if (!fromSnap) haptic(8);
+  }
+
+  function setMon(v, fromSnap) {
+    m = Number(v);
+    // month changes affects day count -> rebuild day list
+    buildMon();
+    buildDay();
+    bindOnce(monEl, setMon);
+    bindOnce(dayEl, setDay);
+    // restore active scroll positions
+    scrollToActive(monEl);
+    scrollToActive(dayEl);
+    setOkEnabled();
+    if (!fromSnap) haptic(8);
+  }
+
+  function setYear(v, fromSnap) {
+    y = Number(v);
+    buildYear();
+    buildMon();
+    buildDay();
+    bindOnce(yearEl, setYear);
+    bindOnce(monEl, setMon);
+    bindOnce(dayEl, setDay);
+    scrollToActive(yearEl);
+    scrollToActive(monEl);
+    scrollToActive(dayEl);
+    setOkEnabled();
+    if (!fromSnap) haptic(8);
+  }
+
+  // Initial render
+  buildYear();
+  buildMon();
+  buildDay();
+
+  bindOnce(yearEl, setYear);
+  bindOnce(monEl, setMon);
+  bindOnce(dayEl, setDay);
+
+  setOkEnabled();
+
+  // Center to active values
+  setTimeout(() => {
+    scrollToActive(yearEl);
+    scrollToActive(monEl);
+    scrollToActive(dayEl);
+  }, 0);
 
   okEl.addEventListener("click", () => {
     const iso = toISO(y, m, d);
@@ -1243,10 +1295,6 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   });
 }
 
-/* alias */
-function openDateSliderModal(opts) {
-  return openDateWheelModal(opts);
-}
 
 /* =========================================================
    Add 2nd date popup (single extra expiry)
