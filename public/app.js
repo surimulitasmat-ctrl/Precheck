@@ -150,7 +150,6 @@ function applyTheme(mode) {
   document.body.classList.add("theme-anim");
   document.body.classList.toggle("dark", dark);
 
-  // remove anim class shortly after so scrolling stays snappy
   clearTimeout(applyTheme._t);
   applyTheme._t = setTimeout(() => document.body.classList.remove("theme-anim"), 220);
 }
@@ -164,26 +163,19 @@ function getTheme() {
   }
 }
 
-function setTheme(mode, opts = {}) {
+function setTheme(mode) {
   try {
     localStorage.setItem(THEME_KEY, mode);
   } catch {}
-
   applyTheme(mode);
   updateThemeToggleUI();
-
-  if (opts.toast !== false) {
-    toast(mode === "dark" ? "Dark mode ✅" : "Light mode ✅");
-  }
 }
 
 function toggleTheme() {
   const next = getTheme() === "dark" ? "light" : "dark";
-
-  // ✅ haptic (stronger feel)
-  try { haptic(18); } catch {}
-
-  setTheme(next, { toast: false });
+  haptic(18); // ✅ haptic on toggle
+  setTheme(next);
+  toast(next === "dark" ? "Dark mode ✅" : "Light mode ✅");
 }
 
 function updateThemeToggleUI() {
@@ -192,7 +184,6 @@ function updateThemeToggleUI() {
 
   const isDark = document.body.classList.contains("dark");
 
-  // Turn drawerTheme into a switch row
   host.innerHTML = `
     <div class="theme-row">
       <div class="theme-text">
@@ -206,10 +197,9 @@ function updateThemeToggleUI() {
     </div>
   `;
 
-  // make sure it behaves like a button
-  host.setAttribute("type", "button");
   host.setAttribute("aria-pressed", isDark ? "true" : "false");
 }
+
 
 
 /* =========================================================
@@ -440,8 +430,9 @@ function bindDrawer() {
 bind("#drawerWISR", () => setView({ page: "wisr" }, true));
 bind("#drawerTheme", () => {
   toggleTheme();
-  updateThemeToggleUI();
+  updateThemeToggleUI(); // ensure it flips instantly
 });
+
 
 bind("#drawerLogout", () => doLogout());
 
