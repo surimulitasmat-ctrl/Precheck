@@ -136,15 +136,23 @@ function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
 }
 /* =========================================================
-   DARK MODE (drawer toggle) ✅
+   THEME TOGGLE (drawer switch) ✅
    - stores setting in localStorage
    - toggles body.dark
+   - smooth fade + haptic
    ========================================================= */
 const THEME_KEY = "pc_theme"; // "dark" | "light"
 
 function applyTheme(mode) {
   const dark = mode === "dark";
+
+  // smooth fade
+  document.body.classList.add("theme-anim");
   document.body.classList.toggle("dark", dark);
+
+  // remove anim class shortly after so scrolling stays snappy
+  clearTimeout(applyTheme._t);
+  applyTheme._t = setTimeout(() => document.body.classList.remove("theme-anim"), 220);
 }
 
 function getTheme() {
@@ -156,26 +164,53 @@ function getTheme() {
   }
 }
 
-function setTheme(mode) {
+function setTheme(mode, opts = {}) {
   try {
     localStorage.setItem(THEME_KEY, mode);
   } catch {}
+
   applyTheme(mode);
   updateThemeToggleUI();
+
+  if (opts.toast !== false) {
+    toast(mode === "dark" ? "Dark mode ✅" : "Light mode ✅");
+  }
 }
 
 function toggleTheme() {
   const next = getTheme() === "dark" ? "light" : "dark";
-  setTheme(next);
-  toast(next === "dark" ? "Dark mode ✅" : "Light mode ✅");
+
+  // ✅ haptic (stronger feel)
+  try { haptic(18); } catch {}
+
+  setTheme(next, { toast: false });
 }
 
 function updateThemeToggleUI() {
-  const btn = document.getElementById("drawerTheme");
-  if (!btn) return;
+  const host = document.getElementById("drawerTheme");
+  if (!host) return;
+
   const isDark = document.body.classList.contains("dark");
-  btn.innerHTML = isDark ? "🌙 Dark mode: ON" : "☀️ Dark mode: OFF";
+
+  // Turn drawerTheme into a switch row
+  host.innerHTML = `
+    <div class="theme-row">
+      <div class="theme-text">
+        <div class="theme-title">Dark mode</div>
+        <div class="theme-sub">${isDark ? "On" : "Off"}</div>
+      </div>
+
+      <div class="theme-switch ${isDark ? "on" : ""}" aria-hidden="true">
+        <div class="theme-thumb"></div>
+      </div>
+    </div>
+  `;
+
+  // make sure it behaves like a button
+  host.setAttribute("type", "button");
+  host.setAttribute("aria-pressed", isDark ? "true" : "false");
 }
+
 
 /* =========================================================
    DATE/TIME HELPERS
@@ -403,7 +438,11 @@ function bindDrawer() {
   bind("#drawerManager", () => setView({ page: "manager" }, true));
   bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
 bind("#drawerWISR", () => setView({ page: "wisr" }, true));
-bind("#drawerTheme", () => toggleTheme());
+bind("#drawerTheme", () => {
+  toggleTheme();
+  updateThemeToggleUI();
+});
+
 bind("#drawerLogout", () => doLogout());
 
 }
