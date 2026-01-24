@@ -10,6 +10,16 @@
     <link rel="manifest" href="/manifest.json?v=20260113a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
+    <!-- ✅ Prevent theme flash (apply dark before CSS + app render) -->
+    <script>
+      (function () {
+        try {
+          var v = localStorage.getItem("pc_theme");
+          if (v === "dark") document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
+
     <!-- Styles -->
     <link rel="stylesheet" href="/style.css?v=20260113a" />
   </head>
@@ -53,18 +63,17 @@
 
         <div class="drawer-body">
           <button class="drawer-item big" id="drawerHome" type="button">🏠 Home</button>
-          <button class="drawer-item big" id="drawerAlerts" type="button">🔔 Alerts</button>
+          <button class="drawer-item big" id="drawerAlerts" type="button">📦 Stock Alert</button>
           <button class="drawer-item big" id="drawerManager" type="button">👑 Manager</button>
           <button class="drawer-item big" id="drawerSummary" type="button">📊 Summary</button>
           <button class="drawer-item big" id="drawerWISR" type="button">🧾 WISR Count</button>
-          <button id="drawerTheme" class="drawer-item big" type="button"></button>
 
+          <!-- ✅ You can keep this as a button; app.js will update its text -->
+          <button id="drawerTheme" class="drawer-item" type="button">🌙 Dark mode</button>
 
           <div class="drawer-spacer"></div>
 
-          <button class="drawer-item big danger" id="drawerLogout" type="button">
-            ⛔ Logout
-          </button>
+          <button class="drawer-item big danger" id="drawerLogout" type="button">⛔ Logout</button>
         </div>
       </aside>
     </div>
