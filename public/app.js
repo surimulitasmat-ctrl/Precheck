@@ -139,7 +139,7 @@ function saveSession() {
 /* =========================================================
    THEME TOGGLE (drawer switch) ✅
    - stores setting in localStorage
-   - toggles body.dark
+   - toggles html.dark + body.dark (prevents flash + stays)
    - smooth fade + haptic
    ========================================================= */
 const THEME_KEY = "pc_theme"; // "dark" | "light"
@@ -149,6 +149,9 @@ function applyTheme(mode) {
 
   // smooth fade
   document.body.classList.add("theme-anim");
+
+  // ✅ set on BOTH html + body (important)
+  document.documentElement.classList.toggle("dark", dark);
   document.body.classList.toggle("dark", dark);
 
   clearTimeout(applyTheme._t);
@@ -183,7 +186,9 @@ function updateThemeToggleUI() {
   const host = document.getElementById("drawerTheme");
   if (!host) return;
 
-  const isDark = document.body.classList.contains("dark");
+  const isDark =
+    document.documentElement.classList.contains("dark") ||
+    document.body.classList.contains("dark");
 
   host.innerHTML = `
     <div class="theme-row">
