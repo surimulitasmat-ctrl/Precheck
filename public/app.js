@@ -84,6 +84,7 @@ const state = {
 };
 
 /* ---------- boot ---------- */
+applyTheme(getTheme());     // ✅ apply instantly on load (before UI renders)
 bindTopbar();
 bindDrawer();
 bindModal();
@@ -91,9 +92,9 @@ bindAppBackGuard();
 startMidnightWatcher();
 boot().catch(console.error);
 
+
 async function boot() {
-   applyTheme(getTheme());
-   updateThemeToggleUI();
+ updateThemeToggleUI(); // ✅ keep UI correct
 ensureSessionDayKey();
 
   // update drawer label on load
