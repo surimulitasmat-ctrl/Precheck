@@ -93,7 +93,8 @@ boot().catch(console.error);
 
 async function boot() {
    applyTheme(getTheme());
- ensureSessionDayKey();
+   updateThemeToggleUI();
+ensureSessionDayKey();
 
   // update drawer label on load
   updateDrawerAlertLabel(false);
@@ -401,10 +402,17 @@ function bindDrawer() {
   bind("#drawerAlerts", () => setView({ page: "stockAlerts" }, true));
   bind("#drawerManager", () => setView({ page: "manager" }, true));
   bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
-  bind("#drawerWISR", () => setView({ page: "wisr" }, true));
-  bind("#drawerLogout", () => doLogout());
+bind("#drawerWISR", () => setView({ page: "wisr" }, true));
+bind("#drawerTheme", () => toggleTheme());
+bind("#drawerLogout", () => doLogout());
+
 }
-function openDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.remove("hidden"); }
+function openDrawer() {
+  const b = $("#drawerBackdrop");
+  if (b) b.classList.remove("hidden");
+  updateThemeToggleUI(); // ✅ add
+}
+
 function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
 
 /* Stock Alert label + dot (single source of truth) */
