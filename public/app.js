@@ -92,7 +92,8 @@ startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
-  ensureSessionDayKey();
+   applyTheme(getTheme());
+ ensureSessionDayKey();
 
   // update drawer label on load
   updateDrawerAlertLabel(false);
@@ -132,6 +133,47 @@ function loadJSON(key, fallback) {
 }
 function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
+}
+/* =========================================================
+   DARK MODE (drawer toggle) ✅
+   - stores setting in localStorage
+   - toggles body.dark
+   ========================================================= */
+const THEME_KEY = "pc_theme"; // "dark" | "light"
+
+function applyTheme(mode) {
+  const dark = mode === "dark";
+  document.body.classList.toggle("dark", dark);
+}
+
+function getTheme() {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    return v === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function setTheme(mode) {
+  try {
+    localStorage.setItem(THEME_KEY, mode);
+  } catch {}
+  applyTheme(mode);
+  updateThemeToggleUI();
+}
+
+function toggleTheme() {
+  const next = getTheme() === "dark" ? "light" : "dark";
+  setTheme(next);
+  toast(next === "dark" ? "Dark mode ✅" : "Light mode ✅");
+}
+
+function updateThemeToggleUI() {
+  const btn = document.getElementById("drawerTheme");
+  if (!btn) return;
+  const isDark = document.body.classList.contains("dark");
+  btn.innerHTML = isDark ? "🌙 Dark mode: ON" : "☀️ Dark mode: OFF";
 }
 
 /* =========================================================
