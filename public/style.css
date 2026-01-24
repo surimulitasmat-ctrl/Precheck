@@ -1,15 +1,11 @@
 /* =========================
    PreCheck — public/style.css (FULL — FINAL CLEAN)
-   Matches your latest app.js
-   - Keeps theme + drawer + tiles + animations
-   - Solid role pill colors
-   - Sticky bottom Save bar (gradient)
-   - Qty stepper: white buttons + red minus + green plus
-   - Wheel date picker: polished iOS-style (white)
-   - Adds .tiny-dot used by Stock Alert drawer label
+   ✅ Includes wheel slider polish (no jitter)
+   ✅ Ready for Dark Mode toggle (body.dark)
+   ✅ Smooth theme transition
    ========================= */
 
-/* ---------- Theme ---------- */
+/* ---------- Theme tokens ---------- */
 :root{
   --green:#009A44;
   --green-dark:#0b5a2a;
@@ -30,6 +26,35 @@
   /* used by login buttons + summary buttons */
   --pdd:#d32f2f;   /* PDD = red */
   --skh:#1565c0;   /* SKH = blue */
+
+  /* theme transition */
+  --themeFade: 180ms;
+}
+
+/* Dark theme overrides (toggle by adding body.dark) */
+body.dark{
+  --bg:#0f1115;
+  --card:#151922;
+  --text:#f2f4f7;
+  --muted:rgba(255,255,255,.62);
+  --line:rgba(255,255,255,.12);
+
+  --shadow:0 14px 26px rgba(0,0,0,.55);
+  --shadow-soft:0 10px 22px rgba(0,0,0,.45);
+}
+
+/* Smooth fade when switching theme */
+body{
+  transition:
+    background-color var(--themeFade) ease,
+    color var(--themeFade) ease;
+}
+body *{
+  transition:
+    background-color var(--themeFade) ease,
+    color var(--themeFade) ease,
+    border-color var(--themeFade) ease,
+    box-shadow var(--themeFade) ease;
 }
 
 *{box-sizing:border-box}
@@ -54,6 +79,9 @@ body{
   color:#fff;
   padding:10px 12px;
   box-shadow:0 10px 20px rgba(0,0,0,.12);
+}
+body.dark .topbar{
+  box-shadow:0 10px 20px rgba(0,0,0,.45);
 }
 .topbar-row{display:flex; align-items:center; gap:10px}
 .brand-wrap{display:flex; flex-direction:column; gap:2px}
@@ -84,19 +112,21 @@ body{
 .btn-red{background:var(--red); color:#fff}
 .btn-blue{background:var(--skh); color:#fff}
 .btn-ghost{
-  background:#fff;
+  background:var(--card);
   border:1px solid var(--line);
   box-shadow:none;
   font-weight:800;
+  color:var(--text);
 }
 
 .icon-btn{
-  border:0; background:#fff; color:#1b1b1b;
+  border:0; background:var(--card); color:var(--text);
   width:36px; height:36px; border-radius:10px;
   display:flex; align-items:center; justify-content:center;
   cursor:pointer;
   box-shadow:0 8px 16px rgba(0,0,0,.12);
 }
+body.dark .icon-btn{ box-shadow:0 8px 16px rgba(0,0,0,.45); }
 .icon-btn:active{transform:scale(.98)}
 
 /* ---------- Cards ---------- */
@@ -117,7 +147,7 @@ body{
 .drawer-backdrop.hidden{display:none}
 .drawer{
   width:82%; max-width:360px;
-  background:#fff;
+  background:var(--card);
   border-top-right-radius:22px;
   border-bottom-right-radius:22px;
   box-shadow:0 22px 70px rgba(0,0,0,.22);
@@ -125,6 +155,7 @@ body{
   transform:translateX(-14px);
   animation:drawerIn .22s ease-out forwards;
 }
+body.dark .drawer{ box-shadow:0 22px 70px rgba(0,0,0,.55); }
 @keyframes drawerIn{to{transform:translateX(0)}}
 
 .drawer-head{
@@ -139,7 +170,8 @@ body{
   height: calc(100vh - 64px);
 }
 .drawer-item{
-  border:0; background:#fff;
+  border:0; background:transparent;
+  color:var(--text);
   text-align:left;
   border-radius:16px;
   padding:14px 14px;
@@ -149,6 +181,7 @@ body{
 }
 .drawer-item.big{font-size:18px; padding:16px 14px}
 .drawer-item:hover{background:rgba(0,0,0,.04)}
+body.dark .drawer-item:hover{background:rgba(255,255,255,.06)}
 .drawer-item:active{transform:scale(.99)}
 .drawer-item.danger{
   background:rgba(229,57,53,.12);
@@ -241,7 +274,8 @@ body{
   padding:12px 12px;
   border:1px solid var(--line);
   border-radius:14px;
-  background:#fff;
+  background:var(--card);
+  color:var(--text);
   font-weight:800;
   outline:none;
   font-size:16px;
@@ -254,7 +288,7 @@ body{
 /* ---------- Item editor list ---------- */
 .edit-list{display:flex; flex-direction:column; gap:12px; margin-top:12px}
 .edit-card{
-  background:#fff;
+  background:var(--card);
   border-radius:18px;
   box-shadow:var(--shadow);
   padding:14px;
@@ -271,16 +305,20 @@ body{
   border-radius:999px;
   overflow:hidden;
   height:48px;
-  background:#fff;
+  background:var(--card);
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+}
+body.dark .qty-stepper{
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.10);
 }
 .qty-btn{
   border:0;
-  background:#fff !important;
+  background:var(--card) !important;
   font-size:22px;
   font-weight:900;
   cursor:pointer;
   transition: transform .06s ease, filter .12s ease, opacity .12s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 .qty-btn:active{
   transform: scale(.96);
@@ -305,14 +343,18 @@ body{
   font-weight:900;
   font-size:16px;
   outline:none;
-  background:#fff !important;
-  color:#1b1b1b;
+  background:var(--card) !important;
+  color:var(--text);
 }
 
 /* dividers */
 .qty-stepper .qty-btn + .qty-inp,
 .qty-stepper .qty-inp + .qty-btn{
   border-left: 1px solid rgba(0,0,0,.08);
+}
+body.dark .qty-stepper .qty-btn + .qty-inp,
+body.dark .qty-stepper .qty-inp + .qty-btn{
+  border-left: 1px solid rgba(255,255,255,.10);
 }
 
 .exp-wrap{flex:1; display:flex; flex-direction:column; gap:8px}
@@ -328,6 +370,9 @@ body{
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(180deg, rgba(246,247,248,0), rgba(246,247,248,.85) 40%, rgba(246,247,248,1));
   z-index: 50;
+}
+body.dark .save-bar{
+  background: linear-gradient(180deg, rgba(15,17,21,0), rgba(15,17,21,.85) 40%, rgba(15,17,21,1));
 }
 #saveBtn{
   width: min(92%, 560px);
@@ -370,6 +415,9 @@ body{
 .dash-red{background:#ffe6e6; color:#b71c1c}
 .dash-amber{background:#fff2dd; color:#6a3d00}
 .dash-green{background:#e7f7ea; color:#0b5a2a}
+body.dark .dash-red{background:rgba(239,83,80,.14); color:#ffb4b4}
+body.dark .dash-amber{background:rgba(255,199,44,.12); color:#ffe2a3}
+body.dark .dash-green{background:rgba(0,154,68,.14); color:#bff2d1}
 
 /* ---------- Modal ---------- */
 .backdrop{
@@ -380,12 +428,14 @@ body{
 }
 .modal{
   width:min(560px, calc(100vw - 26px));
-  background:#fff;
+  background:var(--card);
+  color:var(--text);
   border-radius:18px;
   box-shadow:0 30px 80px rgba(0,0,0,.25);
   overflow:hidden;
   animation:pop .18s ease-out;
 }
+body.dark .modal{ box-shadow:0 30px 80px rgba(0,0,0,.6); }
 @keyframes pop{from{transform:translateY(8px); opacity:.7} to{transform:translateY(0); opacity:1}}
 .modal-head{
   display:flex; align-items:center; justify-content:space-between;
@@ -398,6 +448,7 @@ body{
 /* Popup checklist */
 .popup-title{font-weight:900; font-size:18px; margin-bottom:8px}
 .popup-lead{font-weight:800; color:rgba(0,0,0,.7)}
+body.dark .popup-lead{ color:rgba(255,255,255,.72); }
 .popup-list{margin:12px 0 0 0; padding:0; list-style:none}
 .popup-list li{
   display:flex; align-items:center; gap:10px;
@@ -407,6 +458,7 @@ body{
   margin-bottom:10px;
   font-weight:900;
 }
+body.dark .popup-list li{ background:rgba(0,154,68,.16); }
 .popup-dot{
   width:10px; height:10px; border-radius:99px; background:var(--green);
   box-shadow:0 0 0 4px rgba(0,154,68,.12);
@@ -420,32 +472,10 @@ body{
   font-weight:900; z-index:9999;
   box-shadow:0 18px 40px rgba(0,0,0,.25);
 }
+body.dark .toast{ background:#0b0d10; box-shadow:0 18px 40px rgba(0,0,0,.6); }
 
-/* ---------- Wheel date picker (Polished iOS-style, WHITE) ---------- */
-.pc-wheel{
-  border-radius:18px;
-  overflow:hidden;
-}
-.pc-wheel-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:14px 14px 10px;
-}
-.pc-wheel-title{
-  font-weight:900;
-  font-size:18px;
-}
-.pc-wheel-x{
-  border:0;
-  background:#fff;
-  width:36px;
-  height:36px;
-  border-radius:12px;
-  box-shadow:0 8px 16px rgba(0,0,0,.12);
-  cursor:pointer;
-}
-.pc-wheel-x:active{ transform:scale(.98); }
+/* ---------- Wheel date picker (Polished iOS-style) ---------- */
+.pc-wheel{ border-radius:18px; overflow:hidden; }
 
 .pc-wheel-cols{
   position:relative;
@@ -468,11 +498,17 @@ body{
 }
 .pc-wheel-cols::before{
   top:0;
-  background:linear-gradient(180deg, rgba(255,255,255,1), rgba(255,255,255,0));
+  background:linear-gradient(180deg, var(--card), rgba(255,255,255,0));
+}
+body.dark .pc-wheel-cols::before{
+  background:linear-gradient(180deg, var(--card), rgba(0,0,0,0));
 }
 .pc-wheel-cols::after{
   bottom:0;
-  background:linear-gradient(0deg, rgba(255,255,255,1), rgba(255,255,255,0));
+  background:linear-gradient(0deg, var(--card), rgba(255,255,255,0));
+}
+body.dark .pc-wheel-cols::after{
+  background:linear-gradient(0deg, var(--card), rgba(0,0,0,0));
 }
 
 /* center highlight bar */
@@ -489,17 +525,19 @@ body{
   z-index:4;
   pointer-events:none;
 }
-
-.pc-wheel-col{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
+body.dark .pc-wheel-highlight{
+  background:rgba(0,154,68,.18);
+  box-shadow:inset 0 0 0 1px rgba(0,154,68,.28);
 }
 
+.pc-wheel-col{ display:flex; flex-direction:column; gap:8px; padding-top:6px; }
+
 .pc-wheel-label{
-  font-weight:800;
-  color:rgba(0,0,0,.6);
-  font-size:12px;
+  font-weight:900;
+  font-size:14px;
+  color:var(--text);
+  opacity:1;
+  letter-spacing:.2px;
   padding-left:6px;
 }
 
@@ -507,16 +545,25 @@ body{
   height:230px;
   overflow:auto;
   border-radius:16px;
-  border:1px solid rgba(0,0,0,.10);
-  background:#fff;
+  border:1px solid var(--line);
+  background:var(--card);
   scroll-snap-type:y mandatory;
   -webkit-overflow-scrolling:touch;
   position:relative;
+
+  /* ✅ polish: stop glitch */
+  overscroll-behavior: contain;      /* prevents page scroll stealing */
+  scroll-behavior: auto !important;  /* don’t fight finger */
+  touch-action: pan-y;
+  scroll-padding-block: 92px;        /* match .pc-wheel-pad height */
+  scrollbar-width: none;             /* firefox */
 }
+.pc-wheel-list::-webkit-scrollbar{ display:none; }
 
 /* padding top/bottom so center aligns */
 .pc-wheel-pad{ height:92px; }
 
+/* ✅ stable height, no font-size jump jitter */
 .pc-wheel-item{
   width:100%;
   border:0;
@@ -526,15 +573,20 @@ body{
   font-size:16px;
   cursor:pointer;
   scroll-snap-align:center;
-  transition:transform .12s ease, opacity .12s ease;
-}
 
+  line-height:24px;
+  min-height:46px;
+  will-change:transform;
+  -webkit-tap-highlight-color: transparent;
+  transition:transform .12s ease, opacity .12s ease, color .12s ease;
+}
 .pc-wheel-item.active{
   font-weight:900;
-  font-size:18px;
-  transform:scale(1.02);
-  color:#0b5a2a;
+  font-size:16px;
+  transform:scale(1.03);
+  color:var(--green-dark);
 }
+body.dark .pc-wheel-item.active{ color:#bff2d1; }
 
 .pc-wheel-item.dim{
   opacity:.35;
@@ -556,6 +608,7 @@ body{
   box-shadow:0 10px 20px rgba(0,0,0,.10);
   cursor:pointer;
 }
+body.dark .pc-wheel-btn{ box-shadow:0 10px 20px rgba(0,0,0,.45); }
 .pc-wheel-btn.cancel{
   background:linear-gradient(180deg, #FFD54A, #FFC72C);
   color:#111;
@@ -577,30 +630,4 @@ body{
   .tile .emoji{font-size:48px}
   .tile .title{font-size:17px}
   .dash-title{font-size:17px}
-}
-/* Make Day/Month/Year labels more visible (no behavior change) */
-.pc-wheel-label{
-  font-weight: 1300;
-  font-size: 14px;
-  opacity: 1;
-  color: #111;
-  letter-spacing: 0.2px;
-}
-
-/* If your modal background is very white, this helps separation */
-.pc-wheel-col{
-  padding-top: 6px;
-}
-/* Wheel labels more visible */
-.pc-wheel-label{
-  font-weight: 1400;
-  font-size: 14px;
-  color: #111;
-  opacity: 1;
-}
-.pc-wheel-label{
-  font-weight: 1400;
-  font-size: 14px;
-  color: #111;
-  opacity: 1;
 }
