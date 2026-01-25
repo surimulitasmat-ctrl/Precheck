@@ -402,10 +402,15 @@ function bindModal() {
   const backdrop = $("#modalBackdrop");
   if (backdrop) {
     backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) closeModal();
+      if (e.target === backdrop) {
+        // ✅ block closing if noBackdropClose was requested
+        if (backdrop.dataset.noClose === "1") return;
+        closeModal();
+      }
     });
   }
 }
+
 function openModal(title, html, opts = {}) {
   const t = $("#modalTitle");
   const b = $("#modalBody");
@@ -415,6 +420,7 @@ function openModal(title, html, opts = {}) {
   t.textContent = title || "Modal";
   b.innerHTML = html || "";
   back.classList.remove("hidden");
+back.dataset.noClose = opts.noBackdropClose ? "1" : "0";
 
   if (opts.noBackdropClose) {
     back.onclick = (e) => {
@@ -427,9 +433,13 @@ function openModal(title, html, opts = {}) {
 function closeModal() {
   const back = $("#modalBackdrop");
   const b = $("#modalBody");
-  if (back) back.classList.add("hidden");
+  if (back) {
+    back.classList.add("hidden");
+    back.dataset.noClose = "0"; // ✅ add
+  }
   if (b) b.innerHTML = "";
 }
+
 
 /* =========================================================
    LOADING / SAVING OVERLAY ✅
@@ -1555,7 +1565,7 @@ function openAddDateModal({ it, cat, key }) {
     openDateWheelModal({
       title: "Pick 2nd expiry date",
       initialISO: d.extraISO || todayISO(),
-      minISO: "2000-01-01",
+      minISO: todayISO(),
       maxISO: "2100-12-31",
       onPick: (iso) => {
         d.extraISO = iso;
@@ -1788,7 +1798,7 @@ function bindItemEditors(items, cat) {
         openDateWheelModal({
           title: "Pick expiry date",
           initialISO: d.expDateISO || todayISO(),
-          minISO: "2000-01-01",
+          minISO: todayISO(),
           maxISO: "2100-12-31",
           onPick: (iso) => {
             d.expDateISO = iso;
