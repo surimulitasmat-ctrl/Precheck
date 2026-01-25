@@ -136,14 +136,21 @@ function loadJSON(key, fallback) {
 function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
 }
+/* =========================================================
+   THEME TOGGLE (drawer switch) ✅
+   - stores setting in localStorage
+   - toggles html.dark + body.dark (prevents flash + stays)
+   - smooth fade + haptic
+   ========================================================= */
 const THEME_KEY = "pc_theme"; // "dark" | "light"
 
 function applyTheme(mode) {
   const dark = mode === "dark";
 
+  // smooth fade
   document.body.classList.add("theme-anim");
 
-  // ✅ toggle BOTH (so your CSS + early HTML check always match)
+  // ✅ set on BOTH html + body (important)
   document.documentElement.classList.toggle("dark", dark);
   document.body.classList.toggle("dark", dark);
 
@@ -161,14 +168,16 @@ function getTheme() {
 }
 
 function setTheme(mode) {
-  try { localStorage.setItem(THEME_KEY, mode); } catch {}
+  try {
+    localStorage.setItem(THEME_KEY, mode);
+  } catch {}
   applyTheme(mode);
   updateThemeToggleUI();
 }
 
 function toggleTheme() {
   const next = getTheme() === "dark" ? "light" : "dark";
-  haptic(18);
+  haptic(18); // ✅ haptic on toggle
   setTheme(next);
   toast(next === "dark" ? "Dark mode ✅" : "Light mode ✅");
 }
@@ -177,7 +186,9 @@ function updateThemeToggleUI() {
   const host = document.getElementById("drawerTheme");
   if (!host) return;
 
-  const isDark = document.documentElement.classList.contains("dark");
+  const isDark =
+    document.documentElement.classList.contains("dark") ||
+    document.body.classList.contains("dark");
 
   host.innerHTML = `
     <div class="theme-row">
@@ -185,6 +196,7 @@ function updateThemeToggleUI() {
         <div class="theme-title">Dark mode</div>
         <div class="theme-sub">${isDark ? "On" : "Off"}</div>
       </div>
+
       <div class="theme-switch ${isDark ? "on" : ""}" aria-hidden="true">
         <div class="theme-thumb"></div>
       </div>
@@ -192,11 +204,6 @@ function updateThemeToggleUI() {
   `;
 
   host.setAttribute("aria-pressed", isDark ? "true" : "false");
-}
-
-/* ✅ if you don’t already have haptic() */
-function haptic(ms = 15) {
-  try { if (navigator.vibrate) navigator.vibrate(ms); } catch {}
 }
 
 
