@@ -10,7 +10,9 @@
     <link rel="manifest" href="/manifest.json?v=20260113a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <!-- ✅ Prevent theme flash (apply dark before CSS + app render) -->
+    <!-- ✅ Prevent theme flash (apply dark before CSS + app render)
+         IMPORTANT: we set dark on <html> because <body> isn't ready yet.
+    -->
     <script>
       (function () {
         try {
@@ -68,8 +70,10 @@
           <button class="drawer-item big" id="drawerSummary" type="button">📊 Summary</button>
           <button class="drawer-item big" id="drawerWISR" type="button">🧾 WISR Count</button>
 
-          <!-- ✅ app.js will replace this with the toggle UI -->
-          <button id="drawerTheme" class="drawer-item" type="button">🌙 Dark mode</button>
+          <!-- ✅ Keep as a button; app.js will render the switch UI inside -->
+          <button id="drawerTheme" class="drawer-item" type="button" aria-pressed="false">
+            🌙 Dark mode
+          </button>
 
           <div class="drawer-spacer"></div>
 
