@@ -19,7 +19,7 @@
    - login page
 
    NOTE:
-   - PART 2: navigation + drafts + home/category + editors + saveCategory (fixed)
+   - PART 2: navigation + drafts + home/category + editors + saveCategory + NEW iOS wheel picker ✅
    - PART 3: stock alert + summary (shows last item) + wisr
    - PART 4: manager pages (with loading overlay) + logout + utils
    ========================= */
@@ -84,7 +84,6 @@ const state = {
 };
 
 /* ---------- boot ---------- */
-applyTheme(getTheme());     // ✅ apply instantly on load (before UI renders)
 bindTopbar();
 bindDrawer();
 bindModal();
@@ -92,10 +91,8 @@ bindAppBackGuard();
 startMidnightWatcher();
 boot().catch(console.error);
 
-
 async function boot() {
- updateThemeToggleUI(); // ✅ keep UI correct
-ensureSessionDayKey();
+  ensureSessionDayKey();
 
   // update drawer label on load
   updateDrawerAlertLabel(false);
@@ -136,77 +133,6 @@ function loadJSON(key, fallback) {
 function saveSession() {
   localStorage.setItem("session", JSON.stringify(state.session));
 }
-/* =========================================================
-   THEME TOGGLE (drawer switch) ✅
-   - stores setting in localStorage
-   - toggles html.dark + body.dark (prevents flash + stays)
-   - smooth fade + haptic
-   ========================================================= */
-const THEME_KEY = "pc_theme"; // "dark" | "light"
-
-function applyTheme(mode) {
-  const dark = mode === "dark";
-
-  // smooth fade
-  document.body.classList.add("theme-anim");
-
-  // ✅ set on BOTH html + body (important)
-  document.documentElement.classList.toggle("dark", dark);
-  document.body.classList.toggle("dark", dark);
-
-  clearTimeout(applyTheme._t);
-  applyTheme._t = setTimeout(() => document.body.classList.remove("theme-anim"), 220);
-}
-
-function getTheme() {
-  try {
-    const v = localStorage.getItem(THEME_KEY);
-    return v === "dark" ? "dark" : "light";
-  } catch {
-    return "light";
-  }
-}
-
-function setTheme(mode) {
-  try {
-    localStorage.setItem(THEME_KEY, mode);
-  } catch {}
-  applyTheme(mode);
-  updateThemeToggleUI();
-}
-
-function toggleTheme() {
-  const next = getTheme() === "dark" ? "light" : "dark";
-  haptic(18); // ✅ haptic on toggle
-  setTheme(next);
-  toast(next === "dark" ? "Dark mode ✅" : "Light mode ✅");
-}
-
-function updateThemeToggleUI() {
-  const host = document.getElementById("drawerTheme");
-  if (!host) return;
-
-  const isDark =
-    document.documentElement.classList.contains("dark") ||
-    document.body.classList.contains("dark");
-
-  host.innerHTML = `
-    <div class="theme-row">
-      <div class="theme-text">
-        <div class="theme-title">Dark mode</div>
-        <div class="theme-sub">${isDark ? "On" : "Off"}</div>
-      </div>
-
-      <div class="theme-switch ${isDark ? "on" : ""}" aria-hidden="true">
-        <div class="theme-thumb"></div>
-      </div>
-    </div>
-  `;
-
-  host.setAttribute("aria-pressed", isDark ? "true" : "false");
-}
-
-
 
 /* =========================================================
    DATE/TIME HELPERS
@@ -433,22 +359,17 @@ function bindDrawer() {
   bind("#drawerAlerts", () => setView({ page: "stockAlerts" }, true));
   bind("#drawerManager", () => setView({ page: "manager" }, true));
   bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
-bind("#drawerWISR", () => setView({ page: "wisr" }, true));
-bind("#drawerTheme", () => {
-  toggleTheme();
-  updateThemeToggleUI(); // ensure it flips instantly
-});
+  bind("#drawerWISR", () => setView({ page: "wisr" }, true));
 
+  // ✅ Removed Dark Mode toggle binding
 
-bind("#drawerLogout", () => doLogout());
-
+  bind("#drawerLogout", () => doLogout());
 }
+
 function openDrawer() {
   const b = $("#drawerBackdrop");
   if (b) b.classList.remove("hidden");
-  updateThemeToggleUI(); // ✅ add
 }
-
 function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
 
 /* Stock Alert label + dot (single source of truth) */
@@ -715,7 +636,7 @@ function renderLoginPage() {
    ========================= */
 /* =========================
    PreCheck — public/app.js (FULL)
-   PART 2 / 4
+   PART 2A / 4
 
    Includes:
    - navigation
@@ -724,11 +645,7 @@ function renderLoginPage() {
    - render root
    - home + category
    - shelfLifeModeFor
-   - date wheel picker
-   - add 2nd date modal
-   - item editor + bind editors
-   - category progress tracker (done when qty>0 + valid expiry/time)
-   - saveCategory ✅ (fixed braces, shows Saving…, records DONE + last item)
+   - category progress tracker
    ========================= */
 
 /* =========================================================
@@ -1025,7 +942,6 @@ function renderCategory() {
             ? `<span id="catProgPill" style="font-weight:1200;font-size:12px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)">
     ${escapeHtml(progText)}
   </span>`
-
             : ""
         }
       </div>
@@ -1095,7 +1011,10 @@ function categoryProgress(items, cat) {
       continue;
     }
     const exp = String(d.expDateISO || "");
-    if (exp && exp >= today) done++;
+    if (exp) {
+      // ✅ now backdated is allowed to be selected, so "done" means it has a date
+      done++;
+    }
   }
 
   const pct = total ? Math.round((done / total) * 100) : 0;
@@ -1117,192 +1036,298 @@ function refreshCategoryProgressUI(items, cat) {
   }
 }
 
+/* =========================
+   END PART 2A / 4
+   ========================= */
 /* =========================================================
-   DATE WHEEL PICKER
+   DATE WHEEL PICKER (iOS-style wheel, themed)
+   - Day + Month: looping wheel (no empty end)
+   - Year: 2000..2100 (default), or clamp to min/max if provided
+   - Backdated allowed, but warns on confirm if date < today
    ========================================================= */
-function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
-  const today = todayISO();
-  const min = (minISO || today).slice(0, 10);
-  const max = (maxISO || addDaysISO(today, 365 * 5)).slice(0, 10);
-  const init = (initialISO || min).slice(0, 10);
 
-  const minDt = new Date(min + "T00:00:00");
-  const maxDt = new Date(max + "T00:00:00");
+function ensurePCWheelStyles() {
+  if (document.getElementById("pcWheelStyles")) return;
+  const css = document.createElement("style");
+  css.id = "pcWheelStyles";
+  css.textContent = `
+  .pc-ios-wheel{
+    padding:12px 6px 6px;
+    user-select:none;
+  }
+  .pc-ios-wheel .pc-wheel-title{
+    font-weight:1200;
+    font-size:16px;
+    margin-bottom:10px;
+  }
+  .pc-ios-wheel .pc-wheel-frame{
+    position:relative;
+    border-radius:22px;
+    background:#fff;
+    border:1px solid var(--line);
+    overflow:hidden;
+    padding:10px 10px 12px;
+  }
+  .pc-ios-wheel .pc-wheel-cols{
+    display:flex;
+    gap:10px;
+  }
+  .pc-ios-wheel .pc-col{
+    flex:1;
+    min-width:0;
+  }
+  .pc-ios-wheel .pc-label{
+    font-weight:1100;
+    font-size:12px;
+    color:#666;
+    margin:0 4px 6px;
+  }
+  .pc-ios-wheel .pc-list{
+    height:220px;
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+    border-radius:18px;
+    background:rgba(0,0,0,0.02);
+    position:relative;
+  }
+  .pc-ios-wheel .pc-list::-webkit-scrollbar{ display:none; }
+
+  .pc-ios-wheel .pc-item{
+    height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:1200;
+    font-size:18px;
+    color:#111;
+    border:0;
+    background:transparent;
+    width:100%;
+  }
+  .pc-ios-wheel .pc-item.dim{
+    opacity:0.25;
+    font-weight:1100;
+  }
+
+  .pc-ios-wheel .pc-highlight{
+    position:absolute;
+    left:10px; right:10px;
+    top:50%;
+    transform:translateY(-50%);
+    height:44px;
+    border-radius:16px;
+    background:rgba(0, 153, 84, 0.10);
+    border:1px solid rgba(0, 153, 84, 0.18);
+    pointer-events:none;
+  }
+  .pc-ios-wheel .pc-fadeTop,
+  .pc-ios-wheel .pc-fadeBot{
+    position:absolute; left:0; right:0;
+    height:42px;
+    pointer-events:none;
+    z-index:3;
+  }
+  .pc-ios-wheel .pc-fadeTop{
+    top:0;
+    background:linear-gradient(#fff, rgba(255,255,255,0));
+  }
+  .pc-ios-wheel .pc-fadeBot{
+    bottom:0;
+    background:linear-gradient(rgba(255,255,255,0), #fff);
+  }
+
+  .pc-ios-wheel .pc-actions{
+    display:flex;
+    gap:12px;
+    margin-top:12px;
+  }
+  .pc-ios-wheel .pc-btn{
+    flex:1;
+    padding:14px 14px;
+    border-radius:999px;
+    font-weight:1200;
+    border:0;
+  }
+  .pc-ios-wheel .pc-btn.cancel{
+    background:var(--yellow);
+    color:#111;
+  }
+  .pc-ios-wheel .pc-btn.ok{
+    background:var(--green);
+    color:#fff;
+  }
+  `;
+  document.head.appendChild(css);
+}
+
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  ensurePCWheelStyles();
+
+  const today = todayISO();
+
+  // Default range: allow backdated + up to 2100
+  const min = String(minISO || "2000-01-01").slice(0, 10);
+  const max = String(maxISO || "2100-12-31").slice(0, 10);
 
   function parseISO(iso) {
     const d = new Date(String(iso).slice(0, 10) + "T00:00:00");
     return isNaN(d) ? null : d;
   }
-  function clamp(dt) {
-    if (dt < minDt) return new Date(minDt);
-    if (dt > maxDt) return new Date(maxDt);
-    return dt;
+  function clampISO(iso) {
+    const s = String(iso).slice(0, 10);
+    if (s < min) return min;
+    if (s > max) return max;
+    return s;
   }
+  const initISO = clampISO(initialISO || today);
 
-  let cur = clamp(parseISO(init) || parseISO(min) || new Date());
-
-  const yearMin = minDt.getFullYear();
-  const yearMax = maxDt.getFullYear();
-  const years = [];
-  for (let yy = yearMin; yy <= yearMax; yy++) years.push(yy);
-
-  function daysInMonth(y, m) {
-    return new Date(y, m, 0).getDate(); // m=1..12
-  }
-  function toISO(y, m, d) {
-    return `${y}-${pad2(m)}-${pad2(d)}`;
-  }
-  function inRangeISO(iso) {
-    return iso >= min && iso <= max;
-  }
-  const monthLabel = (mm) =>
-    new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
-
+  let cur = parseISO(initISO) || parseISO(today) || new Date();
   let y = cur.getFullYear();
   let m = cur.getMonth() + 1;
   let d = cur.getDate();
 
+  function daysInMonth(yy, mm) {
+    return new Date(yy, mm, 0).getDate(); // mm 1..12
+  }
+  function toISO(yy, mm, dd) {
+    return `${yy}-${pad2(mm)}-${pad2(dd)}`;
+  }
+  const monthLabel = (mm) => new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
+
+  // Year list (non-loop), clamped to min/max years, max <= 2100
+  const minY = Math.max(2000, new Date(min + "T00:00:00").getFullYear());
+  const maxY = Math.min(2100, new Date(max + "T00:00:00").getFullYear());
+
+  const years = [];
+  for (let yy = minY; yy <= maxY; yy++) years.push(yy);
+
   openModal(
-    title || "Select date",
+    title || "Pick date",
     `
-    <div class="pc-wheel">
-      <div class="pc-wheel-cols">
-        <div class="pc-wheel-col">
-          <div class="pc-wheel-label">Day</div>
-          <div class="pc-wheel-list" id="wheelDay"></div>
+    <div class="pc-ios-wheel">
+      <div class="pc-wheel-title">${escapeHtml(title || "Pick date")}</div>
+
+      <div class="pc-wheel-frame">
+        <div class="pc-wheel-cols">
+          <div class="pc-col">
+            <div class="pc-label">Day</div>
+            <div class="pc-list" id="pcWheelDay"></div>
+          </div>
+          <div class="pc-col">
+            <div class="pc-label">Month</div>
+            <div class="pc-list" id="pcWheelMon"></div>
+          </div>
+          <div class="pc-col">
+            <div class="pc-label">Year</div>
+            <div class="pc-list" id="pcWheelYear"></div>
+          </div>
         </div>
 
-        <div class="pc-wheel-col">
-          <div class="pc-wheel-label">Month</div>
-          <div class="pc-wheel-list" id="wheelMon"></div>
-        </div>
-
-        <div class="pc-wheel-col">
-          <div class="pc-wheel-label">Year</div>
-          <div class="pc-wheel-list" id="wheelYear"></div>
-        </div>
-
-        <div class="pc-wheel-highlight" aria-hidden="true"></div>
+        <div class="pc-highlight" aria-hidden="true"></div>
+        <div class="pc-fadeTop" aria-hidden="true"></div>
+        <div class="pc-fadeBot" aria-hidden="true"></div>
       </div>
 
-      <div class="pc-wheel-actions">
-        <button class="pc-wheel-btn cancel" type="button" id="wheelCancel">Cancel</button>
-        <button class="pc-wheel-btn ok" type="button" id="wheelOk"
-          style="background:var(--green);color:#fff;border:0"
-        >Set date</button>
+      <div class="pc-actions">
+        <button class="pc-btn cancel" type="button" id="pcWheelCancel">Cancel</button>
+        <button class="pc-btn ok" type="button" id="pcWheelOk">Set date</button>
       </div>
     </div>
     `,
     { noBackdropClose: true }
   );
 
-  $("#wheelCancel")?.addEventListener("click", closeModal);
+  const dayEl = $("#pcWheelDay");
+  const monEl = $("#pcWheelMon");
+  const yearEl = $("#pcWheelYear");
+  const okEl = $("#pcWheelOk");
 
-  const dayEl = $("#wheelDay");
-  const monEl = $("#wheelMon");
-  const yearEl = $("#wheelYear");
-  const okEl = $("#wheelOk");
+  $("#pcWheelCancel")?.addEventListener("click", closeModal);
 
-  // ---- Build lists (NO re-binding listeners repeatedly) ----
-  function buildDay() {
+  // --- Looping builders (3 cycles) ---
+  const LOOP_CYCLES = 3;
+
+  function buildMonthLoop() {
+    const arr = [];
+    for (let c = 0; c < LOOP_CYCLES; c++) {
+      for (let mm = 1; mm <= 12; mm++) {
+        arr.push(mm);
+      }
+    }
+    monEl.innerHTML = arr
+      .map((mm) => `<button class="pc-item" type="button" data-v="${mm}">${escapeHtml(monthLabel(mm))}</button>`)
+      .join("");
+  }
+
+  function buildDayLoop() {
     const dim = daysInMonth(y, m);
     if (d > dim) d = dim;
     if (d < 1) d = 1;
 
-    dayEl.innerHTML = `
-      <div class="pc-wheel-pad"></div>
-      ${Array.from({ length: dim }, (_, i) => {
-        const dd = i + 1;
-        const iso = toISO(y, m, dd);
-        const active = dd === d ? "active" : "";
-        const dimCls = inRangeISO(iso) ? "" : "dim";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${dd}">${dd}</button>`;
-      }).join("")}
-      <div class="pc-wheel-pad"></div>
-    `;
-  }
-
-  function buildMon() {
-    monEl.innerHTML = `
-      <div class="pc-wheel-pad"></div>
-      ${Array.from({ length: 12 }, (_, i) => {
-        const mm = i + 1;
-        const isoStart = toISO(y, mm, 1);
-        const isoEnd = toISO(y, mm, daysInMonth(y, mm));
-        const dimCls = isoEnd < min || isoStart > max ? "dim" : "";
-        const active = mm === m ? "active" : "";
-        return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${mm}">${escapeHtml(
-          monthLabel(mm)
-        )}</button>`;
-      }).join("")}
-      <div class="pc-wheel-pad"></div>
-    `;
+    const arr = [];
+    for (let c = 0; c < LOOP_CYCLES; c++) {
+      for (let dd = 1; dd <= dim; dd++) arr.push(dd);
+    }
+    dayEl.innerHTML = arr
+      .map((dd) => `<button class="pc-item" type="button" data-v="${dd}">${dd}</button>`)
+      .join("");
   }
 
   function buildYear() {
-    yearEl.innerHTML = `
-      <div class="pc-wheel-pad"></div>
-      ${years
-        .map((yy) => {
-          const isoStart = toISO(yy, 1, 1);
-          const isoEnd = toISO(yy, 12, 31);
-          const dimCls = isoEnd < min || isoStart > max ? "dim" : "";
-          const active = yy === y ? "active" : "";
-          return `<button class="pc-wheel-item ${active} ${dimCls}" type="button" data-v="${yy}">${yy}</button>`;
-        })
-        .join("")}
-      <div class="pc-wheel-pad"></div>
-    `;
+    yearEl.innerHTML = years
+      .map((yy) => `<button class="pc-item" type="button" data-v="${yy}">${yy}</button>`)
+      .join("");
   }
 
-  function setOkEnabled() {
-    const iso = toISO(y, m, d);
-    okEl.disabled = !inRangeISO(iso);
-    okEl.style.opacity = okEl.disabled ? "0.5" : "1";
+  function setActiveByValue(container, value) {
+    // mark nearest visible matching as "active" by styling (optional)
+    // We keep it simple: no active class needed; snap decides value.
+    container.querySelectorAll(".pc-item").forEach((x) => x.classList.remove("active"));
+    const match = container.querySelector(`.pc-item[data-v="${cssEsc(String(value))}"]`);
+    if (match) match.classList.add("active");
   }
 
-  function scrollToActive(container) {
-    const active = container.querySelector(".pc-wheel-item.active");
-    if (!active) return;
-    const top = active.offsetTop - container.clientHeight / 2 + active.clientHeight / 2;
-    // IMPORTANT: no "smooth" here (smooth fights user scrolling)
+  function scrollToValueLoop(container, value) {
+    const items = Array.from(container.querySelectorAll(".pc-item"));
+    if (!items.length) return;
+
+    // pick the middle cycle occurrence so you can scroll up/down
+    const midIndex = Math.floor(items.length / 2);
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const it of items) {
+      if (String(it.dataset.v) !== String(value)) continue;
+      const idx = items.indexOf(it);
+      const dist = Math.abs(idx - midIndex);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+    if (!best) best = items[0];
+
+    const top = best.offsetTop - container.clientHeight / 2 + best.clientHeight / 2;
     container.scrollTo({ top, behavior: "auto" });
   }
 
-  // ---- ONE-TIME event delegation (no duplicate listeners) ----
-  function bindOnce(container, onPickVal) {
-    if (container.dataset.bound === "1") return;
-    container.dataset.bound = "1";
-
-    container.addEventListener("click", (e) => {
-      const btn = e.target.closest(".pc-wheel-item");
-      if (!btn) return;
-      if (btn.classList.contains("dim")) return;
-      onPickVal(btn.dataset.v);
-    });
-
-    let t = null;
-    container.addEventListener(
-      "scroll",
-      () => {
-        clearTimeout(t);
-        t = setTimeout(() => snapToClosest(container, onPickVal), 80);
-      },
-      { passive: true }
-    );
+  function scrollToValue(container, value) {
+    const it = container.querySelector(`.pc-item[data-v="${cssEsc(String(value))}"]`);
+    if (!it) return;
+    const top = it.offsetTop - container.clientHeight / 2 + it.clientHeight / 2;
+    container.scrollTo({ top, behavior: "auto" });
   }
 
-  function snapToClosest(container, onPickVal) {
-    const items = Array.from(container.querySelectorAll(".pc-wheel-item"));
+  function snapToClosest(container, onPickVal, isLoop) {
+    const items = Array.from(container.querySelectorAll(".pc-item"));
     if (!items.length) return;
 
     const center = container.scrollTop + container.clientHeight / 2;
 
     let best = null;
     let bestDist = Infinity;
-
     for (const it of items) {
-      if (it.classList.contains("dim")) continue;
       const itCenter = it.offsetTop + it.clientHeight / 2;
       const dist = Math.abs(itCenter - center);
       if (dist < bestDist) {
@@ -1312,78 +1337,150 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     }
     if (!best) return;
 
-    onPickVal(best.dataset.v, true); // true = from snap
+    const v = best.dataset.v;
+    onPickVal(v, true);
+
+    // For looping lists: keep the scroll around the middle cycle so it never hits end
+    if (isLoop) {
+      // after picking, re-center to the middle cycle matching value
+      setTimeout(() => scrollToValueLoop(container, v), 0);
+    }
   }
 
-  // ---- Update selection without rebuilding everything (less jitter) ----
+  function bindWheel(container, onPickVal, isLoop = false) {
+    if (container.dataset.bound === "1") return;
+    container.dataset.bound = "1";
+
+    container.addEventListener("click", (e) => {
+      const btn = e.target.closest(".pc-item");
+      if (!btn) return;
+      onPickVal(btn.dataset.v, false);
+      // click should also center it
+      if (isLoop) scrollToValueLoop(container, btn.dataset.v);
+      else scrollToValue(container, btn.dataset.v);
+      haptic(10);
+    });
+
+    let t = null;
+    container.addEventListener(
+      "scroll",
+      () => {
+        clearTimeout(t);
+        t = setTimeout(() => snapToClosest(container, onPickVal, isLoop), 90);
+      },
+      { passive: true }
+    );
+  }
+
   function setDay(v, fromSnap) {
     d = Number(v);
-    // only update active classes (no rebuild)
-    dayEl.querySelectorAll(".pc-wheel-item.active").forEach((x) => x.classList.remove("active"));
-    const btn = dayEl.querySelector(`.pc-wheel-item[data-v="${cssEsc(String(d))}"]`);
-    if (btn) btn.classList.add("active");
-    setOkEnabled();
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+    if (d < 1) d = 1;
+    setActiveByValue(dayEl, d);
     if (!fromSnap) haptic(8);
   }
 
   function setMon(v, fromSnap) {
     m = Number(v);
-    // month changes affects day count -> rebuild day list
-    buildMon();
-    buildDay();
-    bindOnce(monEl, setMon);
-    bindOnce(dayEl, setDay);
-    // restore active scroll positions
-    scrollToActive(monEl);
-    scrollToActive(dayEl);
-    setOkEnabled();
+    if (m < 1) m = 1;
+    if (m > 12) m = 12;
+    buildMonthLoop();
+    buildDayLoop();
+    bindWheel(monEl, setMon, true);
+    bindWheel(dayEl, setDay, true);
+    scrollToValueLoop(monEl, m);
+    scrollToValueLoop(dayEl, d);
+    setActiveByValue(monEl, m);
     if (!fromSnap) haptic(8);
   }
 
   function setYear(v, fromSnap) {
     y = Number(v);
+    if (!Number.isFinite(y)) y = minY;
     buildYear();
-    buildMon();
-    buildDay();
-    bindOnce(yearEl, setYear);
-    bindOnce(monEl, setMon);
-    bindOnce(dayEl, setDay);
-    scrollToActive(yearEl);
-    scrollToActive(monEl);
-    scrollToActive(dayEl);
-    setOkEnabled();
+    buildMonthLoop();
+    buildDayLoop();
+    bindWheel(yearEl, setYear, false);
+    bindWheel(monEl, setMon, true);
+    bindWheel(dayEl, setDay, true);
+    scrollToValue(yearEl, y);
+    scrollToValueLoop(monEl, m);
+    scrollToValueLoop(dayEl, d);
+    setActiveByValue(yearEl, y);
     if (!fromSnap) haptic(8);
   }
 
-  // Initial render
+  // initial render
   buildYear();
-  buildMon();
-  buildDay();
+  buildMonthLoop();
+  buildDayLoop();
 
-  bindOnce(yearEl, setYear);
-  bindOnce(monEl, setMon);
-  bindOnce(dayEl, setDay);
+  bindWheel(yearEl, setYear, false);
+  bindWheel(monEl, setMon, true);
+  bindWheel(dayEl, setDay, true);
 
-  setOkEnabled();
-
-  // Center to active values
+  // start centered
   setTimeout(() => {
-    scrollToActive(yearEl);
-    scrollToActive(monEl);
-    scrollToActive(dayEl);
+    scrollToValue(yearEl, y);
+    scrollToValueLoop(monEl, m);
+    scrollToValueLoop(dayEl, d);
   }, 0);
 
   okEl.addEventListener("click", () => {
-    const iso = toISO(y, m, d);
-    if (!inRangeISO(iso)) return;
+    const picked = toISO(y, m, d);
+    const iso = clampISO(picked);
+
+    // backdated warning (but still allow)
+    if (iso < today) {
+      openModal(
+        "Backdated date",
+        `
+          <div class="card">
+            <div style="font-weight:1200;font-size:18px;margin-bottom:8px">Warning ⚠️</div>
+            <div class="muted" style="font-weight:1100;margin-bottom:14px">
+              You selected a backdated expiry (<b>${escapeHtml(formatLongDMY(iso))}</b>).
+              This product should be <b>discarded</b>.
+            </div>
+            <div class="row" style="gap:12px">
+              <button id="bdCancel" class="btn btn-yellow" style="flex:1">Change date</button>
+              <button id="bdOk" class="btn btn-red" style="flex:1">Confirm</button>
+            </div>
+          </div>
+        `,
+        { noBackdropClose: true }
+      );
+
+      $("#bdCancel")?.addEventListener("click", () => {
+        // go back to picker modal
+        closeModal();
+        // reopen picker modal with same current selection
+        openDateWheelModal({
+          title: title || "Pick date",
+          initialISO: iso,
+          minISO: min,
+          maxISO: max,
+          onPick,
+        });
+      });
+
+      $("#bdOk")?.addEventListener("click", () => {
+        closeModal();
+        closeModal(); // close picker behind (it is still open)
+        onPick && onPick(iso);
+      });
+
+      return;
+    }
+
     closeModal();
     onPick && onPick(iso);
   });
 }
 
-
 /* =========================================================
    Add 2nd date popup (single extra expiry)
+   - now allows backdated (warn handled by picker)
    ========================================================= */
 function openAddDateModal({ it, cat, key }) {
   const d = state.drafts[key] || (state.drafts[key] = {});
@@ -1391,8 +1488,6 @@ function openAddDateModal({ it, cat, key }) {
   d.extraQty = d.extraQty || 0;
 
   const rule = shelfLifeModeFor(it, cat);
-  const today = todayISO();
-  const blockPast = today;
 
   openModal(
     "Add 2nd date",
@@ -1421,7 +1516,7 @@ function openAddDateModal({ it, cat, key }) {
         </div>
 
         <div class="muted" style="margin-top:10px;font-weight:1100">
-          Note: Past dates are blocked.
+          Backdated is allowed, but will show a discard warning when confirming.
         </div>
 
         <div class="row" style="gap:12px;margin-top:14px">
@@ -1460,7 +1555,8 @@ function openAddDateModal({ it, cat, key }) {
     openDateWheelModal({
       title: "Pick 2nd expiry date",
       initialISO: d.extraISO || todayISO(),
-      minISO: blockPast,
+      minISO: "2000-01-01",
+      maxISO: "2100-12-31",
       onPick: (iso) => {
         d.extraISO = iso;
         saveDraftsToStorage();
@@ -1475,7 +1571,6 @@ function openAddDateModal({ it, cat, key }) {
   $("#exOk")?.addEventListener("click", () => {
     const q = Number(d.extraQty || 0);
     if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
-    if (d.extraISO && d.extraISO < blockPast) return toast("Past dates not allowed");
     saveDraftsToStorage();
     closeModal();
     render();
@@ -1484,7 +1579,8 @@ function openAddDateModal({ it, cat, key }) {
 }
 
 /* =========================================================
-   Item editor
+   Item editor + bind editors
+   - changed pickers to allow backdated (warning is inside picker)
    ========================================================= */
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
@@ -1527,7 +1623,7 @@ function renderItemEditor(it, cat) {
       <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
         key
       )}" style="width:100%">Pick date</button>
-      <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Manual date"}</div>
+      <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Select date"}</div>
     `;
   } else {
     const today = todayISO();
@@ -1598,7 +1694,6 @@ function bindItemEditors(items, cat) {
   const root = $("#editList");
   if (!root) return;
 
-  // helper: update only progress pill + save button (no full re-render)
   const refreshProg = () => {
     try {
       if (typeof refreshCategoryProgressUI === "function") {
@@ -1632,7 +1727,6 @@ function bindItemEditors(items, cat) {
     updateQtyUI(root, key);
     refreshProg();
 
-    // ✅ FIX: do NOT call render() on +/- / qty typing (prevents jumping)
     if (inc)
       inc.addEventListener("click", () => {
         d.qty = (Number(d.qty) || 0) + 1;
@@ -1662,14 +1756,12 @@ function bindItemEditors(items, cat) {
         refreshProg();
       });
 
-    // These can still render (they change layout / picker / manual wrap)
     if (timeSel)
       timeSel.addEventListener("change", () => {
         d.expTimeShort = String(timeSel.value || "");
         d.expType = "HOURLY";
         saveDraftsToStorage();
-        refreshProg(); // optional
-        // render not strictly needed here, but safe if your UI depends on it
+        refreshProg();
         render();
       });
 
@@ -1696,7 +1788,8 @@ function bindItemEditors(items, cat) {
         openDateWheelModal({
           title: "Pick expiry date",
           initialISO: d.expDateISO || todayISO(),
-          minISO: todayISO(),
+          minISO: "2000-01-01",
+          maxISO: "2100-12-31",
           onPick: (iso) => {
             d.expDateISO = iso;
             if (!d.expType) d.expType = "MANUAL";
@@ -1711,12 +1804,9 @@ function bindItemEditors(items, cat) {
   }
 }
 
-
 /* =========================================================
-   Save category ✅
-   - shows Saving overlay
-   - marks shift DONE even if only 1 item saved
-   - records last item saved (from last row)
+   Save category ✅ (UPDATED)
+   - NO longer blocks past dates (warning is handled by picker confirm)
    ========================================================= */
 async function saveCategory(items, cat) {
   const store = state.session.store;
@@ -1763,10 +1853,7 @@ async function saveCategory(items, cat) {
           toast(`Pick expiry for ${it.name}`);
           return;
         }
-        if (expiry < today) {
-          toast("Past dates not allowed");
-          return;
-        }
+        // ✅ no blocking of backdated here
       }
 
       rows.push({
@@ -1789,10 +1876,7 @@ async function saveCategory(items, cat) {
         toast("Set 2nd date");
         return;
       }
-      if (expiry < today) {
-        toast("Past dates not allowed");
-        return;
-      }
+      // ✅ no blocking of backdated here
 
       rows.push({
         item_id: it.id ?? null,
@@ -1829,29 +1913,20 @@ async function saveCategory(items, cat) {
 }
 
 /* =========================
-   END PART 2 / 4
+   END PART 2B / 4
    ========================= */
 /* =========================
    PreCheck — public/app.js (FULL)
-   PART 3 / 4
+   PART 3A / 4
 
    Includes:
    - Stock Alert page
    - Summary Home + Summary List
-   - Shift completion cards show:
-       ✅ DONE even if only 1 item saved (device-based fallback)
-       ✅ Last item saved (device-based)
+   - Shift completion cards (API + local fallback)
    - WISR placeholder
-   - Manager Home
-   - Manager Edit Items (with Saving overlay)
-   - Manager Categories (with Saving overlay)
-   - Manager Add Item modal (with Saving overlay)
 
    NOTE:
-   - True cross-device "DONE" + "last item" is best from API (/api/status).
-     This part shows BOTH:
-       1) API status (if your backend provides it)
-       2) Local fallback from localStorage (always works on same device)
+   - PART 3B continues from "Manager Home" onward
    ========================= */
 
 /* =========================================================
@@ -1950,7 +2025,7 @@ async function getStatusByShift(store, shift) {
   const sh = String(shift || "AM").toUpperCase() === "PM" ? "PM" : "AM";
   const row = data?.[sh] || null;
 
-  // Normalize to the shape your statusToUI() expects
+  // Normalize to shape statusToUI() expects
   return row
     ? {
         last_saved_at: row.last_saved_at,
@@ -1961,10 +2036,9 @@ async function getStatusByShift(store, shift) {
     : null;
 }
 
-
-
 function statusToUI(s) {
-  if (!s || !s.last_saved_by) return { done: false, who: "", hhmm: "", count: 0, lastItemName: "" };
+  if (!s || !s.last_saved_by)
+    return { done: false, who: "", hhmm: "", count: 0, lastItemName: "" };
   const when = s.last_saved_at ? new Date(s.last_saved_at) : null;
   const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
   const who = String(s.last_saved_by || "");
@@ -2318,7 +2392,8 @@ async function renderSummaryList() {
             .map((rr) => {
               const dt = formatLongDMY(datePartFromRow(rr));
               const tm = timePartFromRow(rr);
-              const qty = rr.qty != null ? Number(rr.qty) : rr.quantity != null ? Number(rr.quantity) : null;
+              const qty =
+                rr.qty != null ? Number(rr.qty) : rr.quantity != null ? Number(rr.quantity) : null;
               const sh = rr.shift ? String(rr.shift) : "";
               return `
               <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
@@ -2365,6 +2440,24 @@ function renderWISR() {
   `;
   $("#btnBack").addEventListener("click", goBack);
 }
+
+/* =========================
+   END PART 3A / 4
+   ========================= */
+/* =========================
+   PreCheck — public/app.js (FULL)
+   PART 3B / 4
+
+   Includes:
+   - Manager Home
+   - Manager Login
+   - Manager Edit Items (with Saving overlay)
+   - Manager Categories (with Saving overlay)
+   - Manager Add Item modal (with Saving overlay)
+
+   NOTE:
+   - PART 4 will contain: Download Log + CSV, Logout, Utils (and we will REMOVE dark mode there)
+   ========================= */
 
 /* =========================================================
    MANAGER HOME
@@ -2417,7 +2510,7 @@ function renderManagerHome() {
 }
 
 /* =========================================================
-   MANAGER LOGIN (same logic as your existing)
+   MANAGER LOGIN
    ========================================================= */
 function openManagerLogin() {
   openModal(
@@ -2515,7 +2608,10 @@ async function renderManagerEditItems() {
         <div class="card">
           <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
           <div class="col" style="gap:10px">
-            ${list.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(managerItemRow).join("")}
+            ${list
+              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+              .map(managerItemRow)
+              .join("")}
           </div>
         </div>
       `;
@@ -2569,7 +2665,10 @@ async function renderManagerEditItems() {
 
         showSaving("Deleting…");
         try {
-          await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token);
+          await apiDel(
+            `/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`,
+            token
+          );
           toast("Deleted ✅");
           items = items.filter((x) => String(x.id) !== String(id));
           renderList($("#mgrSearch").value);
@@ -2591,8 +2690,14 @@ async function renderManagerEditItems() {
 function managerItemRow(it) {
   const id = String(it.id);
   const cats = (state.data.categories || []).map((c) => c.name);
+
   const catOpts = cats
-    .map((c) => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`)
+    .map(
+      (c) =>
+        `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(
+          c
+        )}</option>`
+    )
     .join("");
 
   const subOpts = [`<option value="">(none)</option>`]
@@ -2612,9 +2717,9 @@ function managerItemRow(it) {
         <div style="font-weight:1200">${escapeHtml(it.name)}</div>
         <button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button>
       </div>
-      <div class="muted" style="margin-top:8px;font-weight:1000">${escapeHtml(it.category)} • ${escapeHtml(
-        it.shelf_life_days
-      )} day</div>
+      <div class="muted" style="margin-top:8px;font-weight:1000">
+        ${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day
+      </div>
 
       <div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px">
         <div class="col">
@@ -2626,8 +2731,8 @@ function managerItemRow(it) {
 
           <div style="font-weight:1200">Shelf life (days)</div>
           <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(
-            it.shelf_life_days
-          )}">
+    it.shelf_life_days
+  )}">
 
           <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
             <input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}>
@@ -2671,9 +2776,8 @@ async function renderManagerCategories() {
     .map((c, idx) => {
       const tone = tileToneFor(c.name);
       return `
-        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx * 45}ms" data-cid="${c.id}" data-cname="${escapeHtml(
-        c.name
-      )}" type="button">
+        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx * 45}ms"
+          data-cid="${c.id}" data-cname="${escapeHtml(c.name)}" type="button">
           <div class="title" style="font-size:20px">${escapeHtml(c.name)}</div>
           <div class="sub">Tap to edit</div>
         </button>
@@ -2817,6 +2921,7 @@ function openEditCategoryModal(id, currentName) {
 function openAddItemModal() {
   const cats = (state.data.categories || []).map((c) => c.name);
   const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+
   const subOpts = [`<option value="">(none)</option>`]
     .concat(SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`))
     .join("");
@@ -2880,23 +2985,744 @@ function openAddItemModal() {
 }
 
 /* =========================
-   END PART 3 / 4
+   END PART 3B / 4
    ========================= */
 /* =========================
    PreCheck — public/app.js (FULL)
-   PART 4 / 4
+   PART 4A / 4  (SPLIT 1 of 2)
+
+   Includes (NEW / CHANGES):
+   ✅ REMOVE Dark Mode (force light, hide drawer switch, override theme functions)
+   ✅ New iOS-style wheel date picker:
+      - fits PreCheck colors
+      - year up to 2100
+      - Day + Month loop (no empty look)
+      - Allows backdated selection
+      - If backdated (before threshold), shows warning popup: "Discard product?"
+   ✅ Overrides:
+      - openDateWheelModal()
+      - openAddDateModal()  (no hard block past; warn instead)
+      - saveCategory()      (no hard block past; warn instead)
+
+   NOTE:
+   - PART 4B / 4 will contain: Download Log + CSV, Logout, Utils
+   ========================= */
+
+/* =========================================================
+   ✅ REMOVE DARK MODE (force light + hide UI)
+   - overrides previous theme functions from PART 1
+   ========================================================= */
+function applyTheme() {
+  // force light always
+  try {
+    document.documentElement.classList.remove("dark");
+    document.body.classList.remove("dark");
+  } catch {}
+}
+function getTheme() {
+  return "light";
+}
+function setTheme() {
+  applyTheme("light");
+}
+function toggleTheme() {
+  // disabled
+  applyTheme("light");
+  toast("Light mode ✅");
+}
+function updateThemeToggleUI() {
+  // hide the drawer theme row if exists
+  const host = document.getElementById("drawerTheme");
+  if (host) host.style.display = "none";
+}
+(function forceLightThemeNow() {
+  try {
+    document.documentElement.classList.remove("dark");
+    document.body.classList.remove("dark");
+    const host = document.getElementById("drawerTheme");
+    if (host) host.style.display = "none";
+  } catch {}
+})();
+
+/* =========================================================
+   Backdated warning helper
+   ========================================================= */
+function openBackdatedWarning({ pickedISO, thresholdISO, onProceed }) {
+  const picked = String(pickedISO || "").slice(0, 10);
+  const threshold = String(thresholdISO || "").slice(0, 10);
+
+  // if no threshold, just proceed
+  if (!threshold || picked >= threshold) return onProceed?.();
+
+  openModal(
+    "Backdated date detected",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:8px">This date is in the past.</div>
+        <div class="muted" style="font-weight:1100;line-height:1.35">
+          Picked: <b>${escapeHtml(formatLongDMY(picked))}</b><br/>
+          Today: <b>${escapeHtml(formatLongDMY(todayISO()))}</b>
+        </div>
+
+        <div style="margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+          <div style="font-weight:1200;margin-bottom:6px">Action</div>
+          <div class="muted" style="font-weight:1100;line-height:1.35">
+            If the product is already expired, discard the product before saving.
+          </div>
+        </div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="bdCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="bdProceed" class="btn btn-red" style="flex:1">Proceed</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#bdCancel")?.addEventListener("click", closeModal);
+  $("#bdProceed")?.addEventListener("click", () => {
+    closeModal();
+    onProceed?.();
+  });
+}
+
+/* =========================================================
+   ✅ iOS-style wheel date picker (looping Day + Month)
+   - year: 1900..2100 (default) OR from min/max if provided
+   - allows selecting outside threshold (minISO) but warns on OK
+   - hard max enforced (maxISO) if provided
+   ========================================================= */
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  const today = todayISO();
+
+  // threshold for backdated warning (NOT a hard limit)
+  const threshold = String(minISO || today).slice(0, 10);
+
+  // hard bounds for picker
+  const hardMin = "1900-01-01";
+  const hardMax = String(maxISO || "2100-12-31").slice(0, 10);
+
+  const init = String(initialISO || today).slice(0, 10);
+
+  function clampISO(iso) {
+    let x = String(iso || "").slice(0, 10);
+    if (!x) x = today;
+    if (x < hardMin) x = hardMin;
+    if (x > hardMax) x = hardMax;
+    return x;
+  }
+
+  function toYMD(iso) {
+    const [yy, mm, dd] = String(iso).slice(0, 10).split("-").map((n) => Number(n));
+    return { y: yy || 2000, m: mm || 1, d: dd || 1 };
+  }
+
+  function daysInMonth(y, m) {
+    return new Date(y, m, 0).getDate(); // m=1..12
+  }
+
+  function monthName(mm) {
+    return new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
+  }
+
+  function toISO(y, m, d) {
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+
+  // Build looping arrays: 5 copies to feel "infinite"
+  const LOOP_COPIES = 5;
+  const MID_COPY = Math.floor(LOOP_COPIES / 2);
+
+  const monthsLoop = [];
+  for (let c = 0; c < LOOP_COPIES; c++) {
+    for (let mm = 1; mm <= 12; mm++) monthsLoop.push(mm);
+  }
+
+  // Year range (dynamic but capped to 1900..2100)
+  const hardMinY = 1900;
+  const hardMaxY = 2100;
+  let yearMin = hardMinY;
+  let yearMax = hardMaxY;
+
+  try {
+    const minY = Number(String(hardMin).slice(0, 4));
+    const maxY = Number(String(hardMax).slice(0, 4));
+    if (Number.isFinite(minY)) yearMin = Math.max(hardMinY, minY);
+    if (Number.isFinite(maxY)) yearMax = Math.min(hardMaxY, maxY);
+  } catch {}
+
+  const years = [];
+  for (let yy = yearMin; yy <= yearMax; yy++) years.push(yy);
+
+  // current selection
+  let curISO = clampISO(init);
+  let { y, m, d } = toYMD(curISO);
+  d = Math.max(1, Math.min(d, daysInMonth(y, m)));
+
+  // helper to rebuild day loop based on y/m
+  function buildDaysLoop(y_, m_) {
+    const dim = daysInMonth(y_, m_);
+    const out = [];
+    for (let c = 0; c < LOOP_COPIES; c++) {
+      for (let dd = 1; dd <= dim; dd++) out.push(dd);
+    }
+    return out;
+  }
+
+  let daysLoop = buildDaysLoop(y, m);
+
+  // modal HTML + inline style (so you don’t need to edit css again)
+  openModal(
+    title || "Select date",
+    `
+      <div class="pc-ioswheel">
+        <style>
+          .pc-ioswheel{padding:6px 2px}
+          .pc-ioswheel .wheelwrap{
+            position:relative;
+            display:flex;
+            gap:10px;
+            background:#fff;
+            border:1px solid var(--line);
+            border-radius:18px;
+            padding:10px;
+            overflow:hidden;
+          }
+          .pc-ioswheel .col{flex:1;min-width:0}
+          .pc-ioswheel .label{
+            font-weight:1200;
+            font-size:12px;
+            color:#111;
+            margin:0 0 8px 2px;
+            opacity:.75;
+          }
+          .pc-ioswheel .list{
+            height:220px;
+            overflow:auto;
+            -webkit-overflow-scrolling:touch;
+            scroll-snap-type:y mandatory;
+            border-radius:14px;
+            background:linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65) 25%, rgba(255,255,255,.65) 75%, rgba(255,255,255,1));
+          }
+          .pc-ioswheel .item{
+            height:44px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            scroll-snap-align:center;
+            font-weight:1200;
+            font-size:16px;
+            color:#111;
+            opacity:.55;
+            user-select:none;
+          }
+          .pc-ioswheel .item.active{opacity:1; color:#111}
+          .pc-ioswheel .hl{
+            position:absolute;
+            left:10px; right:10px;
+            top:10px;
+            height:44px;
+            transform:translateY(calc(220px/2 - 22px));
+            border-radius:14px;
+            border:2px solid rgba(0,0,0,.06);
+            box-shadow:0 6px 18px rgba(0,0,0,.08) inset;
+            pointer-events:none;
+          }
+          .pc-ioswheel .fadeTop, .pc-ioswheel .fadeBot{
+            position:absolute; left:0; right:0; height:44px; pointer-events:none;
+          }
+          .pc-ioswheel .fadeTop{top:0;background:linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,0))}
+          .pc-ioswheel .fadeBot{bottom:0;background:linear-gradient(to top, rgba(255,255,255,1), rgba(255,255,255,0))}
+          .pc-ioswheel .actions{display:flex; gap:12px; margin-top:12px}
+          .pc-ioswheel .btnx{
+            flex:1; padding:12px 12px; border-radius:14px; font-weight:1200; border:1px solid var(--line);
+            background:#fff;
+          }
+          .pc-ioswheel .btnok{background:var(--green); color:#fff; border:0}
+          .pc-ioswheel .hint{
+            margin-top:10px;
+            font-weight:1100;
+            font-size:12px;
+            color:#111;
+            opacity:.7;
+          }
+        </style>
+
+        <div class="wheelwrap">
+          <div class="col">
+            <div class="label">Day</div>
+            <div class="list" id="wDay"></div>
+          </div>
+          <div class="col">
+            <div class="label">Month</div>
+            <div class="list" id="wMon"></div>
+          </div>
+          <div class="col">
+            <div class="label">Year</div>
+            <div class="list" id="wYear"></div>
+          </div>
+
+          <div class="hl" aria-hidden="true"></div>
+          <div class="fadeTop" aria-hidden="true"></div>
+          <div class="fadeBot" aria-hidden="true"></div>
+        </div>
+
+        <div class="actions">
+          <button class="btnx" type="button" id="wCancel">Cancel</button>
+          <button class="btnx btnok" type="button" id="wOk">Set date</button>
+        </div>
+
+        <div class="hint">
+          Tip: Past dates are allowed. If you pick a past date, you will see a discard warning.
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  const dayEl = $("#wDay");
+  const monEl = $("#wMon");
+  const yearEl = $("#wYear");
+
+  function renderList(el, arr, formatter) {
+    el.innerHTML = arr
+      .map((v) => `<div class="item" data-v="${escapeHtml(String(v))}">${formatter(v)}</div>`)
+      .join("");
+  }
+
+  function setActiveByValue(el, value) {
+    const items = $$(".item", el);
+    items.forEach((x) => x.classList.remove("active"));
+    const hit = items.find((x) => String(x.dataset.v) === String(value));
+    if (hit) hit.classList.add("active");
+  }
+
+  function centerToValue(el, arr, value, loop = false) {
+    const items = $$(".item", el);
+    if (!items.length) return;
+
+    // find target index: for loop lists, go to middle copy
+    let idx = arr.findIndex((v) => String(v) === String(value));
+    if (idx < 0) idx = 0;
+
+    if (loop) {
+      const baseLen = loop === "month" ? 12 : daysInMonth(y, m);
+      const target = MID_COPY * baseLen + ((Number(value) - 1) % baseLen);
+      idx = Math.max(0, Math.min(items.length - 1, target));
+    }
+
+    const item = items[idx];
+    const top = item.offsetTop - el.clientHeight / 2 + item.clientHeight / 2;
+    el.scrollTo({ top, behavior: "auto" });
+    setActiveByValue(el, value);
+  }
+
+  function readCenteredValue(el) {
+    const items = $$(".item", el);
+    if (!items.length) return null;
+    const center = el.scrollTop + el.clientHeight / 2;
+
+    let best = null;
+    let bestDist = Infinity;
+    for (const it of items) {
+      const itCenter = it.offsetTop + it.clientHeight / 2;
+      const dist = Math.abs(itCenter - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+    return best ? best.dataset.v : null;
+  }
+
+  function normalizeLoopScroll(el, baseLen) {
+    // keep scroll around middle copy so it never "ends"
+    const items = $$(".item", el);
+    if (!items.length) return;
+    const centered = readCenteredValue(el);
+    if (!centered) return;
+
+    const v = Number(centered);
+    const targetIndex = MID_COPY * baseLen + (v - 1);
+    const targetItem = items[targetIndex];
+    if (!targetItem) return;
+
+    const targetTop = targetItem.offsetTop - el.clientHeight / 2 + targetItem.clientHeight / 2;
+    // if user drags too far near edges, jump silently
+    const tooHigh = el.scrollTop < el.clientHeight * 0.5;
+    const tooLow = el.scrollTop > el.scrollHeight - el.clientHeight * 1.5;
+    if (tooHigh || tooLow) el.scrollTo({ top: targetTop, behavior: "auto" });
+  }
+
+  function rebuildDaysIfNeeded() {
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+    daysLoop = buildDaysLoop(y, m);
+    renderList(dayEl, daysLoop, (dd) => String(dd));
+    setActiveByValue(dayEl, d);
+    centerToValue(dayEl, daysLoop, d, "day");
+  }
+
+  function updateCurISO() {
+    curISO = clampISO(toISO(y, m, d));
+  }
+
+  // initial render
+  renderList(monEl, monthsLoop, (mm) => monthName(mm));
+  renderList(yearEl, years, (yy) => String(yy));
+  rebuildDaysIfNeeded();
+
+  // center to current values
+  centerToValue(monEl, monthsLoop, m, "month");
+  centerToValue(yearEl, years, y, false);
+
+  // events
+  let tDay = null,
+    tMon = null,
+    tYear = null;
+
+  function onScrollDay() {
+    clearTimeout(tDay);
+    tDay = setTimeout(() => {
+      normalizeLoopScroll(dayEl, daysInMonth(y, m));
+      const v = readCenteredValue(dayEl);
+      if (v) {
+        d = Number(v);
+        updateCurISO();
+        setActiveByValue(dayEl, d);
+      }
+    }, 90);
+  }
+
+  function onScrollMon() {
+    clearTimeout(tMon);
+    tMon = setTimeout(() => {
+      normalizeLoopScroll(monEl, 12);
+      const v = readCenteredValue(monEl);
+      if (v) {
+        m = Number(v);
+        rebuildDaysIfNeeded();
+        updateCurISO();
+        setActiveByValue(monEl, m);
+      }
+    }, 90);
+  }
+
+  function onScrollYear() {
+    clearTimeout(tYear);
+    tYear = setTimeout(() => {
+      const v = readCenteredValue(yearEl);
+      if (v) {
+        y = Number(v);
+        rebuildDaysIfNeeded();
+        updateCurISO();
+        setActiveByValue(yearEl, y);
+      }
+    }, 90);
+  }
+
+  dayEl.addEventListener("scroll", onScrollDay, { passive: true });
+  monEl.addEventListener("scroll", onScrollMon, { passive: true });
+  yearEl.addEventListener("scroll", onScrollYear, { passive: true });
+
+  // tap select
+  function bindTap(el, setter) {
+    el.addEventListener("click", (e) => {
+      const it = e.target.closest(".item");
+      if (!it) return;
+      setter(it.dataset.v);
+    });
+  }
+
+  bindTap(dayEl, (v) => {
+    d = Number(v);
+    updateCurISO();
+    centerToValue(dayEl, daysLoop, d, "day");
+    haptic(8);
+  });
+
+  bindTap(monEl, (v) => {
+    m = Number(v);
+    rebuildDaysIfNeeded();
+    updateCurISO();
+    centerToValue(monEl, monthsLoop, m, "month");
+    haptic(8);
+  });
+
+  bindTap(yearEl, (v) => {
+    y = Number(v);
+    rebuildDaysIfNeeded();
+    updateCurISO();
+    centerToValue(yearEl, years, y, false);
+    haptic(8);
+  });
+
+  // cancel / ok
+  $("#wCancel")?.addEventListener("click", closeModal);
+
+  $("#wOk")?.addEventListener("click", () => {
+    const picked = clampISO(toISO(y, m, d));
+
+    // enforce hard max (and hard min)
+    if (picked < hardMin || picked > hardMax) {
+      toast("Date out of range");
+      return;
+    }
+
+    closeModal();
+
+    // if picked is before threshold, warn first
+    openBackdatedWarning({
+      pickedISO: picked,
+      thresholdISO: threshold,
+      onProceed: () => onPick && onPick(picked),
+    });
+  });
+}
+
+/* =========================================================
+   ✅ Override Add 2nd date popup:
+   - allow backdated with warning (no hard block)
+   ========================================================= */
+function openAddDateModal({ it, cat, key }) {
+  const d = state.drafts[key] || (state.drafts[key] = {});
+  d.extraISO = d.extraISO || "";
+  d.extraQty = d.extraQty || 0;
+
+  const rule = shelfLifeModeFor(it, cat);
+  const today = todayISO();
+  const warnThreshold = today; // warn if past
+
+  openModal(
+    "Add 2nd date",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(it.name)}</div>
+
+        <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
+          <div style="font-weight:1200;margin-bottom:8px">2nd expiry date</div>
+
+          ${
+            rule.mode === "HOURLY"
+              ? `<div class="muted" style="font-weight:1000">Hourly items cannot use Add 2nd date.</div>`
+              : rule.mode === "EOD_AUTO"
+              ? `<div class="muted" style="font-weight:1000">Chicken Bacon (c) is auto today (EOD).</div>`
+              : `
+                <button id="exPick" class="btn btn-yellow" style="width:100%">Pick date</button>
+                <div id="exShow" style="margin-top:8px;font-weight:1200">
+                  ${d.extraISO ? escapeHtml(formatLongDMY(d.extraISO)) : "Not set"}
+                </div>
+              `
+          }
+
+          <div style="margin-top:10px;font-weight:1200">Qty</div>
+          <input id="exQty" class="input" inputmode="numeric" value="${escapeHtml(d.extraQty || 0)}">
+        </div>
+
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          Past dates are allowed (warning will appear).
+        </div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="exCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="exOk" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Done</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#exQty")?.addEventListener("input", () => {
+    d.extraQty = Number($("#exQty").value || 0);
+    saveDraftsToStorage();
+  });
+
+  if (rule.mode === "HOURLY") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", closeModal);
+    return;
+  }
+
+  if (rule.mode === "EOD_AUTO") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", () => {
+      d.extraISO = todayISO();
+      saveDraftsToStorage();
+      closeModal();
+      render();
+      toast("Added 2nd date ✅");
+    });
+    return;
+  }
+
+  $("#exPick")?.addEventListener("click", () => {
+    openDateWheelModal({
+      title: "Pick 2nd expiry date",
+      initialISO: d.extraISO || todayISO(),
+      minISO: warnThreshold, // warning threshold only
+      maxISO: "2100-12-31",
+      onPick: (iso) => {
+        d.extraISO = iso;
+        saveDraftsToStorage();
+        const el = $("#exShow");
+        if (el) el.textContent = formatLongDMY(iso);
+      },
+    });
+  });
+
+  $("#exCancel")?.addEventListener("click", closeModal);
+
+  $("#exOk")?.addEventListener("click", () => {
+    const q = Number(d.extraQty || 0);
+    if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
+    saveDraftsToStorage();
+    closeModal();
+    render();
+    toast("Added 2nd date ✅");
+  });
+}
+
+/* =========================================================
+   ✅ Override Save category:
+   - allow backdated expiry BUT show warning before saving
+   ========================================================= */
+async function saveCategory(items, cat) {
+  const store = state.session.store;
+  const staff = state.session.staff;
+  const shift = state.session.shift;
+  const today = todayISO();
+
+  const rows = [];
+
+  // collect rows first (no blocking for past, just collect)
+  for (const it of items) {
+    const key = itemKey(it);
+    const d =
+      state.drafts[key] || {
+        qty: 0,
+        expType: "",
+        expDateISO: "",
+        expTimeShort: "",
+        extraISO: "",
+        extraQty: 0,
+      };
+
+    const qty = Number(d.qty) || 0;
+    const xq = Number(d.extraQty) || 0;
+
+    const rule = shelfLifeModeFor(it, cat);
+
+    // main row
+    if (qty > 0) {
+      let expiry = null;
+      let expiry_at = null;
+
+      if (rule.mode === "HOURLY") {
+        if (!d.expTimeShort) {
+          toast(`Pick time for ${it.name}`);
+          return;
+        }
+        expiry = today;
+        expiry_at = isoFromTodayAndTime(d.expTimeShort);
+      } else if (rule.mode === "EOD_AUTO") {
+        expiry = today;
+      } else {
+        expiry = d.expDateISO || null;
+        if (!expiry) {
+          toast(`Pick expiry for ${it.name}`);
+          return;
+        }
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: qty,
+        expiry,
+        expiry_at,
+        shift,
+        is_extra: false,
+      });
+    }
+
+    // extra 2nd date row
+    if (xq > 0) {
+      const expiry = rule.mode === "EOD_AUTO" ? today : d.extraISO || "";
+      if (!expiry) {
+        toast("Set 2nd date");
+        return;
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: xq,
+        expiry,
+        expiry_at: null,
+        shift,
+        is_extra: true,
+        extra_tag: "SECOND",
+      });
+    }
+  }
+
+  if (!rows.length) return toast("Nothing to save");
+
+  // if any expiry is backdated, warn once before saving
+  const anyBackdated = rows.some((r) => {
+    const e = String(r.expiry || "").slice(0, 10);
+    return e && e < today;
+  });
+
+  const doActualSave = async () => {
+    showSaving("Saving…");
+    try {
+      await apiPost("/api/log/batch", { store, staff, shift, rows });
+
+      const lastName = rows.length ? rows[rows.length - 1].item_name || "" : "";
+      recordShiftDoneAndLast({ store, shift, staff, lastItemName: lastName });
+
+      toast("Saved ✅");
+      await refreshStockDot().catch(() => {});
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  };
+
+  if (anyBackdated) {
+    openBackdatedWarning({
+      pickedISO: today, // not used for display in this case
+      thresholdISO: today, // force warning modal
+      onProceed: doActualSave,
+    });
+    return;
+  }
+
+  await doActualSave();
+}
+
+/* =========================
+   END PART 4A / 4
+   ========================= */
+/* =========================
+   PreCheck — public/app.js (FULL)
+   PART 4B / 4  (SPLIT 2 of 2)
 
    Includes:
    - Download Log modal + CSV export (manager)
    - Logout
    - Utils (must be last)
 
-   Fixes in this PART:
-   ✅ Your pasted saveCategory try/catch location bug:
-      - Ensures saveCategory() is properly closed with "}" before other functions
-   ✅ Summary shift card template bug:
-      - Removed broken template chunk you had in PART 3
-   ✅ Adds small helper: withSaving(msg, fn) (optional)
+   Notes:
+   - This part stays mostly same as your PART 4, but keeps working with the new wheel + light-only setup.
    ========================= */
 
 /* =========================================================
@@ -2960,8 +3786,8 @@ function openDownloadLogModal() {
     openDateWheelModal({
       title: "From date",
       initialISO: state[memKey].from || todayISO(),
-      minISO: addDaysISO(todayISO(), -365 * 5),
-      maxISO: todayISO(),
+      minISO: todayISO(), // warning threshold only
+      maxISO: "2100-12-31",
       onPick: (iso) => {
         state[memKey].from = iso;
         redraw();
@@ -2973,8 +3799,8 @@ function openDownloadLogModal() {
     openDateWheelModal({
       title: "To date",
       initialISO: state[memKey].to || todayISO(),
-      minISO: addDaysISO(todayISO(), -365 * 5),
-      maxISO: todayISO(),
+      minISO: todayISO(), // warning threshold only
+      maxISO: "2100-12-31",
       onPick: (iso) => {
         state[memKey].to = iso;
         redraw();
@@ -3102,5 +3928,5 @@ function updateQtyUI(root, key) {
 }
 
 /* =========================
-   END PART 4 / 4
+   END PART 4B / 4
    ========================= */
