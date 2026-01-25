@@ -1,5 +1,5 @@
 // =========================
-// PreCheck — server.js (FULL / CLEAN)
+// PreCheck — server.js (FULL / CLEAN) ✅ FIXED SHIFT NORMALIZATION
 // =========================
 
 import express from "express";
@@ -43,6 +43,12 @@ function normStore(s) {
   return t === "PDD" || t === "SKH" ? t : "";
 }
 
+// ✅ FIX: normalize shift so DB always gets exactly "AM" or "PM"
+function normShift(s) {
+  const t = String(s || "").trim().toUpperCase();
+  return t === "PM" ? "PM" : "AM";
+}
+
 function err(res, code, message) {
   res.status(code).json({ error: message });
 }
@@ -82,7 +88,7 @@ function dbCategoryFromUi(cat) {
 async function markDoneSG(store, staff, shift) {
   if (!store) return;
   const who = String(staff || "").trim() || null;
-  const sh = String(shift || "").trim().toUpperCase() === "PM" ? "PM" : "AM";
+  const sh = normShift(shift);
 
   await q(
     `
@@ -139,17 +145,17 @@ app.get("/api/status", async (req, res) => {
       ),
       per_shift as (
         select
-          shift,
+          upper(trim(shift)) as shift,
           count(*)::int as total_rows
         from today_logs
-        group by shift
+        group by upper(trim(shift))
       ),
       last_item as (
-        select distinct on (shift)
-          shift,
+        select distinct on (upper(trim(shift)))
+          upper(trim(shift)) as shift,
           item_name as last_item_name
         from today_logs
-        order by shift, created_at desc
+        order by upper(trim(shift)), created_at desc
       )
       select
         coalesce(p.shift, l.shift) as shift,
@@ -163,8 +169,7 @@ app.get("/api/status", async (req, res) => {
 
     const shiftExtra = new Map();
     for (const r of logs.rows) {
-      const sh = String(r.shift || "").toUpperCase();
-      if (!sh) continue;
+      const sh = normShift(r.shift);
       shiftExtra.set(sh, {
         total_rows: Number(r.total_rows || 0),
         last_item_name: String(r.last_item_name || ""),
@@ -173,15 +178,13 @@ app.get("/api/status", async (req, res) => {
 
     const out = { AM: null, PM: null };
     for (const row of base.rows) {
-      const sh = String(row.shift || "").toUpperCase();
+      const sh = normShift(row.shift);
       const extra = shiftExtra.get(sh) || { total_rows: 0, last_item_name: "" };
-      const merged = { ...row, ...extra };
+      const merged = { ...row, shift: sh, ...extra };
       if (sh === "AM") out.AM = merged;
       if (sh === "PM") out.PM = merged;
     }
 
-    // If no daily_status yet, still return logs-based info (so cross device works even if you didn’t markDone)
-    // But your /api/log already calls markDoneSG, so usually daily_status exists.
     if (!out.AM && shiftExtra.has("AM")) {
       out.AM = {
         store,
@@ -215,7 +218,7 @@ app.post("/api/status/mark-done", async (req, res) => {
     const store = normStore(req.body?.store);
     if (!store) return err(res, 400, "Invalid store");
     const staff = String(req.body?.staff || "").trim();
-    const shift = String(req.body?.shift || "AM").trim();
+    const shift = normShift(req.body?.shift || "AM");
     await markDoneSG(store, staff, shift);
     res.json({ ok: true });
   } catch (e) {
@@ -291,7 +294,7 @@ app.post("/api/log", async (req, res) => {
     if (!store) return err(res, 400, "Invalid store");
 
     const staff = String(r.staff || "").trim();
-    const shift = String(r.shift || "").trim();
+    const shift = normShift(r.shift);
 
     const item_id = r.item_id ?? null;
     const item_name = String(r.item_name || r.item || "").trim();
@@ -307,7 +310,7 @@ app.post("/api/log", async (req, res) => {
     const expiry2 = r.expiry2 ? String(r.expiry2).slice(0, 10) : null;
     const expiry2_at = r.expiry2_at ? String(r.expiry2_at) : null;
 
-    if (!staff || !shift) return err(res, 400, "Missing staff/shift");
+    if (!staff) return err(res, 400, "Missing staff");
     if (!item_name || !category) return err(res, 400, "Missing item/category");
     if (quantity != null && (!Number.isFinite(quantity) || quantity < 0))
       return err(res, 400, "Invalid quantity");
@@ -360,10 +363,10 @@ app.post("/api/log/batch", async (req, res) => {
     if (!store) return err(res, 400, "Invalid store");
 
     const staff = String(body.staff || "").trim();
-    const shift = String(body.shift || "").trim();
+    const shift = normShift(body.shift);
     const rows = Array.isArray(body.rows) ? body.rows : [];
 
-    if (!staff || !shift) return err(res, 400, "Missing staff/shift");
+    if (!staff) return err(res, 400, "Missing staff");
     if (!rows.length) return err(res, 400, "No rows");
 
     for (const r of rows) {
@@ -677,7 +680,6 @@ app.patch("/api/manager/items/:id", requireManager, async (req, res) => {
     const shelf_life_days = Number(req.body?.shelf_life_days ?? 0);
     const is_hourly = req.body?.is_hourly == null ? null : !!req.body.is_hourly;
 
-    // Optional stock fields (if you later add UI)
     const stock_alert_enabled =
       req.body?.stock_alert_enabled == null ? null : !!req.body.stock_alert_enabled;
     const stock_min = req.body?.stock_min == null ? null : Number(req.body.stock_min);
@@ -905,7 +907,10 @@ app.get("/api/manager/log/export.csv", requireManager, async (req, res) => {
     }
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="PreCheck_${store}_${from}_to_${to}.csv"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="PreCheck_${store}_${from}_to_${to}.csv"`
+    );
     res.send(lines.join("\n"));
   } catch (e) {
     err(res, 500, e?.message || "Failed");
