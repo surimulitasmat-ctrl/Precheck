@@ -27,6 +27,26 @@
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+/* ================================
+   Splash Screen
+   ================================ */
+function showSplash() {
+  const el = document.createElement("div");
+  el.className = "pc-splash";
+  el.innerHTML = `
+    <div class="pc-splash-inner">
+      <div class="pc-watch"></div>
+      <div class="pc-tagline">lets work toward 0% expiry</div>
+    </div>
+  `;
+  document.body.appendChild(el);
+
+  // auto remove
+  setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 400);
+  }, 2200);
+}
 
 /* ---------- constants ---------- */
 const POPUP_ITEMS = [
@@ -92,7 +112,8 @@ startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
-  ensureSessionDayKey();
+   showSplash();
+ ensureSessionDayKey();
 
   // update drawer label on load
   updateDrawerAlertLabel(false);
