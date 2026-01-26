@@ -102,6 +102,32 @@ const state = {
   stock: { hasDot: false, rows: [] },
   __draftsHydrated: false,
 };
+function setSplashAccentForStore(store) {
+  // before login we don't know store, so default green.
+  // after login, set based on chosen store.
+  const root = document.documentElement;
+  const s = String(store || "").toUpperCase();
+  if (s === "PDD") root.style.setProperty("--pc-splash-accent", "var(--pdd)");
+  else if (s === "SKH") root.style.setProperty("--pc-splash-accent", "var(--skh)");
+  else root.style.setProperty("--pc-splash-accent", "#009A44");
+}
+
+function showSplash() {
+  const el = document.getElementById("pcSplash");
+  if (!el) return;
+  el.classList.remove("is-hidden");
+
+  // if session already has store (user already logged in), use it
+  setSplashAccentForStore(state?.session?.store || "");
+}
+
+function hideSplash() {
+  const el = document.getElementById("pcSplash");
+  if (!el) return;
+  el.classList.add("is-hidden");
+  // optional: remove after fade
+  setTimeout(() => el.remove(), 350);
+}
 
 /* ---------- boot ---------- */
 bindTopbar();
