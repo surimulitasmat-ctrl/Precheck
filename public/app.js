@@ -97,11 +97,16 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
-  // per itemKey: { qty, expType, expDateISO, expTimeShort, extraISO, extraQty }
   drafts: {},
   stock: { hasDot: false, rows: [] },
   __draftsHydrated: false,
 };
+
+/* =========================
+   SPLASH – SHOW IMMEDIATELY
+   ========================= */
+showSplash();
+
 function setSplashAccentForStore(store) {
   // before login we don't know store, so default green.
   // after login, set based on chosen store.
@@ -138,8 +143,10 @@ startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
-   showSplash();
- ensureSessionDayKey();
+  // ✅ SHOW splash immediately when app starts
+  showSplash();
+
+  ensureSessionDayKey();
 
   // update drawer label on load
   updateDrawerAlertLabel(false);
@@ -147,9 +154,19 @@ async function boot() {
   // Wake server (best-effort)
   await wakeServer().catch(() => {});
 
+  // 🔐 Not logged in → go to login, then hide splash
   if (!state.session.store || !state.session.staff) {
-    state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
+    state.view = {
+      page: "login",
+      category: null,
+      sauceSub: null,
+      summaryMode: null,
+      bucket: null,
+    };
     render();
+
+    // ✅ IMPORTANT: hide splash AFTER login screen is ready
+    hideSplash();
     return;
   }
 
@@ -163,7 +180,11 @@ async function boot() {
 
   maybeShowExpiryPopup(false);
   render();
+
+  // ✅ HIDE splash only when app is fully ready
+  hideSplash();
 }
+
 
 /* =========================================================
    STORAGE
