@@ -7,77 +7,96 @@
 
     <!-- PWA -->
     <meta name="theme-color" content="#009A44" />
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="/manifest.json?v=20260113a" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
+    <!-- ✅ Prevent theme flash (apply dark before CSS + app render)
+         IMPORTANT: we set dark on <html> because <body> isn't ready yet.
+    -->
+    <script>
+      (function () {
+        try {
+          var v = localStorage.getItem("pc_theme");
+          if (v === "dark") document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
+
     <!-- Styles -->
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=20260113a" />
   </head>
 
   <body>
-
-    <!-- =========================
-         SPLASH SCREEN
-         ========================= -->
-    <div id="pcSplash" class="pc-splash">
-      <div class="pc-splash-inner">
-        <div class="pc-watch">
-          <div class="pc-glow"></div>
-          <div class="pc-face">
-            <div class="pc-hand"></div>
-            <div class="pc-pin"></div>
-          </div>
-          <div class="pc-crown"></div>
-          <div class="pc-btn pc-btn-l"></div>
-          <div class="pc-btn pc-btn-r"></div>
-        </div>
-
-        <div class="pc-tagline">Let’s work toward 0% expiry</div>
-      </div>
-    </div>
-
     <!-- =========================
          TOP BAR
          ========================= -->
     <header class="topbar" id="topbar">
       <div class="topbar-row">
-        <button id="btnMenu" class="menu-btn" type="button">☰</button>
+        <!-- Hamburger -->
+        <button id="btnMenu" class="menu-btn" type="button" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d="M4 6h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            <path d="M4 12h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            <path d="M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+          </svg>
+        </button>
+
         <div class="brand-wrap">
           <div class="brand">PreCheck</div>
           <div id="sessionLine" class="session-line hidden"></div>
         </div>
-        <div id="roleHost"></div>
+
+        <div class="topbar-right">
+          <!-- role pill injected by app.js -->
+          <div id="roleHost"></div>
+        </div>
       </div>
     </header>
 
     <!-- =========================
-         DRAWER
+         LEFT DRAWER
          ========================= -->
-    <div id="drawerBackdrop" class="drawer-backdrop hidden">
-      <aside class="drawer">
-        <button id="drawerHome">Home</button>
-        <button id="drawerAlerts">Stock Alert</button>
-        <button id="drawerManager">Manager</button>
-        <button id="drawerSummary">Summary</button>
-        <button id="drawerLogout">Logout</button>
+    <div id="drawerBackdrop" class="drawer-backdrop hidden" aria-hidden="true">
+      <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Menu">
+        <div class="drawer-head">
+          <div class="drawer-title">Menu</div>
+          <button id="btnDrawerClose" class="icon-btn" type="button" aria-label="Close">✕</button>
+        </div>
+
+        <div class="drawer-body">
+          <button class="drawer-item big" id="drawerHome" type="button">🏠 Home</button>
+          <button class="drawer-item big" id="drawerAlerts" type="button">📦 Stock Alert</button>
+          <button class="drawer-item big" id="drawerManager" type="button">👑 Manager</button>
+          <button class="drawer-item big" id="drawerSummary" type="button">📊 Summary</button>
+          <button class="drawer-item big" id="drawerWISR" type="button">🧾 WISR Count</button>
+
+          <!-- ✅ Keep as a button; app.js will render the switch UI inside -->
+          <button id="drawerTheme" class="drawer-item" type="button" aria-pressed="false">
+            🌙 Dark mode
+          </button>
+
+          <div class="drawer-spacer"></div>
+
+          <button class="drawer-item big danger" id="drawerLogout" type="button">⛔ Logout</button>
+        </div>
       </aside>
     </div>
 
     <!-- =========================
          MAIN CONTENT
          ========================= -->
-    <main id="main"></main>
+    <main id="main" class="container"></main>
 
     <!-- =========================
          MODAL
          ========================= -->
-    <div id="modalBackdrop" class="backdrop hidden">
-      <div class="modal">
+    <div id="modalBackdrop" class="backdrop hidden" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true">
         <div class="modal-head">
-          <div id="modalTitle">Modal</div>
-          <button id="modalClose">✕</button>
+          <div id="modalTitle" class="modal-title">Modal</div>
+          <button id="modalClose" class="icon-btn" type="button" aria-label="Close">✕</button>
         </div>
-        <div id="modalBody"></div>
+        <div id="modalBody" class="modal-body"></div>
       </div>
     </div>
 
@@ -89,7 +108,6 @@
     <!-- =========================
          APP SCRIPT
          ========================= -->
-    <script src="/app.js"></script>
-
+    <script src="/app.js?v=20260113a"></script>
   </body>
 </html>
