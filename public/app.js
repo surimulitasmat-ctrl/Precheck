@@ -224,8 +224,9 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 function cssEsc(s) {
-  return String(s).replaceAll('"', '\\"');
+  return String(s).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
 
 /* =========================================================
    TOAST
@@ -1957,12 +1958,7 @@ function clearDraftsForNewSession() {
 /* =========================================================
    ✅ FIX: Expiry popup rollback styles must be applied
    ========================================================= */
-function ensureExpiryPopupIsPolishedAndStable() {
-  try {
-    // keep your rollback styling (old clean popup look)
-    ensureExpiryPopupRollbackStyles();
-  } catch {}
-}
+
 
 /* =========================================================
    MANAGER HOME
@@ -2694,7 +2690,7 @@ function updateQtyUI(root, key) {
    ========================================================= */
 (function applyFinalPatches() {
   // apply popup styles once
-  ensureExpiryPopupIsPolishedAndStable();
+
 
   // patch Start button handler: clear drafts after session set
   // (Your renderLoginPage already attaches startBtn listener; we hook by event delegation)
