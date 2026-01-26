@@ -1,12 +1,28 @@
-/* =========================================================
+/* =========================
    PreCheck — public/app.js (FULL)
-   PART 1 / 6
+   PART 1 / 4
 
-   FIXED:
-   - critical typo bugs
-   - stable session boot
-   - expiry popup polish (rollback-safe)
-   ========================================================= */
+   Includes:
+   - DOM helpers
+   - constants
+   - state
+   - boot + session storage
+   - date/time helpers
+   - hourly times
+   - API helpers
+   - Render wakeServer
+   - data load + normalizeSub
+   - topbar + drawer + modal/toast
+   - saving overlay (Saving… / Deleting…)
+   - shift DONE + last item saved (single source of truth) ✅
+   - popup + midnight reset
+   - login page
+
+   NOTE:
+   - PART 2: navigation + drafts + home/category + editors + saveCategory + NEW iOS wheel picker ✅
+   - PART 3: stock alert + summary (shows last item) + wisr
+   - PART 4: manager pages (with loading overlay) + logout + utils
+   ========================= */
 
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -24,7 +40,10 @@ const POPUP_ITEMS = [
   "BakedWaffle",
 ];
 
+// manual date only categories
 const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
+
+// exclude from Stock Alert page
 const STOCK_ALERT_EXCLUDE_CATS = new Set(["Sauce", "Front counter"]);
 
 const CAT_EMOJI = {
@@ -58,6 +77,7 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
+  // per itemKey: { qty, expType, expDateISO, expTimeShort, extraISO, extraQty }
   drafts: {},
   stock: { hasDot: false, rows: [] },
   __draftsHydrated: false,
@@ -69,17 +89,19 @@ bindDrawer();
 bindModal();
 bindAppBackGuard();
 startMidnightWatcher();
-
 boot().catch(console.error);
 
 async function boot() {
   ensureSessionDayKey();
+
+  // update drawer label on load
   updateDrawerAlertLabel(false);
 
+  // Wake server (best-effort)
   await wakeServer().catch(() => {});
 
   if (!state.session.store || !state.session.staff) {
-    state.view.page = "login";
+    state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
     return;
   }
@@ -113,7 +135,7 @@ function saveSession() {
 }
 
 /* =========================================================
-   DATE / TIME HELPERS
+   DATE/TIME HELPERS
    ========================================================= */
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -130,17 +152,62 @@ function ensureSessionDayKey() {
   }
 }
 function todayISO() {
-  return dayKeyNow();
-}
-function addDaysISO(baseISO, n) {
-  const d = new Date(baseISO + "T00:00:00");
-  d.setDate(d.getDate() + n);
+  const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
-function formatLongDMY(iso) {
-  const d = new Date(String(iso).slice(0, 10) + "T00:00:00");
-  return `${d.getDate()} ${d.toLocaleString("en-GB", { month: "long" })} ${d.getFullYear()}`;
+function addDaysISO(baseISO, n) {
+  const dt = new Date(baseISO + "T00:00:00");
+  dt.setDate(dt.getDate() + n);
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
+function formatLongDMY(iso) {
+  const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
+  const day = dt.getDate();
+  const mon = dt.toLocaleString("en-GB", { month: "long" });
+  const year = dt.getFullYear();
+  return `${day} ${mon} ${year}`;
+}
+function isChickenBaconC(name) {
+  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
+}
+function formatTime12(hhmm) {
+  const [hS, mS] = String(hhmm).split(":");
+  let h = Number(hS);
+  const m = Number(mS);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${pad2(m)} ${ampm}`;
+}
+function isoFromTodayAndTime(hhmm) {
+  return `${todayISO()}T${String(hhmm)}:00`;
+}
+function datePartFromRow(row) {
+  if (row?.expiry_at) return String(row.expiry_at).slice(0, 10);
+  return String(row?.expiry_value || row?.expiry || "").slice(0, 10);
+}
+function timePartFromRow(row) {
+  if (!row?.expiry_at) return "";
+  try {
+    const d = new Date(row.expiry_at);
+    return formatTime12(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
+  } catch {
+    return "";
+  }
+}
+
+/* =========================================================
+   HOURLY SHORT TIMES
+   Only: 7am, 11am, 3pm, 7pm, 11pm
+   ========================================================= */
+const HOURLY_SHORT = [
+  { value: "07:00", label: "7 AM" },
+  { value: "11:00", label: "11 AM" },
+  { value: "15:00", label: "3 PM" },
+  { value: "19:00", label: "7 PM" },
+  { value: "23:00", label: "11 PM" },
+];
 
 /* =========================================================
    API
@@ -156,80 +223,167 @@ async function apiGet(path, token = "") {
   if (!r.ok) throw new Error(t);
   return t ? JSON.parse(t) : {};
 }
+async function apiPost(path, body, token = "") {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t);
+  return t ? JSON.parse(t) : {};
+}
+async function apiPatch(path, body, token = "") {
+  const r = await fetch(path, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t);
+  return t ? JSON.parse(t) : {};
+}
+async function apiDel(path, token = "") {
+  const r = await fetch(path, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t);
+  return t ? JSON.parse(t) : {};
+}
 
 /* =========================================================
-   Wake server
+   Render sleep handling — Wake server
    ========================================================= */
 async function wakeServer() {
   try {
     await apiGet("/api/health");
   } catch {
-    toast("Waking server… please wait");
+    // don’t crash; just inform user
+    toast("Waking server… try again in 5–10s");
   }
 }
 
 /* =========================================================
-   EXPIRY POPUP (POLISHED, SAME DESIGN)
+   DATA LOAD
    ========================================================= */
-function maybeShowExpiryPopup(force) {
-  const k = dayKeyNow();
-  const seenKey = `expiry_popup_seen_${k}`;
-  if (!force && localStorage.getItem(seenKey) === "1") return;
-  localStorage.setItem(seenKey, "1");
+async function loadAllForCurrentStore() {
+  const store = state.session.store;
+  state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
+  state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
 
-  const list = POPUP_ITEMS.map((x) => `<li>${escapeHtml(x)}</li>`).join("");
-
-  openModal(
-    "PLEASE check the expiry date",
-    `
-      <div class="pc-expiry-box">
-        <div class="pc-expiry-lead">
-          Please double check expiry dates before saving:
-        </div>
-        <ul class="pc-expiry-list">${list}</ul>
-        <button id="popupOk" class="pc-expiry-ok" type="button">OK</button>
-      </div>
-    `,
-    { noBackdropClose: true, kind: "expiry" }
-  );
-
-  $("#popupOk")?.addEventListener("click", closeModal);
+  state.data.items = (state.data.items || []).map((it) => ({
+    ...it,
+    sub_category: it.sub_category ? normalizeSub(it.sub_category) : null,
+    is_hourly: !!it.is_hourly,
+    stock_alert_enabled: !!it.stock_alert_enabled,
+    stock_min: it.stock_min != null ? Number(it.stock_min) : null,
+  }));
 }
-/* =========================================================
-   PreCheck — public/app.js (FULL)
-   PART 2 / 6
-
-   Includes:
-   - escapeHtml + cssEsc
-   - toast
-   - modal (kind="expiry" support)
-   - saving overlay
-   - topbar role pill + session line
-   - drawer bindings + stock alert label
-   - back/swipe guard
-   - midnight watcher
-   - API helpers (POST/PATCH/DELETE)
-   - data load + normalizeSub
-   ========================================================= */
-
-/* =========================================================
-   SAFE HTML / CSS ESC
-   ========================================================= */
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-function cssEsc(s) {
-  return String(s).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+function normalizeSub(s) {
+  const t = String(s || "").trim().toLowerCase();
+  if (t === "open inner" || t === "openinner") return "Open Inner";
+  if (t === "standby") return "Standby";
+  if (t === "sandwich unit" || t === "sandwichunit") return "Sandwich Unit";
+  return String(s || "").trim();
 }
 
+/* =========================================================
+   TOPBAR
+   ========================================================= */
+function bindTopbar() {
+  renderRolePill();
+}
+function renderRolePill() {
+  const host = $("#roleHost");
+  if (!host) return;
+
+  host.innerHTML = "";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
+  if (state.session.isManager) {
+    btn.style.background = "var(--red)";
+    btn.style.color = "#fff";
+  } else {
+    btn.style.background = "var(--yellow)";
+    btn.style.color = "#111";
+  }
+  btn.innerHTML = `
+    <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
+    <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
+  `;
+  btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
+  host.appendChild(btn);
+}
+function updateSessionLine() {
+  const el = $("#sessionLine");
+  if (!el) return;
+  const s = state.session;
+  const show = !!(s.store && s.staff);
+  el.classList.toggle("hidden", !show);
+  el.textContent = show ? `${s.store} • ${s.shift} • ${s.staff}` : "";
+}
 
 /* =========================================================
-   TOAST
+   DRAWER
+   ========================================================= */
+function bindDrawer() {
+  const btnMenu = $("#btnMenu");
+  const backdrop = $("#drawerBackdrop");
+  const btnClose = $("#btnDrawerClose");
+
+  if (btnMenu) btnMenu.addEventListener("click", (e) => { e.preventDefault(); openDrawer(); });
+  if (backdrop) {
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) closeDrawer();
+    });
+  }
+  if (btnClose) btnClose.addEventListener("click", (e) => { e.preventDefault(); closeDrawer(); });
+
+  const bind = (id, fn) => {
+    const b = $(id);
+    if (b) b.addEventListener("click", () => { closeDrawer(); fn(); });
+  };
+
+  bind("#drawerHome", () => goHome());
+  bind("#drawerAlerts", () => setView({ page: "stockAlerts" }, true));
+  bind("#drawerManager", () => setView({ page: "manager" }, true));
+  bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
+  bind("#drawerWISR", () => setView({ page: "wisr" }, true));
+
+  // ✅ Removed Dark Mode toggle binding
+
+  bind("#drawerLogout", () => doLogout());
+}
+
+function openDrawer() {
+  const b = $("#drawerBackdrop");
+  if (b) b.classList.remove("hidden");
+}
+function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
+
+/* Stock Alert label + dot (single source of truth) */
+function updateDrawerAlertLabel(hasDot) {
+  const btn = $("#drawerAlerts");
+  if (!btn) return;
+
+  btn.innerHTML = hasDot
+    ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
+    : `📦 Stock Alert`;
+}
+
+/* =========================================================
+   MODAL + TOAST
    ========================================================= */
 let toastTimer = null;
 function toast(msg) {
@@ -241,9 +395,6 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
-/* =========================================================
-   MODAL (supports kind="expiry")
-   ========================================================= */
 function bindModal() {
   const closeBtn = $("#modalClose");
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
@@ -252,13 +403,12 @@ function bindModal() {
   if (backdrop) {
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) {
+        // ✅ block closing if noBackdropClose was requested
         if (backdrop.dataset.noClose === "1") return;
         closeModal();
       }
     });
   }
-
-  ensureExpiryPopupCSS(); // ✅ only styles the expiry popup
 }
 
 function openModal(title, html, opts = {}) {
@@ -267,77 +417,33 @@ function openModal(title, html, opts = {}) {
   const back = $("#modalBackdrop");
   if (!t || !b || !back) return;
 
-  const kind = String(opts.kind || "");
-
   t.textContent = title || "Modal";
   b.innerHTML = html || "";
-
   back.classList.remove("hidden");
-  back.dataset.noClose = opts.noBackdropClose ? "1" : "0";
-  back.dataset.kind = kind;
+back.dataset.noClose = opts.noBackdropClose ? "1" : "0";
 
-  back.classList.toggle("pc-kind-expiry", kind === "expiry");
+  if (opts.noBackdropClose) {
+    back.onclick = (e) => {
+      if (e.target === back) e.stopPropagation();
+    };
+  } else {
+    back.onclick = null;
+  }
 }
-
 function closeModal() {
   const back = $("#modalBackdrop");
   const b = $("#modalBody");
   if (back) {
     back.classList.add("hidden");
-    back.dataset.noClose = "0";
-    back.dataset.kind = "";
-    back.classList.remove("pc-kind-expiry");
+    back.dataset.noClose = "0"; // ✅ add
   }
   if (b) b.innerHTML = "";
 }
 
-/* ✅ Expiry popup CSS only — polished but same layout */
-function ensureExpiryPopupCSS() {
-  if (document.getElementById("pcExpiryPopupCSS")) return;
-  const css = document.createElement("style");
-  css.id = "pcExpiryPopupCSS";
-  css.textContent = `
-    /* Apply ONLY when kind="expiry" */
-    #modalBackdrop.pc-kind-expiry #modalClose{ display:none !important; }
-    #modalBackdrop.pc-kind-expiry #modalBody{ padding:0 !important; }
-
-    #modalBackdrop.pc-kind-expiry .pc-expiry-box{
-      background:#fff;
-      border-radius:18px;
-      padding:16px 16px 14px;
-    }
-    #modalBackdrop.pc-kind-expiry .pc-expiry-lead{
-      font-size:14px;
-      font-weight:1100;
-      line-height:1.35;
-      color:#111;
-      margin-bottom:10px;
-    }
-    #modalBackdrop.pc-kind-expiry .pc-expiry-list{
-      margin:0 0 14px 18px;
-      padding:0;
-      font-size:14px;
-      line-height:1.35;
-    }
-    #modalBackdrop.pc-kind-expiry .pc-expiry-list li{
-      margin:6px 0;
-    }
-    #modalBackdrop.pc-kind-expiry .pc-expiry-ok{
-      width:100%;
-      padding:14px 14px;
-      border-radius:999px;
-      font-weight:1200;
-      font-size:16px;
-      background:var(--yellow);
-      color:#111;
-      border:0;
-    }
-  `;
-  document.head.appendChild(css);
-}
 
 /* =========================================================
-   SAVING OVERLAY
+   LOADING / SAVING OVERLAY ✅
+   Used by staff save + manager actions so app doesn't feel stuck
    ========================================================= */
 function ensureSavingOverlay() {
   let el = document.getElementById("pcSavingOverlay");
@@ -374,101 +480,212 @@ function hideSaving() {
 }
 
 /* =========================================================
-   TOPBAR (role pill + session line)
+   SHIFT DONE + LAST ITEM ✅ (single source of truth)
+   - Marks shift as DONE even if only 1 item saved
+   - Stores last item saved (device-based, per day)
    ========================================================= */
-function bindTopbar() {
-  renderRolePill();
-  updateSessionLine();
+function shiftDoneLastKey(store, dayKey, shift) {
+  return `pc_done_last_${store}_${dayKey}_${shift}`;
+}
+function recordShiftDoneAndLast({ store, shift, staff, lastItemName }) {
+  try {
+    const dayKey = dayKeyNow();
+    localStorage.setItem(
+      shiftDoneLastKey(store, dayKey, shift),
+      JSON.stringify({
+        done: true,
+        store,
+        shift,
+        staff: staff || "",
+        lastItemName: lastItemName || "",
+        at: new Date().toISOString(),
+      })
+    );
+  } catch {}
+}
+function readShiftDoneAndLast(store, shift) {
+  try {
+    const dayKey = dayKeyNow();
+    const raw = localStorage.getItem(shiftDoneLastKey(store, dayKey, shift));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
-function renderRolePill() {
-  const host = $("#roleHost");
-  if (!host) return;
+/* =========================================================
+   SESSION POPUP + MIDNIGHT RESET
+   ========================================================= */
+function startMidnightWatcher() {
+  setInterval(() => {
+    const nowKey = dayKeyNow();
+    if (state.session.sessionDayKey && state.session.sessionDayKey !== nowKey) {
+      state.session.sessionDayKey = nowKey;
+      saveSession();
+      maybeShowExpiryPopup(true);
+      render();
+    }
+  }, 30000);
+}
 
-  host.innerHTML = "";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
+function maybeShowExpiryPopup(force) {
+  const k = dayKeyNow();
+  const seenKey = `expiry_popup_seen_${k}`;
+  if (!force && localStorage.getItem(seenKey) === "1") return;
+  localStorage.setItem(seenKey, "1");
 
-  if (state.session.isManager) {
-    btn.style.background = "var(--red)";
-    btn.style.color = "#fff";
-  } else {
-    btn.style.background = "var(--yellow)";
-    btn.style.color = "#111";
-  }
+  const list = POPUP_ITEMS.map((x) => `
+    <li><span class="popup-dot"></span>${escapeHtml(x)}</li>
+  `).join("");
 
-  btn.innerHTML = `
-    <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
-    <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
-  `;
-  btn.addEventListener("click", () =>
-    toast(state.session.isManager ? "Manager mode" : "Staff mode")
+  openModal(
+    "PLEASE check the expiry date",
+    `
+      <div class="popup-title">PLEASE check the expiry date of the items below:</div>
+      <div class="popup-lead muted">Make sure expiry is correct before saving.</div>
+      <ul class="popup-list">${list}</ul>
+      <button id="popupOk" class="btn btn-yellow" style="width:100%; margin-top:8px">OK</button>
+    `,
+    { noBackdropClose: true }
   );
-  host.appendChild(btn);
-}
 
-function updateSessionLine() {
-  const el = $("#sessionLine");
-  if (!el) return;
-  const s = state.session;
-  const show = !!(s.store && s.staff);
-  el.classList.toggle("hidden", !show);
-  el.textContent = show ? `${s.store} • ${s.shift} • ${s.staff}` : "";
+  const ok = $("#popupOk");
+  if (ok) ok.addEventListener("click", closeModal);
 }
 
 /* =========================================================
-   DRAWER
+   LOGIN PAGE
    ========================================================= */
-function bindDrawer() {
-  const btnMenu = $("#btnMenu");
-  const backdrop = $("#drawerBackdrop");
-  const btnClose = $("#btnDrawerClose");
+function renderLoginPage() {
+  const main = $("#main");
+  const s = state.session;
+  const storePick = s.store || "PDD";
 
-  if (btnMenu) btnMenu.addEventListener("click", (e) => { e.preventDefault(); openDrawer(); });
-  if (btnClose) btnClose.addEventListener("click", (e) => { e.preventDefault(); closeDrawer(); });
+  main.innerHTML = `
+    <div class="card" style="max-width:560px;margin:14px auto">
+      <div style="font-weight:1200;font-size:20px;margin-bottom:10px">Start Session</div>
 
-  if (backdrop) {
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) closeDrawer();
-    });
-  }
+      <div style="font-weight:1200">Select Store</div>
+      <div class="row" style="gap:12px;margin-top:10px">
+        <button id="pickPDD" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">PDD</button>
+        <button id="pickSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
+      </div>
 
-  const bind = (id, fn) => {
-    const b = $(id);
-    if (b) b.addEventListener("click", () => { closeDrawer(); fn(); });
+      <div style="margin-top:14px;font-weight:1200">Shift</div>
+      <select id="shiftSel" class="select">
+        <option value="AM"${(s.shift||"AM")==="AM"?" selected":""}>AM</option>
+        <option value="PM"${(s.shift||"AM")==="PM"?" selected":""}>PM</option>
+      </select>
+
+      <div style="margin-top:14px;font-weight:1200">Staff Name / ID</div>
+      <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
+
+      <button id="startBtn" class="btn btn-yellow" style="width:100%;margin-top:14px;padding:16px 16px;font-size:18px;font-weight:1200">Start</button>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;font-weight:900">
+        Session auto resets after midnight.
+      </div>
+    </div>
+  `;
+
+  let pick = storePick;
+
+  const applyStoreBtnUI = () => {
+    const a = $("#pickPDD");
+    const b = $("#pickSKH");
+
+    if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
+    if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
+
+    if (pick === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
+    if (pick === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
   };
+  applyStoreBtnUI();
 
-  bind("#drawerHome", () => goHome());
-  bind("#drawerAlerts", () => setView({ page: "stockAlerts" }, true));
-  bind("#drawerManager", () => setView({ page: "manager" }, true));
-  bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
-  bind("#drawerWISR", () => setView({ page: "wisr" }, true));
-  bind("#drawerLogout", () => doLogout());
+  $("#pickPDD").addEventListener("click", () => { pick = "PDD"; applyStoreBtnUI(); });
+  $("#pickSKH").addEventListener("click", () => { pick = "SKH"; applyStoreBtnUI(); });
+
+  $("#startBtn").addEventListener("click", async () => {
+    const staff = String($("#staffInp").value || "").trim();
+    const shift = String($("#shiftSel").value || "AM");
+    if (!staff) return toast("Please enter staff name/ID");
+
+    state.session.store = pick;
+    state.session.shift = shift;
+    state.session.staff = staff;
+    state.session.isManager = false;
+    state.session.managerToken = "";
+    state.session.sessionDayKey = dayKeyNow();
+    saveSession();
+
+    showSaving("Loading…");
+    try {
+      await wakeServer().catch(() => {});
+      await loadAllForCurrentStore();
+      await refreshStockDot().catch(() => {});
+      renderRolePill();
+      updateSessionLine();
+
+      state.navStack = [];
+      state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
+      render();
+
+      setTimeout(() => maybeShowExpiryPopup(true), 150);
+    } catch (e) {
+      console.error(e);
+      toast("Failed to load data");
+    } finally {
+      hideSaving();
+    }
+  });
 }
 
-function openDrawer() {
-  const b = $("#drawerBackdrop");
-  if (b) b.classList.remove("hidden");
-}
-function closeDrawer() {
-  const b = $("#drawerBackdrop");
-  if (b) b.classList.add("hidden");
-}
+/* =========================
+   END PART 1 / 4
+   ========================= */
+/* =========================
+   PreCheck — public/app.js (FULL)
+   PART 2A / 4
 
-function updateDrawerAlertLabel(hasDot) {
-  const btn = $("#drawerAlerts");
-  if (!btn) return;
-  btn.innerHTML = hasDot
-    ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>`
-    : `📦 Stock Alert`;
+   Includes:
+   - navigation
+   - back/swipe guard
+   - draft persistence (store+shift+day)
+   - render root
+   - home + category
+   - shelfLifeModeFor
+   - category progress tracker
+   ========================= */
+
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
+function setView(next, push) {
+  if (push) {
+    state.navStack.push({ ...state.view });
+    safePushHistory();
+  }
+  state.view = { ...state.view, ...next };
+  render();
+}
+function goBack() {
+  const prev = state.navStack.pop();
+  state.view = prev
+    ? prev
+    : { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
+  render();
+}
+function goHome() {
+  state.navStack = [];
+  state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
+  render();
 }
 
 /* =========================================================
-   BACK / SWIPE GUARD (prevents accidental exit)
+   BACK / SWIPE GUARD
    ========================================================= */
 let backGuardArmed = false;
-
 function bindAppBackGuard() {
   try {
     history.replaceState({ pc: 1 }, "");
@@ -501,11 +718,11 @@ function bindAppBackGuard() {
     safePushHistory();
   });
 }
-
 function safePushHistory() {
-  try { history.pushState({ pc: 1 }, ""); } catch {}
+  try {
+    history.pushState({ pc: 1 }, "");
+  } catch {}
 }
-
 function openConfirmExit() {
   openModal(
     "Exit PreCheck?",
@@ -522,8 +739,8 @@ function openConfirmExit() {
     { noBackdropClose: true }
   );
 
-  $("#exitNo")?.addEventListener("click", closeModal);
-  $("#exitYes")?.addEventListener("click", () => {
+  $("#exitNo").addEventListener("click", closeModal);
+  $("#exitYes").addEventListener("click", () => {
     closeModal();
     try {
       backGuardArmed = false;
@@ -531,102 +748,6 @@ function openConfirmExit() {
     } catch {}
   });
 }
-
-/* =========================================================
-   MIDNIGHT WATCHER (new day => show expiry popup again)
-   ========================================================= */
-function startMidnightWatcher() {
-  setInterval(() => {
-    const nowKey = dayKeyNow();
-    if (state.session.sessionDayKey && state.session.sessionDayKey !== nowKey) {
-      state.session.sessionDayKey = nowKey;
-      saveSession();
-      maybeShowExpiryPopup(true);
-      render();
-    }
-  }, 30000);
-}
-
-/* =========================================================
-   API HELPERS
-   ========================================================= */
-async function apiPost(path, body, token = "") {
-  const r = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-
-async function apiPatch(path, body, token = "") {
-  const r = await fetch(path, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-
-async function apiDel(path, token = "") {
-  const r = await fetch(path, {
-    method: "DELETE",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-
-/* =========================================================
-   DATA LOAD
-   ========================================================= */
-async function loadAllForCurrentStore() {
-  const store = state.session.store;
-
-  state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
-  state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
-
-  state.data.items = (state.data.items || []).map((it) => ({
-    ...it,
-    sub_category: it.sub_category ? normalizeSub(it.sub_category) : null,
-    is_hourly: !!it.is_hourly,
-    stock_alert_enabled: !!it.stock_alert_enabled,
-    stock_min: it.stock_min != null ? Number(it.stock_min) : null,
-  }));
-}
-
-function normalizeSub(s) {
-  const t = String(s || "").trim().toLowerCase();
-  if (t === "open inner" || t === "openinner") return "Open Inner";
-  if (t === "standby") return "Standby";
-  if (t === "sandwich unit" || t === "sandwichunit") return "Sandwich Unit";
-  return String(s || "").trim();
-}
-/* =========================================================
-   PreCheck — public/app.js (FULL)
-   PART 3 / 6
-
-   Includes:
-   - drafts persistence (store+shift+day scoped)
-   - render router (login/home/category/alerts/summary/wisr/manager)
-   - navigation helpers (setView/goBack/goHome)
-   - login page
-   - home page tiles
-   - category page (Sauce sub menu + item list shell)
-   ========================================================= */
 
 /* =========================================================
    Draft persistence (store+shift+day scoped)
@@ -638,7 +759,6 @@ function draftsKey() {
   const day = s.sessionDayKey || dayKeyNow();
   return `drafts_${store}_${shift}_${day}`;
 }
-
 function loadDraftsFromStorage() {
   try {
     const raw = localStorage.getItem(draftsKey());
@@ -647,7 +767,6 @@ function loadDraftsFromStorage() {
     if (obj && typeof obj === "object") state.drafts = obj;
   } catch {}
 }
-
 function saveDraftsToStorage() {
   try {
     localStorage.setItem(draftsKey(), JSON.stringify(state.drafts || {}));
@@ -660,33 +779,7 @@ function saveDraftsToStorage() {
 })();
 
 /* =========================================================
-   NAVIGATION
-   ========================================================= */
-function setView(next, push) {
-  if (push) {
-    state.navStack.push({ ...state.view });
-    safePushHistory();
-  }
-  state.view = { ...state.view, ...next };
-  render();
-}
-
-function goBack() {
-  const prev = state.navStack.pop();
-  state.view = prev
-    ? prev
-    : { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
-  render();
-}
-
-function goHome() {
-  state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
-  render();
-}
-
-/* =========================================================
-   RENDER ROUTER
+   RENDER ROOT
    ========================================================= */
 function render() {
   updateSessionLine();
@@ -732,93 +825,6 @@ function render() {
 }
 
 /* =========================================================
-   LOGIN PAGE
-   ========================================================= */
-function renderLoginPage() {
-  const main = $("#main");
-  const s = state.session;
-  const storePick = s.store || "PDD";
-
-  main.innerHTML = `
-    <div class="card" style="max-width:560px;margin:14px auto">
-      <div style="font-weight:1200;font-size:20px;margin-bottom:10px">Start Session</div>
-
-      <div style="font-weight:1200">Select Store</div>
-      <div class="row" style="gap:12px;margin-top:10px">
-        <button id="pickPDD" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">PDD</button>
-        <button id="pickSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
-      </div>
-
-      <div style="margin-top:14px;font-weight:1200">Shift</div>
-      <select id="shiftSel" class="select">
-        <option value="AM"${(s.shift || "AM") === "AM" ? " selected" : ""}>AM</option>
-        <option value="PM"${(s.shift || "AM") === "PM" ? " selected" : ""}>PM</option>
-      </select>
-
-      <div style="margin-top:14px;font-weight:1200">Staff Name / ID</div>
-      <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
-
-      <button id="startBtn" class="btn btn-yellow" style="width:100%;margin-top:14px;padding:16px 16px;font-size:18px;font-weight:1200">Start</button>
-
-      <div class="muted" style="font-size:12px;margin-top:10px;font-weight:900">
-        Session auto resets after midnight.
-      </div>
-    </div>
-  `;
-
-  let pick = storePick;
-
-  const applyStoreBtnUI = () => {
-    const a = $("#pickPDD");
-    const b = $("#pickSKH");
-
-    if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
-    if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
-
-    if (pick === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
-    if (pick === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
-  };
-  applyStoreBtnUI();
-
-  $("#pickPDD")?.addEventListener("click", () => { pick = "PDD"; applyStoreBtnUI(); });
-  $("#pickSKH")?.addEventListener("click", () => { pick = "SKH"; applyStoreBtnUI(); });
-
-  $("#startBtn")?.addEventListener("click", async () => {
-    const staff = String($("#staffInp")?.value || "").trim();
-    const shift = String($("#shiftSel")?.value || "AM");
-    if (!staff) return toast("Please enter staff name/ID");
-
-    state.session.store = pick;
-    state.session.shift = shift;
-    state.session.staff = staff;
-    state.session.isManager = false;
-    state.session.managerToken = "";
-    state.session.sessionDayKey = dayKeyNow();
-    saveSession();
-
-    showSaving("Loading…");
-    try {
-      await wakeServer().catch(() => {});
-      await loadAllForCurrentStore();
-      await refreshStockDot().catch(() => {});
-      renderRolePill();
-      updateSessionLine();
-
-      state.navStack = [];
-      state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
-      render();
-
-      setTimeout(() => maybeShowExpiryPopup(true), 150);
-    } catch (e) {
-      console.error(e);
-      toast("Failed to load data");
-    } finally {
-      hideSaving();
-    }
-  });
-}
-
-/* =========================================================
    HOME
    ========================================================= */
 function renderHome() {
@@ -835,12 +841,14 @@ function renderHome() {
       const emoji = CAT_EMOJI[name] || "✅";
       const tone = tileToneFor(name);
       return `
-        <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(name)}" type="button">
-          <div class="emoji" style="font-size:54px">${emoji}</div>
-          <div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(name)}</div>
-          <div class="sub">${counts[name] || 0} items</div>
-        </button>
-      `;
+      <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(
+        name
+      )}" type="button">
+        <div class="emoji" style="font-size:54px">${emoji}</div>
+        <div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(name)}</div>
+        <div class="sub">${counts[name] || 0} items</div>
+      </button>
+    `;
     })
     .join("");
 
@@ -874,146 +882,7 @@ function tileToneFor(name) {
 }
 
 /* =========================================================
-   CATEGORY (Sauce submenu + list shell)
-   ========================================================= */
-function renderCategory() {
-  const main = $("#main");
-  const cat = state.view.category;
-
-  // Sauce sub-menu
-  if (cat === "Sauce" && !state.view.sauceSub) {
-    const tiles = SAUCE_SUBS.map((s, idx) => {
-      const tone = s.tone === "teal" ? "t-teal" : s.tone === "purple" ? "t-purple" : "t-orange";
-      return `
-        <button class="tile ${tone}" style="min-height:120px;animation-delay:${idx * 60}ms" data-sub="${escapeHtml(s.name)}" type="button">
-          <div class="emoji" style="font-size:56px">${s.emoji}</div>
-          <div class="title" style="font-size:20px">${escapeHtml(s.name)}</div>
-          <div class="sub">Tap to open</div>
-        </button>
-      `;
-    }).join("");
-
-    main.innerHTML = `
-      <div class="page-head">
-        <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-        <div class="page-title">Sauce</div>
-      </div>
-      <div class="tiles-2col">${tiles}</div>
-    `;
-
-    $("#btnBack")?.addEventListener("click", goBack);
-    $$(".tile", main).forEach((b) => b.addEventListener("click", () => setView({ sauceSub: b.dataset.sub }, true)));
-    return;
-  }
-
-  const sauceSub = state.view.sauceSub;
-  const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
-
-  let items = (state.data.items || []).filter((x) => x.category === cat);
-  if (cat === "Sauce" && sauceSub) {
-    items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
-  }
-
-  const emptyHint = items.length
-    ? ""
-    : `
-      <div class="card" style="border-left:6px solid var(--yellow)">
-        <div style="font-weight:1200">No items found</div>
-        <div class="muted" style="margin-top:6px">
-          This means your Sauce sub-category names in DB don’t match exactly.
-        </div>
-      </div>
-    `;
-
-  // ✅ actual item editors + save button are in PART 4
-  main.innerHTML = `
-    <div class="page-head">
-      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title">${escapeHtml(title)}</div>
-    </div>
-
-    ${emptyHint}
-
-    <div class="edit-list" id="editList"></div>
-
-    <div class="save-bar">
-      <button id="saveBtn" type="button"
-        style="width:min(92%,520px); margin:0 auto; padding:14px 18px; border-radius:999px; font-weight:1200; font-size:16px;
-               background:var(--green); color:#fff; border:0"
-      >Save</button>
-    </div>
-  `;
-
-  $("#btnBack")?.addEventListener("click", goBack);
-
-  // these will exist once PART 4 is pasted
-  try {
-    if (typeof renderAndBindEditors === "function") renderAndBindEditors(items, cat);
-  } catch {}
-}
-/* =========================================================
-   PreCheck — public/app.js (FULL)
-   PART 4 / 6
-
-   Includes:
-   ✅ expiry date picker (keep your existing iOS wheel)
-   ✅ item editor UI (qty + expiry + +Date)
-   ✅ FIX: typo bug in bindItemEditors (was breaking progress refresh)
-   ✅ FIX: clear staff saved drafts after successful save (the “didn’t clear” issue)
-   ✅ renderCategory override to restore your original progress pill + Done checking button text
-   ========================================================= */
-
-/* =========================================================
-   Category progress tracker + UI (same behavior)
-   ========================================================= */
-function categoryProgress(items, cat) {
-  let total = 0;
-  let done = 0;
-
-  for (const it of items || []) {
-    const key = itemKey(it);
-    const d = state.drafts[key] || {};
-    const qty = Number(d.qty) || 0;
-    if (qty <= 0) continue;
-    total++;
-
-    const rule = shelfLifeModeFor(it, cat);
-    if (rule.mode === "HOURLY") {
-      if (d.expTimeShort) done++;
-      continue;
-    }
-    if (rule.mode === "EOD_AUTO") {
-      done++;
-      continue;
-    }
-    const exp = String(d.expDateISO || "");
-    if (exp) done++;
-  }
-
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  return { total, done, pct };
-}
-
-function refreshCategoryProgressUI(items, cat) {
-  const prog = categoryProgress(items, cat);
-  const pill = document.getElementById("catProgPill");
-  const saveBtn = document.getElementById("saveBtn");
-
-  if (pill) {
-    pill.textContent = prog.total ? `${prog.done}/${prog.total} (${prog.pct}%)` : "";
-    pill.classList.toggle("hidden", !prog.total);
-  }
-
-  if (saveBtn) {
-    const doneAll = prog.total > 0 && prog.done === prog.total;
-    saveBtn.textContent = doneAll ? "Done checking ✅ (Save)" : "Save";
-  }
-}
-
-/* =========================================================
-   ✅ renderCategory override (restore your original UI)
-   - Sauce sub menu stays same
-   - Adds progress pill + Done checking button text
+   CATEGORY
    ========================================================= */
 function renderCategory() {
   const main = $("#main");
@@ -1042,8 +911,10 @@ function renderCategory() {
       </div>
       <div class="tiles-2col">${tiles}</div>
     `;
-    $("#btnBack")?.addEventListener("click", goBack);
-    $$(".tile", main).forEach((b) => b.addEventListener("click", () => setView({ sauceSub: b.dataset.sub }, true)));
+    $("#btnBack").addEventListener("click", goBack);
+    $$(".tile", main).forEach((b) => {
+      b.addEventListener("click", () => setView({ sauceSub: b.dataset.sub }, true));
+    });
     return;
   }
 
@@ -1063,13 +934,13 @@ function renderCategory() {
   const emptyHint = items.length
     ? ""
     : `
-      <div class="card" style="border-left:6px solid var(--yellow)">
-        <div style="font-weight:1200">No items found</div>
-        <div class="muted" style="margin-top:6px">
-          This means your Sauce sub-category names in DB don’t match exactly.
-        </div>
+    <div class="card" style="border-left:6px solid var(--yellow)">
+      <div style="font-weight:1200">No items found</div>
+      <div class="muted" style="margin-top:6px">
+        This means your Sauce sub-category names in DB don’t match exactly.
       </div>
-    `;
+    </div>
+  `;
 
   main.innerHTML = `
     <div class="page-head">
@@ -1079,8 +950,8 @@ function renderCategory() {
         ${
           prog.total
             ? `<span id="catProgPill" style="font-weight:1200;font-size:12px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)">
-                ${escapeHtml(progText)}
-              </span>`
+    ${escapeHtml(progText)}
+  </span>`
             : ""
         }
       </div>
@@ -1100,28 +971,629 @@ function renderCategory() {
     </div>
   `;
 
-  $("#btnBack")?.addEventListener("click", goBack);
-
+  $("#btnBack").addEventListener("click", goBack);
   bindItemEditors(items, cat);
-  refreshCategoryProgressUI(items, cat);
 
-  $("#saveBtn")?.addEventListener("click", async () => {
+  $("#saveBtn").addEventListener("click", async () => {
     await saveCategory(items, cat);
   });
 }
 
+function itemKey(it) {
+  return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`;
+}
+
+function shelfLifeModeFor(it, cat) {
+  if (it.is_hourly) return { mode: "HOURLY", life: 0 };
+
+  const life = Number(it.shelf_life_days || 0);
+
+  if (isChickenBaconC(it.name)) return { mode: "EOD_AUTO", life };
+  if (FORCE_MANUAL_DATE_CATS.has(cat)) return { mode: "MANUAL", life };
+  if (!Number.isFinite(life) || life <= 0) return { mode: "MANUAL", life };
+  if (life > 7) return { mode: "MANUAL", life };
+
+  return { mode: "PRESET", life };
+}
+
 /* =========================================================
-   Date wheel picker (use your existing one)
-   (Assumes openDateWheelModal + openAddDateModal already exist later,
-   but we keep working even if only one is used.)
+   Category progress tracker
    ========================================================= */
+function categoryProgress(items, cat) {
+  let total = 0;
+  let done = 0;
+  const today = todayISO();
+
+  for (const it of items || []) {
+    const key = itemKey(it);
+    const d = state.drafts[key] || {};
+    const qty = Number(d.qty) || 0;
+    if (qty <= 0) continue;
+    total++;
+
+    const rule = shelfLifeModeFor(it, cat);
+    if (rule.mode === "HOURLY") {
+      if (d.expTimeShort) done++;
+      continue;
+    }
+    if (rule.mode === "EOD_AUTO") {
+      done++;
+      continue;
+    }
+    const exp = String(d.expDateISO || "");
+    if (exp) {
+      // ✅ now backdated is allowed to be selected, so "done" means it has a date
+      done++;
+    }
+  }
+
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return { total, done, pct };
+}
+function refreshCategoryProgressUI(items, cat) {
+  const prog = categoryProgress(items, cat);
+  const pill = document.getElementById("catProgPill");
+  const saveBtn = document.getElementById("saveBtn");
+
+  if (pill) {
+    pill.textContent = prog.total ? `${prog.done}/${prog.total} (${prog.pct}%)` : "";
+    pill.classList.toggle("hidden", !prog.total);
+  }
+
+  if (saveBtn) {
+    const doneAll = prog.total > 0 && prog.done === prog.total;
+    saveBtn.textContent = doneAll ? "Done checking ✅ (Save)" : "Save";
+  }
+}
+
+/* =========================
+   END PART 2A / 4
+   ========================= */
+/* =========================================================
+   DATE WHEEL PICKER (iOS-style wheel, themed)
+   - Day + Month: looping wheel (no empty end)
+   - Year: 2000..2100 (default), or clamp to min/max if provided
+   - Backdated allowed, but warns on confirm if date < today
+   ========================================================= */
+
+function ensurePCWheelStyles() {
+  if (document.getElementById("pcWheelStyles")) return;
+  const css = document.createElement("style");
+  css.id = "pcWheelStyles";
+  css.textContent = `
+  .pc-ios-wheel{
+    padding:12px 6px 6px;
+    user-select:none;
+  }
+  .pc-ios-wheel .pc-wheel-title{
+    font-weight:1200;
+    font-size:16px;
+    margin-bottom:10px;
+  }
+  .pc-ios-wheel .pc-wheel-frame{
+    position:relative;
+    border-radius:22px;
+    background:#fff;
+    border:1px solid var(--line);
+    overflow:hidden;
+    padding:10px 10px 12px;
+  }
+  .pc-ios-wheel .pc-wheel-cols{
+    display:flex;
+    gap:10px;
+  }
+  .pc-ios-wheel .pc-col{
+    flex:1;
+    min-width:0;
+  }
+  .pc-ios-wheel .pc-label{
+    font-weight:1100;
+    font-size:12px;
+    color:#666;
+    margin:0 4px 6px;
+  }
+  .pc-ios-wheel .pc-list{
+    height:220px;
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+    border-radius:18px;
+    background:rgba(0,0,0,0.02);
+    position:relative;
+  }
+  .pc-ios-wheel .pc-list::-webkit-scrollbar{ display:none; }
+
+  .pc-ios-wheel .pc-item{
+    height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:1200;
+    font-size:18px;
+    color:#111;
+    border:0;
+    background:transparent;
+    width:100%;
+  }
+  .pc-ios-wheel .pc-item.dim{
+    opacity:0.25;
+    font-weight:1100;
+  }
+
+  .pc-ios-wheel .pc-highlight{
+    position:absolute;
+    left:10px; right:10px;
+    top:50%;
+    transform:translateY(-50%);
+    height:44px;
+    border-radius:16px;
+    background:rgba(0, 153, 84, 0.10);
+    border:1px solid rgba(0, 153, 84, 0.18);
+    pointer-events:none;
+  }
+  .pc-ios-wheel .pc-fadeTop,
+  .pc-ios-wheel .pc-fadeBot{
+    position:absolute; left:0; right:0;
+    height:42px;
+    pointer-events:none;
+    z-index:3;
+  }
+  .pc-ios-wheel .pc-fadeTop{
+    top:0;
+    background:linear-gradient(#fff, rgba(255,255,255,0));
+  }
+  .pc-ios-wheel .pc-fadeBot{
+    bottom:0;
+    background:linear-gradient(rgba(255,255,255,0), #fff);
+  }
+
+  .pc-ios-wheel .pc-actions{
+    display:flex;
+    gap:12px;
+    margin-top:12px;
+  }
+  .pc-ios-wheel .pc-btn{
+    flex:1;
+    padding:14px 14px;
+    border-radius:999px;
+    font-weight:1200;
+    border:0;
+  }
+  .pc-ios-wheel .pc-btn.cancel{
+    background:var(--yellow);
+    color:#111;
+  }
+  .pc-ios-wheel .pc-btn.ok{
+    background:var(--green);
+    color:#fff;
+  }
+  `;
+  document.head.appendChild(css);
+}
+
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  ensurePCWheelStyles();
+
+  const today = todayISO();
+
+  // Default range: allow backdated + up to 2100
+  const min = String(minISO || "2000-01-01").slice(0, 10);
+  const max = String(maxISO || "2100-12-31").slice(0, 10);
+
+  function parseISO(iso) {
+    const d = new Date(String(iso).slice(0, 10) + "T00:00:00");
+    return isNaN(d) ? null : d;
+  }
+  function clampISO(iso) {
+    const s = String(iso).slice(0, 10);
+    if (s < min) return min;
+    if (s > max) return max;
+    return s;
+  }
+  const initISO = clampISO(initialISO || today);
+
+  let cur = parseISO(initISO) || parseISO(today) || new Date();
+  let y = cur.getFullYear();
+  let m = cur.getMonth() + 1;
+  let d = cur.getDate();
+
+  function daysInMonth(yy, mm) {
+    return new Date(yy, mm, 0).getDate(); // mm 1..12
+  }
+  function toISO(yy, mm, dd) {
+    return `${yy}-${pad2(mm)}-${pad2(dd)}`;
+  }
+  const monthLabel = (mm) => new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
+
+  // Year list (non-loop), clamped to min/max years, max <= 2100
+  const minY = Math.max(2000, new Date(min + "T00:00:00").getFullYear());
+  const maxY = Math.min(2100, new Date(max + "T00:00:00").getFullYear());
+
+  const years = [];
+  for (let yy = minY; yy <= maxY; yy++) years.push(yy);
+
+  openModal(
+    title || "Pick date",
+    `
+    <div class="pc-ios-wheel">
+      <div class="pc-wheel-title">${escapeHtml(title || "Pick date")}</div>
+
+      <div class="pc-wheel-frame">
+        <div class="pc-wheel-cols">
+          <div class="pc-col">
+            <div class="pc-label">Day</div>
+            <div class="pc-list" id="pcWheelDay"></div>
+          </div>
+          <div class="pc-col">
+            <div class="pc-label">Month</div>
+            <div class="pc-list" id="pcWheelMon"></div>
+          </div>
+          <div class="pc-col">
+            <div class="pc-label">Year</div>
+            <div class="pc-list" id="pcWheelYear"></div>
+          </div>
+        </div>
+
+        <div class="pc-highlight" aria-hidden="true"></div>
+        <div class="pc-fadeTop" aria-hidden="true"></div>
+        <div class="pc-fadeBot" aria-hidden="true"></div>
+      </div>
+
+      <div class="pc-actions">
+        <button class="pc-btn cancel" type="button" id="pcWheelCancel">Cancel</button>
+        <button class="pc-btn ok" type="button" id="pcWheelOk">Set date</button>
+      </div>
+    </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  const dayEl = $("#pcWheelDay");
+  const monEl = $("#pcWheelMon");
+  const yearEl = $("#pcWheelYear");
+  const okEl = $("#pcWheelOk");
+
+  $("#pcWheelCancel")?.addEventListener("click", closeModal);
+
+  // --- Looping builders (3 cycles) ---
+  const LOOP_CYCLES = 3;
+
+  function buildMonthLoop() {
+    const arr = [];
+    for (let c = 0; c < LOOP_CYCLES; c++) {
+      for (let mm = 1; mm <= 12; mm++) {
+        arr.push(mm);
+      }
+    }
+    monEl.innerHTML = arr
+      .map((mm) => `<button class="pc-item" type="button" data-v="${mm}">${escapeHtml(monthLabel(mm))}</button>`)
+      .join("");
+  }
+
+  function buildDayLoop() {
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+    if (d < 1) d = 1;
+
+    const arr = [];
+    for (let c = 0; c < LOOP_CYCLES; c++) {
+      for (let dd = 1; dd <= dim; dd++) arr.push(dd);
+    }
+    dayEl.innerHTML = arr
+      .map((dd) => `<button class="pc-item" type="button" data-v="${dd}">${dd}</button>`)
+      .join("");
+  }
+
+  function buildYear() {
+    yearEl.innerHTML = years
+      .map((yy) => `<button class="pc-item" type="button" data-v="${yy}">${yy}</button>`)
+      .join("");
+  }
+
+  function setActiveByValue(container, value) {
+    // mark nearest visible matching as "active" by styling (optional)
+    // We keep it simple: no active class needed; snap decides value.
+    container.querySelectorAll(".pc-item").forEach((x) => x.classList.remove("active"));
+    const match = container.querySelector(`.pc-item[data-v="${cssEsc(String(value))}"]`);
+    if (match) match.classList.add("active");
+  }
+
+  function scrollToValueLoop(container, value) {
+    const items = Array.from(container.querySelectorAll(".pc-item"));
+    if (!items.length) return;
+
+    // pick the middle cycle occurrence so you can scroll up/down
+    const midIndex = Math.floor(items.length / 2);
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const it of items) {
+      if (String(it.dataset.v) !== String(value)) continue;
+      const idx = items.indexOf(it);
+      const dist = Math.abs(idx - midIndex);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+    if (!best) best = items[0];
+
+    const top = best.offsetTop - container.clientHeight / 2 + best.clientHeight / 2;
+    container.scrollTo({ top, behavior: "auto" });
+  }
+
+  function scrollToValue(container, value) {
+    const it = container.querySelector(`.pc-item[data-v="${cssEsc(String(value))}"]`);
+    if (!it) return;
+    const top = it.offsetTop - container.clientHeight / 2 + it.clientHeight / 2;
+    container.scrollTo({ top, behavior: "auto" });
+  }
+
+  function snapToClosest(container, onPickVal, isLoop) {
+    const items = Array.from(container.querySelectorAll(".pc-item"));
+    if (!items.length) return;
+
+    const center = container.scrollTop + container.clientHeight / 2;
+
+    let best = null;
+    let bestDist = Infinity;
+    for (const it of items) {
+      const itCenter = it.offsetTop + it.clientHeight / 2;
+      const dist = Math.abs(itCenter - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+    if (!best) return;
+
+    const v = best.dataset.v;
+    onPickVal(v, true);
+
+    // For looping lists: keep the scroll around the middle cycle so it never hits end
+    if (isLoop) {
+      // after picking, re-center to the middle cycle matching value
+      setTimeout(() => scrollToValueLoop(container, v), 0);
+    }
+  }
+
+  function bindWheel(container, onPickVal, isLoop = false) {
+    if (container.dataset.bound === "1") return;
+    container.dataset.bound = "1";
+
+    container.addEventListener("click", (e) => {
+      const btn = e.target.closest(".pc-item");
+      if (!btn) return;
+      onPickVal(btn.dataset.v, false);
+      // click should also center it
+      if (isLoop) scrollToValueLoop(container, btn.dataset.v);
+      else scrollToValue(container, btn.dataset.v);
+      haptic(10);
+    });
+
+    let t = null;
+    container.addEventListener(
+      "scroll",
+      () => {
+        clearTimeout(t);
+        t = setTimeout(() => snapToClosest(container, onPickVal, isLoop), 90);
+      },
+      { passive: true }
+    );
+  }
+
+  function setDay(v, fromSnap) {
+    d = Number(v);
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+    if (d < 1) d = 1;
+    setActiveByValue(dayEl, d);
+    if (!fromSnap) haptic(8);
+  }
+
+  function setMon(v, fromSnap) {
+    m = Number(v);
+    if (m < 1) m = 1;
+    if (m > 12) m = 12;
+    buildMonthLoop();
+    buildDayLoop();
+    bindWheel(monEl, setMon, true);
+    bindWheel(dayEl, setDay, true);
+    scrollToValueLoop(monEl, m);
+    scrollToValueLoop(dayEl, d);
+    setActiveByValue(monEl, m);
+    if (!fromSnap) haptic(8);
+  }
+
+  function setYear(v, fromSnap) {
+    y = Number(v);
+    if (!Number.isFinite(y)) y = minY;
+    buildYear();
+    buildMonthLoop();
+    buildDayLoop();
+    bindWheel(yearEl, setYear, false);
+    bindWheel(monEl, setMon, true);
+    bindWheel(dayEl, setDay, true);
+    scrollToValue(yearEl, y);
+    scrollToValueLoop(monEl, m);
+    scrollToValueLoop(dayEl, d);
+    setActiveByValue(yearEl, y);
+    if (!fromSnap) haptic(8);
+  }
+
+  // initial render
+  buildYear();
+  buildMonthLoop();
+  buildDayLoop();
+
+  bindWheel(yearEl, setYear, false);
+  bindWheel(monEl, setMon, true);
+  bindWheel(dayEl, setDay, true);
+
+  // start centered
+  setTimeout(() => {
+    scrollToValue(yearEl, y);
+    scrollToValueLoop(monEl, m);
+    scrollToValueLoop(dayEl, d);
+  }, 0);
+
+  okEl.addEventListener("click", () => {
+    const picked = toISO(y, m, d);
+    const iso = clampISO(picked);
+
+    // backdated warning (but still allow)
+    if (iso < today) {
+      openModal(
+        "Backdated date",
+        `
+          <div class="card">
+            <div style="font-weight:1200;font-size:18px;margin-bottom:8px">Warning ⚠️</div>
+            <div class="muted" style="font-weight:1100;margin-bottom:14px">
+              You selected a backdated expiry (<b>${escapeHtml(formatLongDMY(iso))}</b>).
+              This product should be <b>discarded</b>.
+            </div>
+            <div class="row" style="gap:12px">
+              <button id="bdCancel" class="btn btn-yellow" style="flex:1">Change date</button>
+              <button id="bdOk" class="btn btn-red" style="flex:1">Confirm</button>
+            </div>
+          </div>
+        `,
+        { noBackdropClose: true }
+      );
+
+      $("#bdCancel")?.addEventListener("click", () => {
+        // go back to picker modal
+        closeModal();
+        // reopen picker modal with same current selection
+        openDateWheelModal({
+          title: title || "Pick date",
+          initialISO: iso,
+          minISO: min,
+          maxISO: max,
+          onPick,
+        });
+      });
+
+      $("#bdOk")?.addEventListener("click", () => {
+        closeModal();
+        closeModal(); // close picker behind (it is still open)
+        onPick && onPick(iso);
+      });
+
+      return;
+    }
+
+    closeModal();
+    onPick && onPick(iso);
+  });
+}
+
+/* =========================================================
+   Add 2nd date popup (single extra expiry)
+   - now allows backdated (warn handled by picker)
+   ========================================================= */
+function openAddDateModal({ it, cat, key }) {
+  const d = state.drafts[key] || (state.drafts[key] = {});
+  d.extraISO = d.extraISO || "";
+  d.extraQty = d.extraQty || 0;
+
+  const rule = shelfLifeModeFor(it, cat);
+
+  openModal(
+    "Add 2nd date",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(it.name)}</div>
+
+        <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
+          <div style="font-weight:1200;margin-bottom:8px">2nd expiry date</div>
+
+          ${
+            rule.mode === "HOURLY"
+              ? `<div class="muted" style="font-weight:1000">Hourly items cannot use Add 2nd date.</div>`
+              : rule.mode === "EOD_AUTO"
+              ? `<div class="muted" style="font-weight:1000">Chicken Bacon (c) is auto today (EOD).</div>`
+              : `
+                <button id="exPick" class="btn btn-yellow" style="width:100%">Pick date</button>
+                <div id="exShow" style="margin-top:8px;font-weight:1200">
+                  ${d.extraISO ? escapeHtml(formatLongDMY(d.extraISO)) : "Not set"}
+                </div>
+              `
+          }
+
+          <div style="margin-top:10px;font-weight:1200">Qty</div>
+          <input id="exQty" class="input" inputmode="numeric" value="${escapeHtml(d.extraQty || 0)}">
+        </div>
+
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          Backdated is allowed, but will show a discard warning when confirming.
+        </div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="exCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="exOk" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Done</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#exQty")?.addEventListener("input", () => {
+    d.extraQty = Number($("#exQty").value || 0);
+    saveDraftsToStorage();
+  });
+
+  if (rule.mode === "HOURLY") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", closeModal);
+    return;
+  }
+
+  if (rule.mode === "EOD_AUTO") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", () => {
+      d.extraISO = todayISO();
+      saveDraftsToStorage();
+      closeModal();
+      render();
+      toast("Added 2nd date ✅");
+    });
+    return;
+  }
+
+  $("#exPick")?.addEventListener("click", () => {
+    openDateWheelModal({
+      title: "Pick 2nd expiry date",
+      initialISO: d.extraISO || todayISO(),
+      minISO: todayISO(),
+      maxISO: "2100-12-31",
+      onPick: (iso) => {
+        d.extraISO = iso;
+        saveDraftsToStorage();
+        const el = $("#exShow");
+        if (el) el.textContent = formatLongDMY(iso);
+      },
+    });
+  });
+
+  $("#exCancel")?.addEventListener("click", closeModal);
+
+  $("#exOk")?.addEventListener("click", () => {
+    const q = Number(d.extraQty || 0);
+    if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
+    saveDraftsToStorage();
+    closeModal();
+    render();
+    toast("Added 2nd date ✅");
+  });
+}
 
 /* =========================================================
    Item editor + bind editors
+   - changed pickers to allow backdated (warning is inside picker)
    ========================================================= */
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
-
   if (!state.drafts[key]) {
     state.drafts[key] = {
       qty: 0,
@@ -1158,7 +1630,9 @@ function renderItemEditor(it, cat) {
   } else if (rule.mode === "MANUAL") {
     expiryUI = `
       <label class="label">Expiry date</label>
-      <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
+      <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
+        key
+      )}" style="width:100%">Pick date</button>
       <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Select date"}</div>
     `;
   } else {
@@ -1178,7 +1652,9 @@ function renderItemEditor(it, cat) {
         <option value="MANUAL"${d.expType === "MANUAL" ? " selected" : ""}>Manual (pick date)</option>
       </select>
       <div data-pickwrap="${escapeHtml(key)}" class="${d.expType === "MANUAL" ? "" : "hidden"}" style="margin-top:8px">
-        <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button>
+        <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
+          key
+        )}" style="width:100%">Pick date</button>
         <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : ""}</div>
       </div>
       <div class="edit-helper">Preset dates (from shelf life)</div>
@@ -1188,11 +1664,15 @@ function renderItemEditor(it, cat) {
   const addDateBtn =
     rule.mode === "HOURLY"
       ? ""
-      : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
+      : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(
+          key
+        )}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
 
   const extraBadge =
     Number(d.extraQty) > 0
-      ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(d.extraQty) || 0}</div>`
+      ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(
+          d.extraQty
+        ) || 0}</div>`
       : "";
 
   return `
@@ -1206,7 +1686,9 @@ function renderItemEditor(it, cat) {
       <div class="edit-row">
         <div class="qty-stepper">
           <button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button>
-          <input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(d.qty || 0)}" />
+          <input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(
+            d.qty || 0
+          )}" />
           <button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button>
         </div>
 
@@ -1222,8 +1704,13 @@ function bindItemEditors(items, cat) {
   const root = $("#editList");
   if (!root) return;
 
-  // ✅ FIX: typo bug (your code had refreshCategoryPr`ogressUI)
-  const refreshProg = () => refreshCategoryProgressUI(items, cat);
+  const refreshProg = () => {
+    try {
+      if (typeof refreshCategoryProgressUI === "function") {
+        refreshCategoryProgressUI(items, cat);
+      }
+    } catch {}
+  };
 
   for (const it of items) {
     const key = itemKey(it);
@@ -1250,81 +1737,86 @@ function bindItemEditors(items, cat) {
     updateQtyUI(root, key);
     refreshProg();
 
-    inc?.addEventListener("click", () => {
-      d.qty = (Number(d.qty) || 0) + 1;
-      saveDraftsToStorage();
-      updateQtyUI(root, key);
-      pulseBtn(inc);
-      haptic(12);
-      refreshProg();
-    });
-
-    dec?.addEventListener("click", () => {
-      d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
-      saveDraftsToStorage();
-      updateQtyUI(root, key);
-      pulseBtn(dec);
-      haptic(10);
-      refreshProg();
-    });
-
-    qty?.addEventListener("input", () => {
-      const n = Number(qty.value || 0);
-      d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
-      saveDraftsToStorage();
-      updateQtyUI(root, key);
-      refreshProg();
-    });
-
-    timeSel?.addEventListener("change", () => {
-      d.expTimeShort = String(timeSel.value || "");
-      d.expType = "HOURLY";
-      saveDraftsToStorage();
-      refreshProg();
-      render();
-    });
-
-    presetSel?.addEventListener("change", () => {
-      const v = String(presetSel.value || "");
-      const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
-
-      if (v === "MANUAL") {
-        d.expType = "MANUAL";
-        wrap?.classList.remove("hidden");
-      } else {
-        d.expType = "PRESET";
-        d.expDateISO = v || "";
-        wrap?.classList.add("hidden");
-      }
-      saveDraftsToStorage();
-      refreshProg();
-      render();
-    });
-
-    pickBtn?.addEventListener("click", () => {
-      // uses whichever openDateWheelModal is defined in your file
-      openDateWheelModal({
-        title: "Pick expiry date",
-        initialISO: d.expDateISO || todayISO(),
-        minISO: todayISO(),
-        maxISO: "2100-12-31",
-        onPick: (iso) => {
-          d.expDateISO = iso;
-          if (!d.expType) d.expType = "MANUAL";
-          saveDraftsToStorage();
-          refreshProg();
-          render();
-        },
+    if (inc)
+      inc.addEventListener("click", () => {
+        d.qty = (Number(d.qty) || 0) + 1;
+        saveDraftsToStorage();
+        updateQtyUI(root, key);
+        pulseBtn(inc);
+        haptic(12);
+        refreshProg();
       });
-    });
 
-    addDate?.addEventListener("click", () => openAddDateModal({ it, cat, key }));
+    if (dec)
+      dec.addEventListener("click", () => {
+        d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
+        saveDraftsToStorage();
+        updateQtyUI(root, key);
+        pulseBtn(dec);
+        haptic(10);
+        refreshProg();
+      });
+
+    if (qty)
+      qty.addEventListener("input", () => {
+        const n = Number(qty.value || 0);
+        d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
+        saveDraftsToStorage();
+        updateQtyUI(root, key);
+        refreshProg();
+      });
+
+    if (timeSel)
+      timeSel.addEventListener("change", () => {
+        d.expTimeShort = String(timeSel.value || "");
+        d.expType = "HOURLY";
+        saveDraftsToStorage();
+        refreshProg();
+        render();
+      });
+
+    if (presetSel)
+      presetSel.addEventListener("change", () => {
+        const v = String(presetSel.value || "");
+        const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
+
+        if (v === "MANUAL") {
+          d.expType = "MANUAL";
+          if (wrap) wrap.classList.remove("hidden");
+        } else {
+          d.expType = "PRESET";
+          d.expDateISO = v || "";
+          if (wrap) wrap.classList.add("hidden");
+        }
+        saveDraftsToStorage();
+        refreshProg();
+        render();
+      });
+
+    if (pickBtn)
+      pickBtn.addEventListener("click", () => {
+        openDateWheelModal({
+          title: "Pick expiry date",
+          initialISO: d.expDateISO || todayISO(),
+          minISO: todayISO(),
+          maxISO: "2100-12-31",
+          onPick: (iso) => {
+            d.expDateISO = iso;
+            if (!d.expType) d.expType = "MANUAL";
+            saveDraftsToStorage();
+            refreshProg();
+            render();
+          },
+        });
+      });
+
+    if (addDate) addDate.addEventListener("click", () => openAddDateModal({ it, cat, key }));
   }
 }
 
 /* =========================================================
-   ✅ Save category (FIX: clears saved drafts)
-   - After successful save: reset drafts for those items so UI is clean
+   Save category ✅ (UPDATED)
+   - NO longer blocks past dates (warning is handled by picker confirm)
    ========================================================= */
 async function saveCategory(items, cat) {
   const store = state.session.store;
@@ -1333,7 +1825,6 @@ async function saveCategory(items, cat) {
   const today = todayISO();
 
   const rows = [];
-  const touchedKeys = new Set();
 
   for (const it of items) {
     const key = itemKey(it);
@@ -1352,19 +1843,27 @@ async function saveCategory(items, cat) {
 
     const rule = shelfLifeModeFor(it, cat);
 
+    // main row
     if (qty > 0) {
       let expiry = null;
       let expiry_at = null;
 
       if (rule.mode === "HOURLY") {
-        if (!d.expTimeShort) return toast(`Pick time for ${it.name}`);
+        if (!d.expTimeShort) {
+          toast(`Pick time for ${it.name}`);
+          return;
+        }
         expiry = today;
         expiry_at = isoFromTodayAndTime(d.expTimeShort);
       } else if (rule.mode === "EOD_AUTO") {
         expiry = today;
       } else {
         expiry = d.expDateISO || null;
-        if (!expiry) return toast(`Pick expiry for ${it.name}`);
+        if (!expiry) {
+          toast(`Pick expiry for ${it.name}`);
+          return;
+        }
+        // ✅ no blocking of backdated here
       }
 
       rows.push({
@@ -1378,12 +1877,16 @@ async function saveCategory(items, cat) {
         shift,
         is_extra: false,
       });
-      touchedKeys.add(key);
     }
 
+    // extra 2nd date row
     if (xq > 0) {
       const expiry = rule.mode === "EOD_AUTO" ? today : d.extraISO || "";
-      if (!expiry) return toast("Set 2nd date");
+      if (!expiry) {
+        toast("Set 2nd date");
+        return;
+      }
+      // ✅ no blocking of backdated here
 
       rows.push({
         item_id: it.id ?? null,
@@ -1397,7 +1900,6 @@ async function saveCategory(items, cat) {
         is_extra: true,
         extra_tag: "SECOND",
       });
-      touchedKeys.add(key);
     }
   }
 
@@ -1410,22 +1912,8 @@ async function saveCategory(items, cat) {
     const lastName = rows.length ? (rows[rows.length - 1].item_name || "") : "";
     recordShiftDoneAndLast({ store, shift, staff, lastItemName: lastName });
 
-    // ✅ FIX: clear saved drafts so staff see clean inputs after Save
-    for (const key of touchedKeys) {
-      state.drafts[key] = {
-        qty: 0,
-        expType: "",
-        expDateISO: "",
-        expTimeShort: "",
-        extraISO: "",
-        extraQty: 0,
-      };
-    }
-    saveDraftsToStorage();
-
     toast("Saved ✅");
     await refreshStockDot().catch(() => {});
-    render(); // refresh UI after clearing
   } catch (e) {
     console.error(e);
     toast("Save failed");
@@ -1433,17 +1921,23 @@ async function saveCategory(items, cat) {
     hideSaving();
   }
 }
-/* =========================================================
+
+/* =========================
+   END PART 2B / 4
+   ========================= */
+/* =========================
    PreCheck — public/app.js (FULL)
-   PART 5 / 6
+   PART 3A / 4
 
    Includes:
-   - Stock Alert page + drawer dot
+   - Stock Alert page
    - Summary Home + Summary List
-   - Shift completion cards (API truth + local fallback)
+   - Shift completion cards (API + local fallback)
    - WISR placeholder
-   - (No changes to your design unless needed)
-   ========================================================= */
+
+   NOTE:
+   - PART 3B continues from "Manager Home" onward
+   ========================= */
 
 /* =========================================================
    STOCK ALERT PAGE
@@ -1475,10 +1969,9 @@ async function renderStockAlerts() {
     </div>
     <div id="saWrap" class="col"></div>
   `;
-  $("#btnBack")?.addEventListener("click", goBack);
+  $("#btnBack").addEventListener("click", goBack);
 
   const wrap = $("#saWrap");
-  if (!wrap) return;
   wrap.innerHTML = `<div class="card">Loading…</div>`;
 
   await refreshStockDot().catch(() => {});
@@ -1536,11 +2029,13 @@ async function renderStockAlerts() {
 /* =========================================================
    SUMMARY HELPERS
    ========================================================= */
+// ✅ Cross-device status: use /api/status (server truth)
 async function getStatusByShift(store, shift) {
   const data = await apiGet(`/api/status?store=${encodeURIComponent(store)}`);
   const sh = String(shift || "AM").toUpperCase() === "PM" ? "PM" : "AM";
   const row = data?.[sh] || null;
 
+  // Normalize to shape statusToUI() expects
   return row
     ? {
         last_saved_at: row.last_saved_at,
@@ -1562,8 +2057,9 @@ function statusToUI(s) {
   return { done: true, who, hhmm, count, lastItemName };
 }
 
+/* local fallback (same device) */
 function readLocalDoneLast(store, shift) {
-  const local = readShiftDoneAndLast(store, shift);
+  const local = readShiftDoneAndLast(store, shift); // from PART 1
   if (!local || !local.done) return { done: false, who: "", hhmm: "", lastItemName: "" };
 
   const when = local.at ? new Date(local.at) : null;
@@ -1577,6 +2073,7 @@ function readLocalDoneLast(store, shift) {
 }
 
 function renderShiftCardUI(shift, info, fallback) {
+  // if API not done, but local says done -> show done using fallback
   const done = info?.done || fallback?.done || false;
   const who = info?.who || fallback?.who || "";
   const hhmm = info?.hhmm || fallback?.hhmm || "";
@@ -1693,7 +2190,7 @@ async function renderSummaryHome() {
         <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Progress snapshot</div>
         <div id="progSnap" class="muted" style="font-weight:1100">Loading…</div>
         <div class="muted" style="margin-top:8px;font-weight:1000">
-          *This shows progress on THIS device.
+          *This shows progress on THIS device. For true staff tracking across devices, we add API later.
         </div>
       </div>
     `
@@ -1711,11 +2208,11 @@ async function renderSummaryHome() {
     </div>
   `;
 
-  $("#btnBack")?.addEventListener("click", goBack);
+  $("#btnBack").addEventListener("click", goBack);
 
   if (isMgr) {
-    $("#mPDD")?.addEventListener("click", () => setSummaryMode("PDD"));
-    $("#mSKH")?.addEventListener("click", () => setSummaryMode("SKH"));
+    $("#mPDD").addEventListener("click", () => setSummaryMode("PDD"));
+    $("#mSKH").addEventListener("click", () => setSummaryMode("SKH"));
     updateSummaryModeButtons();
 
     const ps = localProgressSnapshot();
@@ -1723,13 +2220,20 @@ async function renderSummaryHome() {
     if (el) el.innerHTML = `Categories started: <b>${ps.started}</b> / <b>${ps.total}</b>`;
   }
 
+  // Shift completion
   const grid = $("#shiftGrid");
   if (grid) {
     grid.innerHTML = `<div class="muted" style="font-weight:1100">Loading…</div>`;
 
-    let am = null, pm = null;
-    try { am = await getStatusByShift(storeView, "AM"); } catch {}
-    try { pm = await getStatusByShift(storeView, "PM"); } catch {}
+    let am = null,
+      pm = null;
+
+    try {
+      am = await getStatusByShift(storeView, "AM");
+    } catch {}
+    try {
+      pm = await getStatusByShift(storeView, "PM");
+    } catch {}
 
     const amUI = statusToUI(am);
     const pmUI = statusToUI(pm);
@@ -1743,6 +2247,7 @@ async function renderSummaryHome() {
     `;
   }
 
+  // Expiry overview cards
   await drawSummaryCards().catch(console.error);
 }
 
@@ -1755,13 +2260,30 @@ function setSummaryMode(mode) {
 function updateSummaryModeButtons() {
   if (!state.session.isManager) return;
   const m = state.view.summaryMode;
-  const a = $("#mPDD"), b = $("#mSKH");
+  const a = $("#mPDD"),
+    b = $("#mSKH");
 
-  if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
-  if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
+  if (a) {
+    a.style.background = "#fff";
+    a.style.color = "#111";
+    a.style.border = "1px solid var(--line)";
+  }
+  if (b) {
+    b.style.background = "#fff";
+    b.style.color = "#111";
+    b.style.border = "1px solid var(--line)";
+  }
 
-  if (m === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
-  if (m === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
+  if (m === "PDD" && a) {
+    a.style.background = "var(--pdd)";
+    a.style.color = "#fff";
+    a.style.border = "0";
+  }
+  if (m === "SKH" && b) {
+    b.style.background = "var(--skh)";
+    b.style.color = "#fff";
+    b.style.border = "0";
+  }
 }
 
 async function drawSummaryCards() {
@@ -1819,9 +2341,11 @@ async function drawSummaryCards() {
     </button>
   `;
 
-  $("#sToday")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY" }, true));
-  $("#sTomorrow")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW" }, true));
-  $("#sSafe")?.addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE" }, true));
+  $("#sToday").addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY" }, true));
+  $("#sTomorrow").addEventListener("click", () =>
+    setView({ page: "summaryList", bucket: "TOMORROW" }, true)
+  );
+  $("#sSafe").addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE" }, true));
 }
 
 async function renderSummaryList() {
@@ -1836,10 +2360,9 @@ async function renderSummaryList() {
     </div>
     <div id="sumList" class="col"></div>
   `;
-  $("#btnBack")?.addEventListener("click", goBack);
+  $("#btnBack").addEventListener("click", goBack);
 
   const wrap = $("#sumList");
-  if (!wrap) return;
   wrap.innerHTML = `<div class="card">Loading…</div>`;
 
   const today = todayISO();
@@ -1879,20 +2402,21 @@ async function renderSummaryList() {
             .map((rr) => {
               const dt = formatLongDMY(datePartFromRow(rr));
               const tm = timePartFromRow(rr);
-              const qty = rr.qty != null ? Number(rr.qty) : rr.quantity != null ? Number(rr.quantity) : null;
+              const qty =
+                rr.qty != null ? Number(rr.qty) : rr.quantity != null ? Number(rr.quantity) : null;
               const sh = rr.shift ? String(rr.shift) : "";
               return `
-                <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
-                  <div style="display:flex;justify-content:space-between;gap:10px">
-                    <div style="font-weight:1200">${escapeHtml(rr.name || rr.item_name)}</div>
-                    <div style="font-weight:1200">${escapeHtml(dt)}</div>
-                  </div>
-                  <div class="muted" style="margin-top:6px;font-weight:1000;display:flex;justify-content:space-between">
-                    <div>${tm ? `Time: ${escapeHtml(tm)}` : ""} ${sh ? `• ${escapeHtml(sh)}` : ""}</div>
-                    <div>${qty != null ? `Qty: ${qty}` : ""}</div>
-                  </div>
+              <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+                <div style="display:flex;justify-content:space-between;gap:10px">
+                  <div style="font-weight:1200">${escapeHtml(rr.name || rr.item_name)}</div>
+                  <div style="font-weight:1200">${escapeHtml(dt)}</div>
                 </div>
-              `;
+                <div class="muted" style="margin-top:6px;font-weight:1000;display:flex;justify-content:space-between">
+                  <div>${tm ? `Time: ${escapeHtml(tm)}` : ""} ${sh ? `• ${escapeHtml(sh)}` : ""}</div>
+                  <div>${qty != null ? `Qty: ${qty}` : ""}</div>
+                </div>
+              </div>
+            `;
             })
             .join("")}
         </div>
@@ -1924,41 +2448,26 @@ function renderWISR() {
       <div class="muted">You will provide the data later.</div>
     </div>
   `;
-  $("#btnBack")?.addEventListener("click", goBack);
+  $("#btnBack").addEventListener("click", goBack);
 }
-/* =========================================================
+
+/* =========================
+   END PART 3A / 4
+   ========================= */
+/* =========================
    PreCheck — public/app.js (FULL)
-   PART 6 / 6  (FINAL)
+   PART 3B / 4
 
    Includes:
-   - Manager Home / Login / Edit Items / Categories / Add Item
-   - Download Log (CSV)
-   - Logout
-   - Utils (must be last)
+   - Manager Home
+   - Manager Login
+   - Manager Edit Items (with Saving overlay)
+   - Manager Categories (with Saving overlay)
+   - Manager Add Item modal (with Saving overlay)
 
-   FIXES INCLUDED (without changing your UI):
-   ✅ Fix: "staff already save not cleared" by clearing drafts on new session start
-   ✅ Fix: expiry popup rollback styles actually applied (call ensureExpiryPopupRollbackStyles)
-   ✅ Fix: refreshCategoryProgressUI typo causing silent crash
-   ✅ Fix: cssEsc safer for dataset selectors
-   ========================================================= */
-
-/* =========================================================
-   ✅ FIX: Clear drafts properly when staff changes / new session starts
-   - Called after Start button success
-   ========================================================= */
-function clearDraftsForNewSession() {
-  try {
-    state.drafts = {};
-    state.__draftsHydrated = false;
-    saveDraftsToStorage(); // save empty for this store/shift/day key
-  } catch {}
-}
-
-/* =========================================================
-   ✅ FIX: Expiry popup rollback styles must be applied
-   ========================================================= */
-
+   NOTE:
+   - PART 4 will contain: Download Log + CSV, Logout, Utils (and we will REMOVE dark mode there)
+   ========================= */
 
 /* =========================================================
    MANAGER HOME
@@ -2003,11 +2512,11 @@ function renderManagerHome() {
     </div>
   `;
 
-  $("#btnBack")?.addEventListener("click", goBack);
-  $("#tAdd")?.addEventListener("click", () => openAddItemModal());
-  $("#tEdit")?.addEventListener("click", () => setView({ page: "managerEditItems" }, true));
-  $("#tCats")?.addEventListener("click", () => setView({ page: "managerCategories" }, true));
-  $("#tLog")?.addEventListener("click", () => openDownloadLogModal());
+  $("#btnBack").addEventListener("click", goBack);
+  $("#tAdd").addEventListener("click", () => openAddItemModal());
+  $("#tEdit").addEventListener("click", () => setView({ page: "managerEditItems" }, true));
+  $("#tCats").addEventListener("click", () => setView({ page: "managerCategories" }, true));
+  $("#tLog").addEventListener("click", () => openDownloadLogModal());
 }
 
 /* =========================================================
@@ -2029,13 +2538,13 @@ function openManagerLogin() {
     { noBackdropClose: true }
   );
 
-  $("#pinCancel")?.addEventListener("click", () => {
+  $("#pinCancel").addEventListener("click", () => {
     closeModal();
     goBack();
   });
 
-  $("#pinBtn")?.addEventListener("click", async () => {
-    const pin = String($("#pinInp")?.value || "").trim();
+  $("#pinBtn").addEventListener("click", async () => {
+    const pin = String($("#pinInp").value || "").trim();
     if (!pin) return toast("Enter PIN");
 
     showSaving("Logging in…");
@@ -2077,7 +2586,7 @@ async function renderManagerEditItems() {
 
     <div id="mgrList" class="col"></div>
   `;
-  $("#btnBack")?.addEventListener("click", goBack);
+  $("#btnBack").addEventListener("click", goBack);
 
   const token = state.session.managerToken;
   let items = [];
@@ -2119,7 +2628,6 @@ async function renderManagerEditItems() {
     }
 
     const wrap = $("#mgrList");
-    if (!wrap) return;
     wrap.innerHTML = html;
 
     $$(".mgrRow", wrap).forEach((row) => {
@@ -2129,20 +2637,20 @@ async function renderManagerEditItems() {
       const save = $(`[data-save="${cssEsc(id)}"]`, row);
       const del = $(`[data-del="${cssEsc(id)}"]`, row);
 
-      toggle?.addEventListener("click", () => {
-        panel?.classList.toggle("hidden");
-        if (toggle) toggle.textContent = panel?.classList.contains("hidden") ? "Edit" : "Close";
+      toggle.addEventListener("click", () => {
+        panel.classList.toggle("hidden");
+        toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
       });
 
-      save?.addEventListener("click", async () => {
+      save.addEventListener("click", async () => {
         const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
         const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
         const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
         const hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
 
-        const category = String(catSel?.value || "").trim();
-        const sub_category = String(subSel?.value || "").trim() || null;
-        const shelf_life_days = Number(lifeInp?.value || 0);
+        const category = String(catSel.value || "").trim();
+        const sub_category = String(subSel.value || "").trim() || null;
+        const shelf_life_days = Number(lifeInp.value || 0);
         const is_hourly = !!hourlyChk?.checked;
 
         showSaving("Saving…");
@@ -2162,7 +2670,7 @@ async function renderManagerEditItems() {
         }
       });
 
-      del?.addEventListener("click", async () => {
+      del.addEventListener("click", async () => {
         if (!confirm("Delete this item?")) return;
 
         showSaving("Deleting…");
@@ -2173,7 +2681,7 @@ async function renderManagerEditItems() {
           );
           toast("Deleted ✅");
           items = items.filter((x) => String(x.id) !== String(id));
-          renderList($("#mgrSearch")?.value);
+          renderList($("#mgrSearch").value);
           await loadAllForCurrentStore();
         } catch (e) {
           console.error(e);
@@ -2185,7 +2693,7 @@ async function renderManagerEditItems() {
     });
   };
 
-  $("#mgrSearch")?.addEventListener("input", (e) => renderList(e.target.value));
+  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
   renderList("");
 }
 
@@ -2196,7 +2704,9 @@ function managerItemRow(it) {
   const catOpts = cats
     .map(
       (c) =>
-        `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`
+        `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(
+          c
+        )}</option>`
     )
     .join("");
 
@@ -2230,7 +2740,9 @@ function managerItemRow(it) {
           <select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select>
 
           <div style="font-weight:1200">Shelf life (days)</div>
-          <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(it.shelf_life_days)}">
+          <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(
+    it.shelf_life_days
+  )}">
 
           <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
             <input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}>
@@ -2294,13 +2806,13 @@ async function renderManagerCategories() {
     <button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>
   `;
 
-  $("#btnBack")?.addEventListener("click", goBack);
+  $("#btnBack").addEventListener("click", goBack);
 
   $$(".tile", main).forEach((b) => {
     b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname));
   });
 
-  $("#addCat")?.addEventListener("click", openAddCategoryModal);
+  $("#addCat").addEventListener("click", openAddCategoryModal);
 }
 
 function openAddCategoryModal() {
@@ -2320,9 +2832,9 @@ function openAddCategoryModal() {
     { noBackdropClose: true }
   );
 
-  $("#catSave")?.addEventListener("click", async () => {
-    const name = String($("#catName")?.value || "").trim();
-    const sort_order = Number($("#catSort")?.value || 100);
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const sort_order = Number($("#catSort").value || 100);
     if (!name) return toast("Name required");
 
     showSaving("Saving…");
@@ -2367,9 +2879,9 @@ function openEditCategoryModal(id, currentName) {
     { noBackdropClose: true }
   );
 
-  $("#catSave")?.addEventListener("click", async () => {
-    const name = String($("#catName")?.value || "").trim();
-    const is_active = $("#catActive")?.value === "true";
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const is_active = $("#catActive").value === "true";
     if (!name) return toast("Name required");
 
     showSaving("Saving…");
@@ -2391,7 +2903,7 @@ function openEditCategoryModal(id, currentName) {
     }
   });
 
-  $("#catDelete")?.addEventListener("click", async () => {
+  $("#catDelete").addEventListener("click", async () => {
     if (!confirm("Delete this category?")) return;
 
     showSaving("Deleting…");
@@ -2453,11 +2965,11 @@ function openAddItemModal() {
     { noBackdropClose: true }
   );
 
-  $("#itSave")?.addEventListener("click", async () => {
-    const name = String($("#itName")?.value || "").trim();
-    const category = String($("#itCat")?.value || "").trim();
-    const sub_category = String($("#itSub")?.value || "").trim() || null;
-    const shelf_life_days = Number($("#itLife")?.value || 0);
+  $("#itSave").addEventListener("click", async () => {
+    const name = String($("#itName").value || "").trim();
+    const category = String($("#itCat").value || "").trim();
+    const sub_category = String($("#itSub").value || "").trim() || null;
+    const shelf_life_days = Number($("#itLife").value || 0);
     const is_hourly = !!$("#itHourly")?.checked;
 
     if (!name || !category) return toast("Missing name/category");
@@ -2480,6 +2992,759 @@ function openAddItemModal() {
       hideSaving();
     }
   });
+}
+
+/* =========================
+   END PART 3B / 4
+   ========================= */
+/* =========================
+   PreCheck — public/app.js (FULL)
+   PART 4A / 4  (SPLIT 1 of 2)
+
+   Includes (NEW / CHANGES):
+   ✅ REMOVE Dark Mode (force light, hide drawer switch, override theme functions)
+   ✅ New iOS-style wheel date picker:
+      - fits PreCheck colors
+      - year up to 2100
+      - Day + Month loop (no empty look)
+      - Allows backdated selection
+      - If backdated (before threshold), shows warning popup: "Discard product?"
+   ✅ Overrides:
+      - openDateWheelModal()
+      - openAddDateModal()  (no hard block past; warn instead)
+      - saveCategory()      (no hard block past; warn instead)
+
+   NOTE:
+   - PART 4B / 4 will contain: Download Log + CSV, Logout, Utils
+   ========================= */
+
+/* =========================================================
+   ✅ REMOVE DARK MODE (force light + hide UI)
+   - overrides previous theme functions from PART 1
+   ========================================================= */
+function applyTheme() {
+  // force light always
+  try {
+    document.documentElement.classList.remove("dark");
+    document.body.classList.remove("dark");
+  } catch {}
+}
+function getTheme() {
+  return "light";
+}
+function setTheme() {
+  applyTheme("light");
+}
+function toggleTheme() {
+  // disabled
+  applyTheme("light");
+  toast("Light mode ✅");
+}
+function updateThemeToggleUI() {
+  // hide the drawer theme row if exists
+  const host = document.getElementById("drawerTheme");
+  if (host) host.style.display = "none";
+}
+(function forceLightThemeNow() {
+  try {
+    document.documentElement.classList.remove("dark");
+    document.body.classList.remove("dark");
+    const host = document.getElementById("drawerTheme");
+    if (host) host.style.display = "none";
+  } catch {}
+})();
+
+/* =========================================================
+   Backdated warning helper
+   ========================================================= */
+function openBackdatedWarning({ pickedISO, thresholdISO, onProceed }) {
+  const picked = String(pickedISO || "").slice(0, 10);
+  const threshold = String(thresholdISO || "").slice(0, 10);
+
+  // if no threshold, just proceed
+  if (!threshold || picked >= threshold) return onProceed?.();
+
+  openModal(
+    "Backdated date detected",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:8px">This date is in the past.</div>
+        <div class="muted" style="font-weight:1100;line-height:1.35">
+          Picked: <b>${escapeHtml(formatLongDMY(picked))}</b><br/>
+          Today: <b>${escapeHtml(formatLongDMY(todayISO()))}</b>
+        </div>
+
+        <div style="margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+          <div style="font-weight:1200;margin-bottom:6px">Action</div>
+          <div class="muted" style="font-weight:1100;line-height:1.35">
+            If the product is already expired, discard the product before saving.
+          </div>
+        </div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="bdCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="bdProceed" class="btn btn-red" style="flex:1">Proceed</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#bdCancel")?.addEventListener("click", closeModal);
+  $("#bdProceed")?.addEventListener("click", () => {
+    closeModal();
+    onProceed?.();
+  });
+}
+
+/* =========================================================
+   ✅ iOS-style wheel date picker (looping Day + Month)
+   - year: 1900..2100 (default) OR from min/max if provided
+   - allows selecting outside threshold (minISO) but warns on OK
+   - hard max enforced (maxISO) if provided
+   ========================================================= */
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  const today = todayISO();
+
+  // threshold for backdated warning (NOT a hard limit)
+  const threshold = String(minISO || today).slice(0, 10);
+
+  // hard bounds for picker
+  const hardMin = "1900-01-01";
+  const hardMax = String(maxISO || "2100-12-31").slice(0, 10);
+
+  const init = String(initialISO || today).slice(0, 10);
+
+  function clampISO(iso) {
+    let x = String(iso || "").slice(0, 10);
+    if (!x) x = today;
+    if (x < hardMin) x = hardMin;
+    if (x > hardMax) x = hardMax;
+    return x;
+  }
+
+  function toYMD(iso) {
+    const [yy, mm, dd] = String(iso).slice(0, 10).split("-").map((n) => Number(n));
+    return { y: yy || 2000, m: mm || 1, d: dd || 1 };
+  }
+
+  function daysInMonth(y, m) {
+    return new Date(y, m, 0).getDate(); // m=1..12
+  }
+
+  function monthName(mm) {
+    return new Date(2000, mm - 1, 1).toLocaleString("en", { month: "long" });
+  }
+
+  function toISO(y, m, d) {
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+
+  // Build looping arrays: 5 copies to feel "infinite"
+  const LOOP_COPIES = 5;
+  const MID_COPY = Math.floor(LOOP_COPIES / 2);
+
+  const monthsLoop = [];
+  for (let c = 0; c < LOOP_COPIES; c++) {
+    for (let mm = 1; mm <= 12; mm++) monthsLoop.push(mm);
+  }
+
+  // Year range (dynamic but capped to 1900..2100)
+  const hardMinY = 1900;
+  const hardMaxY = 2100;
+  let yearMin = hardMinY;
+  let yearMax = hardMaxY;
+
+  try {
+    const minY = Number(String(hardMin).slice(0, 4));
+    const maxY = Number(String(hardMax).slice(0, 4));
+    if (Number.isFinite(minY)) yearMin = Math.max(hardMinY, minY);
+    if (Number.isFinite(maxY)) yearMax = Math.min(hardMaxY, maxY);
+  } catch {}
+
+  const years = [];
+  for (let yy = yearMin; yy <= yearMax; yy++) years.push(yy);
+
+  // current selection
+  let curISO = clampISO(init);
+  let { y, m, d } = toYMD(curISO);
+  d = Math.max(1, Math.min(d, daysInMonth(y, m)));
+
+  // helper to rebuild day loop based on y/m
+  function buildDaysLoop(y_, m_) {
+    const dim = daysInMonth(y_, m_);
+    const out = [];
+    for (let c = 0; c < LOOP_COPIES; c++) {
+      for (let dd = 1; dd <= dim; dd++) out.push(dd);
+    }
+    return out;
+  }
+
+  let daysLoop = buildDaysLoop(y, m);
+
+  // modal HTML + inline style (so you don’t need to edit css again)
+  openModal(
+    title || "Select date",
+    `
+      <div class="pc-ioswheel">
+        <style>
+          .pc-ioswheel{padding:6px 2px}
+          .pc-ioswheel .wheelwrap{
+            position:relative;
+            display:flex;
+            gap:10px;
+            background:#fff;
+            border:1px solid var(--line);
+            border-radius:18px;
+            padding:10px;
+            overflow:hidden;
+          }
+          .pc-ioswheel .col{flex:1;min-width:0}
+          .pc-ioswheel .label{
+            font-weight:1200;
+            font-size:12px;
+            color:#111;
+            margin:0 0 8px 2px;
+            opacity:.75;
+          }
+          .pc-ioswheel .list{
+            height:220px;
+            overflow:auto;
+            -webkit-overflow-scrolling:touch;
+            scroll-snap-type:y mandatory;
+            border-radius:14px;
+            background:linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65) 25%, rgba(255,255,255,.65) 75%, rgba(255,255,255,1));
+          }
+          .pc-ioswheel .item{
+            height:44px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            scroll-snap-align:center;
+            font-weight:1200;
+            font-size:16px;
+            color:#111;
+            opacity:.55;
+            user-select:none;
+          }
+          .pc-ioswheel .item.active{opacity:1; color:#111}
+          .pc-ioswheel .hl{
+            position:absolute;
+            left:10px; right:10px;
+            top:10px;
+            height:44px;
+            transform:translateY(calc(220px/2 - 22px));
+            border-radius:14px;
+            border:2px solid rgba(0,0,0,.06);
+            box-shadow:0 6px 18px rgba(0,0,0,.08) inset;
+            pointer-events:none;
+          }
+          .pc-ioswheel .fadeTop, .pc-ioswheel .fadeBot{
+            position:absolute; left:0; right:0; height:44px; pointer-events:none;
+          }
+          .pc-ioswheel .fadeTop{top:0;background:linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,0))}
+          .pc-ioswheel .fadeBot{bottom:0;background:linear-gradient(to top, rgba(255,255,255,1), rgba(255,255,255,0))}
+          .pc-ioswheel .actions{display:flex; gap:12px; margin-top:12px}
+          .pc-ioswheel .btnx{
+            flex:1; padding:12px 12px; border-radius:14px; font-weight:1200; border:1px solid var(--line);
+            background:#fff;
+          }
+          .pc-ioswheel .btnok{background:var(--green); color:#fff; border:0}
+          .pc-ioswheel .hint{
+            margin-top:10px;
+            font-weight:1100;
+            font-size:12px;
+            color:#111;
+            opacity:.7;
+          }
+        </style>
+
+        <div class="wheelwrap">
+          <div class="col">
+            <div class="label">Day</div>
+            <div class="list" id="wDay"></div>
+          </div>
+          <div class="col">
+            <div class="label">Month</div>
+            <div class="list" id="wMon"></div>
+          </div>
+          <div class="col">
+            <div class="label">Year</div>
+            <div class="list" id="wYear"></div>
+          </div>
+
+          <div class="hl" aria-hidden="true"></div>
+          <div class="fadeTop" aria-hidden="true"></div>
+          <div class="fadeBot" aria-hidden="true"></div>
+        </div>
+
+        <div class="actions">
+          <button class="btnx" type="button" id="wCancel">Cancel</button>
+          <button class="btnx btnok" type="button" id="wOk">Set date</button>
+        </div>
+
+        <div class="hint">
+          Tip: Past dates are allowed. If you pick a past date, you will see a discard warning.
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  const dayEl = $("#wDay");
+  const monEl = $("#wMon");
+  const yearEl = $("#wYear");
+
+  function renderList(el, arr, formatter) {
+    el.innerHTML = arr
+      .map((v) => `<div class="item" data-v="${escapeHtml(String(v))}">${formatter(v)}</div>`)
+      .join("");
+  }
+
+  function setActiveByValue(el, value) {
+    const items = $$(".item", el);
+    items.forEach((x) => x.classList.remove("active"));
+    const hit = items.find((x) => String(x.dataset.v) === String(value));
+    if (hit) hit.classList.add("active");
+  }
+
+  function centerToValue(el, arr, value, loop = false) {
+    const items = $$(".item", el);
+    if (!items.length) return;
+
+    // find target index: for loop lists, go to middle copy
+    let idx = arr.findIndex((v) => String(v) === String(value));
+    if (idx < 0) idx = 0;
+
+    if (loop) {
+      const baseLen = loop === "month" ? 12 : daysInMonth(y, m);
+      const target = MID_COPY * baseLen + ((Number(value) - 1) % baseLen);
+      idx = Math.max(0, Math.min(items.length - 1, target));
+    }
+
+    const item = items[idx];
+    const top = item.offsetTop - el.clientHeight / 2 + item.clientHeight / 2;
+    el.scrollTo({ top, behavior: "auto" });
+    setActiveByValue(el, value);
+  }
+
+  function readCenteredValue(el) {
+    const items = $$(".item", el);
+    if (!items.length) return null;
+    const center = el.scrollTop + el.clientHeight / 2;
+
+    let best = null;
+    let bestDist = Infinity;
+    for (const it of items) {
+      const itCenter = it.offsetTop + it.clientHeight / 2;
+      const dist = Math.abs(itCenter - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = it;
+      }
+    }
+    return best ? best.dataset.v : null;
+  }
+
+  function normalizeLoopScroll(el, baseLen) {
+    // keep scroll around middle copy so it never "ends"
+    const items = $$(".item", el);
+    if (!items.length) return;
+    const centered = readCenteredValue(el);
+    if (!centered) return;
+
+    const v = Number(centered);
+    const targetIndex = MID_COPY * baseLen + (v - 1);
+    const targetItem = items[targetIndex];
+    if (!targetItem) return;
+
+    const targetTop = targetItem.offsetTop - el.clientHeight / 2 + targetItem.clientHeight / 2;
+    // if user drags too far near edges, jump silently
+    const tooHigh = el.scrollTop < el.clientHeight * 0.5;
+    const tooLow = el.scrollTop > el.scrollHeight - el.clientHeight * 1.5;
+    if (tooHigh || tooLow) el.scrollTo({ top: targetTop, behavior: "auto" });
+  }
+
+  function rebuildDaysIfNeeded() {
+    const dim = daysInMonth(y, m);
+    if (d > dim) d = dim;
+    daysLoop = buildDaysLoop(y, m);
+    renderList(dayEl, daysLoop, (dd) => String(dd));
+    setActiveByValue(dayEl, d);
+    centerToValue(dayEl, daysLoop, d, "day");
+  }
+
+  function updateCurISO() {
+    curISO = clampISO(toISO(y, m, d));
+  }
+
+  // initial render
+  renderList(monEl, monthsLoop, (mm) => monthName(mm));
+  renderList(yearEl, years, (yy) => String(yy));
+  rebuildDaysIfNeeded();
+
+  // center to current values
+  centerToValue(monEl, monthsLoop, m, "month");
+  centerToValue(yearEl, years, y, false);
+
+  // events
+  let tDay = null,
+    tMon = null,
+    tYear = null;
+
+  function onScrollDay() {
+    clearTimeout(tDay);
+    tDay = setTimeout(() => {
+      normalizeLoopScroll(dayEl, daysInMonth(y, m));
+      const v = readCenteredValue(dayEl);
+      if (v) {
+        d = Number(v);
+        updateCurISO();
+        setActiveByValue(dayEl, d);
+      }
+    }, 90);
+  }
+
+  function onScrollMon() {
+    clearTimeout(tMon);
+    tMon = setTimeout(() => {
+      normalizeLoopScroll(monEl, 12);
+      const v = readCenteredValue(monEl);
+      if (v) {
+        m = Number(v);
+        rebuildDaysIfNeeded();
+        updateCurISO();
+        setActiveByValue(monEl, m);
+      }
+    }, 90);
+  }
+
+  function onScrollYear() {
+    clearTimeout(tYear);
+    tYear = setTimeout(() => {
+      const v = readCenteredValue(yearEl);
+      if (v) {
+        y = Number(v);
+        rebuildDaysIfNeeded();
+        updateCurISO();
+        setActiveByValue(yearEl, y);
+      }
+    }, 90);
+  }
+
+  dayEl.addEventListener("scroll", onScrollDay, { passive: true });
+  monEl.addEventListener("scroll", onScrollMon, { passive: true });
+  yearEl.addEventListener("scroll", onScrollYear, { passive: true });
+
+  // tap select
+  function bindTap(el, setter) {
+    el.addEventListener("click", (e) => {
+      const it = e.target.closest(".item");
+      if (!it) return;
+      setter(it.dataset.v);
+    });
+  }
+
+  bindTap(dayEl, (v) => {
+    d = Number(v);
+    updateCurISO();
+    centerToValue(dayEl, daysLoop, d, "day");
+    haptic(8);
+  });
+
+  bindTap(monEl, (v) => {
+    m = Number(v);
+    rebuildDaysIfNeeded();
+    updateCurISO();
+    centerToValue(monEl, monthsLoop, m, "month");
+    haptic(8);
+  });
+
+  bindTap(yearEl, (v) => {
+    y = Number(v);
+    rebuildDaysIfNeeded();
+    updateCurISO();
+    centerToValue(yearEl, years, y, false);
+    haptic(8);
+  });
+
+  // cancel / ok
+  $("#wCancel")?.addEventListener("click", closeModal);
+
+  $("#wOk")?.addEventListener("click", () => {
+    const picked = clampISO(toISO(y, m, d));
+
+    // enforce hard max (and hard min)
+    if (picked < hardMin || picked > hardMax) {
+      toast("Date out of range");
+      return;
+    }
+
+    closeModal();
+
+    // if picked is before threshold, warn first
+    openBackdatedWarning({
+      pickedISO: picked,
+      thresholdISO: threshold,
+      onProceed: () => onPick && onPick(picked),
+    });
+  });
+}
+
+/* =========================================================
+   ✅ Override Add 2nd date popup:
+   - allow backdated with warning (no hard block)
+   ========================================================= */
+function openAddDateModal({ it, cat, key }) {
+  const d = state.drafts[key] || (state.drafts[key] = {});
+  d.extraISO = d.extraISO || "";
+  d.extraQty = d.extraQty || 0;
+
+  const rule = shelfLifeModeFor(it, cat);
+  const today = todayISO();
+  const warnThreshold = today; // warn if past
+
+  openModal(
+    "Add 2nd date",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(it.name)}</div>
+
+        <div style="border:1px solid var(--line);border-radius:14px;padding:12px">
+          <div style="font-weight:1200;margin-bottom:8px">2nd expiry date</div>
+
+          ${
+            rule.mode === "HOURLY"
+              ? `<div class="muted" style="font-weight:1000">Hourly items cannot use Add 2nd date.</div>`
+              : rule.mode === "EOD_AUTO"
+              ? `<div class="muted" style="font-weight:1000">Chicken Bacon (c) is auto today (EOD).</div>`
+              : `
+                <button id="exPick" class="btn btn-yellow" style="width:100%">Pick date</button>
+                <div id="exShow" style="margin-top:8px;font-weight:1200">
+                  ${d.extraISO ? escapeHtml(formatLongDMY(d.extraISO)) : "Not set"}
+                </div>
+              `
+          }
+
+          <div style="margin-top:10px;font-weight:1200">Qty</div>
+          <input id="exQty" class="input" inputmode="numeric" value="${escapeHtml(d.extraQty || 0)}">
+        </div>
+
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          Past dates are allowed (warning will appear).
+        </div>
+
+        <div class="row" style="gap:12px;margin-top:14px">
+          <button id="exCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+          <button id="exOk" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Done</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#exQty")?.addEventListener("input", () => {
+    d.extraQty = Number($("#exQty").value || 0);
+    saveDraftsToStorage();
+  });
+
+  if (rule.mode === "HOURLY") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", closeModal);
+    return;
+  }
+
+  if (rule.mode === "EOD_AUTO") {
+    $("#exCancel")?.addEventListener("click", closeModal);
+    $("#exOk")?.addEventListener("click", () => {
+      d.extraISO = todayISO();
+      saveDraftsToStorage();
+      closeModal();
+      render();
+      toast("Added 2nd date ✅");
+    });
+    return;
+  }
+
+  $("#exPick")?.addEventListener("click", () => {
+    openDateWheelModal({
+      title: "Pick 2nd expiry date",
+      initialISO: d.extraISO || todayISO(),
+      minISO: warnThreshold, // warning threshold only
+      maxISO: "2100-12-31",
+      onPick: (iso) => {
+        d.extraISO = iso;
+        saveDraftsToStorage();
+        const el = $("#exShow");
+        if (el) el.textContent = formatLongDMY(iso);
+      },
+    });
+  });
+
+  $("#exCancel")?.addEventListener("click", closeModal);
+
+  $("#exOk")?.addEventListener("click", () => {
+    const q = Number(d.extraQty || 0);
+    if (q > 0 && !d.extraISO) return toast("Pick date for qty > 0");
+    saveDraftsToStorage();
+    closeModal();
+    render();
+    toast("Added 2nd date ✅");
+  });
+}
+
+/* =========================================================
+   ✅ Override Save category:
+   - allow backdated expiry BUT show warning before saving
+   ========================================================= */
+async function saveCategory(items, cat) {
+  const store = state.session.store;
+  const staff = state.session.staff;
+  const shift = state.session.shift;
+  const today = todayISO();
+
+  const rows = [];
+
+  // collect rows first (no blocking for past, just collect)
+  for (const it of items) {
+    const key = itemKey(it);
+    const d =
+      state.drafts[key] || {
+        qty: 0,
+        expType: "",
+        expDateISO: "",
+        expTimeShort: "",
+        extraISO: "",
+        extraQty: 0,
+      };
+
+    const qty = Number(d.qty) || 0;
+    const xq = Number(d.extraQty) || 0;
+
+    const rule = shelfLifeModeFor(it, cat);
+
+    // main row
+    if (qty > 0) {
+      let expiry = null;
+      let expiry_at = null;
+
+      if (rule.mode === "HOURLY") {
+        if (!d.expTimeShort) {
+          toast(`Pick time for ${it.name}`);
+          return;
+        }
+        expiry = today;
+        expiry_at = isoFromTodayAndTime(d.expTimeShort);
+      } else if (rule.mode === "EOD_AUTO") {
+        expiry = today;
+      } else {
+        expiry = d.expDateISO || null;
+        if (!expiry) {
+          toast(`Pick expiry for ${it.name}`);
+          return;
+        }
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: qty,
+        expiry,
+        expiry_at,
+        shift,
+        is_extra: false,
+      });
+    }
+
+    // extra 2nd date row
+    if (xq > 0) {
+      const expiry = rule.mode === "EOD_AUTO" ? today : d.extraISO || "";
+      if (!expiry) {
+        toast("Set 2nd date");
+        return;
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: xq,
+        expiry,
+        expiry_at: null,
+        shift,
+        is_extra: true,
+        extra_tag: "SECOND",
+      });
+    }
+  }
+
+  if (!rows.length) return toast("Nothing to save");
+
+  // if any expiry is backdated, warn once before saving
+  const anyBackdated = rows.some((r) => {
+    const e = String(r.expiry || "").slice(0, 10);
+    return e && e < today;
+  });
+
+  const doActualSave = async () => {
+    showSaving("Saving…");
+    try {
+      await apiPost("/api/log/batch", { store, staff, shift, rows });
+
+      const lastName = rows.length ? rows[rows.length - 1].item_name || "" : "";
+      recordShiftDoneAndLast({ store, shift, staff, lastItemName: lastName });
+
+      toast("Saved ✅");
+      await refreshStockDot().catch(() => {});
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  };
+
+  if (anyBackdated) {
+    openBackdatedWarning({
+      pickedISO: today, // not used for display in this case
+      thresholdISO: today, // force warning modal
+      onProceed: doActualSave,
+    });
+    return;
+  }
+
+  await doActualSave();
+}
+
+/* =========================
+   END PART 4A / 4
+   ========================= */
+/* =========================
+   PreCheck — public/app.js (FULL)
+   PART 4B / 4  (SPLIT 2 of 2)
+
+   Includes:
+   - Download Log modal + CSV export (manager)
+   - Logout
+   - Utils (must be last)
+
+   Notes:
+   - This part stays mostly same as your PART 4, but keeps working with the new wheel + light-only setup.
+   ========================= */
+
+/* =========================================================
+   OPTIONAL: helper to wrap any async action with overlay
+   ========================================================= */
+async function withSaving(msg, fn) {
+  showSaving(msg || "Saving…");
+  try {
+    return await fn();
+  } finally {
+    hideSaving();
+  }
 }
 
 /* =========================================================
@@ -2527,11 +3792,11 @@ function openDownloadLogModal() {
   };
   redraw();
 
-  $("#dlFromBtn")?.addEventListener("click", () => {
+  $("#dlFromBtn").addEventListener("click", () => {
     openDateWheelModal({
       title: "From date",
       initialISO: state[memKey].from || todayISO(),
-      minISO: todayISO(),
+      minISO: todayISO(), // warning threshold only
       maxISO: "2100-12-31",
       onPick: (iso) => {
         state[memKey].from = iso;
@@ -2540,11 +3805,11 @@ function openDownloadLogModal() {
     });
   });
 
-  $("#dlToBtn")?.addEventListener("click", () => {
+  $("#dlToBtn").addEventListener("click", () => {
     openDateWheelModal({
       title: "To date",
       initialISO: state[memKey].to || todayISO(),
-      minISO: todayISO(),
+      minISO: todayISO(), // warning threshold only
       maxISO: "2100-12-31",
       onPick: (iso) => {
         state[memKey].to = iso;
@@ -2553,9 +3818,9 @@ function openDownloadLogModal() {
     });
   });
 
-  $("#dlCancel")?.addEventListener("click", closeModal);
+  $("#dlCancel").addEventListener("click", closeModal);
 
-  $("#dlGo")?.addEventListener("click", async () => {
+  $("#dlGo").addEventListener("click", async () => {
     const from = state[memKey].from;
     const to = state[memKey].to;
     if (!from || !to) return toast("Pick From + To");
@@ -2575,7 +3840,7 @@ function openDownloadLogModal() {
 }
 
 async function downloadManagerLogCSV({ from, to }) {
-  const store = state.session.store;
+  const store = state.session.store; // downloads current store log
   const token = state.session.managerToken || "";
   if (!token) return toast("Manager login required");
 
@@ -2615,21 +3880,11 @@ function doLogout() {
   state.data.categories = [];
   state.data.items = [];
   state.drafts = {};
-  state.__draftsHydrated = false;
   state.navStack = [];
   state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
 
   renderRolePill();
   render();
-}
-
-/* =========================================================
-   ✅ FIX: refreshCategoryProgressUI typo safeguard
-   ========================================================= */
-function safeRefreshCategoryProgress(items, cat) {
-  try {
-    if (typeof refreshCategoryProgressUI === "function") refreshCategoryProgressUI(items, cat);
-  } catch {}
 }
 
 /* =========================================================
@@ -2644,8 +3899,7 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 function cssEsc(s) {
-  // safer for selectors
-  return String(s).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return String(s).replaceAll('"', '\\"');
 }
 function enforceArray(v) {
   return Array.isArray(v) ? v : [];
@@ -2683,27 +3937,6 @@ function updateQtyUI(root, key) {
   }
 }
 
-/* =========================================================
-   ✅ PATCH: Apply fixes to existing flows without redesign
-   - Hook into login start to clear old staff drafts
-   - Ensure expiry popup style is applied
-   ========================================================= */
-(function applyFinalPatches() {
-  // apply popup styles once
-
-
-  // patch Start button handler: clear drafts after session set
-  // (Your renderLoginPage already attaches startBtn listener; we hook by event delegation)
-  document.addEventListener("click", (e) => {
-    const btn = e.target?.closest?.("#startBtn");
-    if (!btn) return;
-
-    // Let your existing code run first, then clear drafts after session is saved
-    setTimeout(() => {
-      // if session is valid, clear drafts for new staff/store/shift/day
-      if (state.session?.store && state.session?.staff) {
-        clearDraftsForNewSession();
-      }
-    }, 50);
-  });
-})();
+/* =========================
+   END PART 4B / 4
+   ========================= */
