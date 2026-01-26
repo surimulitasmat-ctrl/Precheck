@@ -27,26 +27,6 @@
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-/* ================================
-   Splash Screen
-   ================================ */
-function showSplash() {
-  const el = document.createElement("div");
-  el.className = "pc-splash";
-  el.innerHTML = `
-    <div class="pc-splash-inner">
-      <div class="pc-watch"></div>
-      <div class="pc-tagline">lets work toward 0% expiry</div>
-    </div>
-  `;
-  document.body.appendChild(el);
-
-  // auto remove
-  setTimeout(() => {
-    el.style.opacity = "0";
-    setTimeout(() => el.remove(), 400);
-  }, 2200);
-}
 
 /* ---------- constants ---------- */
 const POPUP_ITEMS = [
@@ -97,42 +77,11 @@ const state = {
     sessionDayKey: "",
   }),
   data: { categories: [], items: [] },
+  // per itemKey: { qty, expType, expDateISO, expTimeShort, extraISO, extraQty }
   drafts: {},
   stock: { hasDot: false, rows: [] },
   __draftsHydrated: false,
 };
-
-/* =========================
-   SPLASH – SHOW IMMEDIATELY
-   ========================= */
-showSplash();
-
-function setSplashAccentForStore(store) {
-  // before login we don't know store, so default green.
-  // after login, set based on chosen store.
-  const root = document.documentElement;
-  const s = String(store || "").toUpperCase();
-  if (s === "PDD") root.style.setProperty("--pc-splash-accent", "var(--pdd)");
-  else if (s === "SKH") root.style.setProperty("--pc-splash-accent", "var(--skh)");
-  else root.style.setProperty("--pc-splash-accent", "#009A44");
-}
-
-function showSplash() {
-  const el = document.getElementById("pcSplash");
-  if (!el) return;
-  el.classList.remove("is-hidden");
-
-  // if session already has store (user already logged in), use it
-  setSplashAccentForStore(state?.session?.store || "");
-}
-
-function hideSplash() {
-  const el = document.getElementById("pcSplash");
-  if (!el) return;
-  el.classList.add("is-hidden");
-  // optional: remove after fade
-  setTimeout(() => el.remove(), 350);
-}
 
 /* ---------- boot ---------- */
 bindTopbar();
@@ -143,9 +92,6 @@ startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
-  // ✅ SHOW splash immediately when app starts
-  showSplash();
-
   ensureSessionDayKey();
 
   // update drawer label on load
@@ -154,19 +100,9 @@ async function boot() {
   // Wake server (best-effort)
   await wakeServer().catch(() => {});
 
-  // 🔐 Not logged in → go to login, then hide splash
   if (!state.session.store || !state.session.staff) {
-    state.view = {
-      page: "login",
-      category: null,
-      sauceSub: null,
-      summaryMode: null,
-      bucket: null,
-    };
+    state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
-
-    // ✅ IMPORTANT: hide splash AFTER login screen is ready
-    hideSplash();
     return;
   }
 
@@ -180,11 +116,7 @@ async function boot() {
 
   maybeShowExpiryPopup(false);
   render();
-
-  // ✅ HIDE splash only when app is fully ready
-  hideSplash();
 }
-
 
 /* =========================================================
    STORAGE
