@@ -614,3 +614,154 @@ body.theme-anim *{
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* =========================
+   PreCheck Splash (Stopwatch)
+   ========================= */
+
+:root{
+  --pc-splash-accent: #009A44; /* default (unknown store before login) */
+}
+
+.pc-splash{
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(1200px 900px at 50% 35%, rgba(255,255,255,0.06), transparent 55%),
+              radial-gradient(900px 700px at 50% 65%, rgba(0,0,0,0.35), transparent 55%),
+              #0b0f10;
+}
+
+.pc-splash.is-hidden{
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 280ms ease;
+}
+
+.pc-splash-inner{
+  text-align: center;
+  transform: translateY(-12vh); /* lifts it (feels less empty on tall phones) */
+}
+
+/* Watch container */
+.pc-watch{
+  width: 132px;
+  height: 132px;
+  margin: 0 auto;
+  position: relative;
+  animation: pc-breathe 1.9s ease-in-out infinite;
+}
+
+/* Soft glow ring */
+.pc-glow{
+  position:absolute;
+  inset:-26px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(0,0,0,0) 42%, rgba(0,0,0,0) 43%),
+              radial-gradient(circle, color-mix(in srgb, var(--pc-splash-accent) 65%, transparent) 0%, transparent 58%);
+  filter: blur(1px);
+  opacity: 0.0;
+  animation: pc-glow 1.9s ease-in-out infinite;
+}
+
+/* Watch body */
+.pc-face{
+  position:absolute;
+  inset:0;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.18), transparent 55%),
+              radial-gradient(circle at 50% 60%, rgba(0,0,0,0.25), transparent 60%),
+              rgba(255,255,255,0.08);
+  border: 3px solid rgba(255,255,255,0.42);
+  box-shadow: 0 22px 60px rgba(0,0,0,0.55);
+}
+
+/* Tiny details (crown + buttons) */
+.pc-crown{
+  position:absolute;
+  top:-14px; left:50%;
+  transform: translateX(-50%);
+  width: 36px; height: 18px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.18);
+  border: 2px solid rgba(255,255,255,0.35);
+}
+
+.pc-btn{
+  position:absolute;
+  top: 12px;
+  width: 18px; height: 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.16);
+  border: 2px solid rgba(255,255,255,0.30);
+}
+
+.pc-btn-l{ left:-10px; transform: rotate(-24deg); }
+.pc-btn-r{ right:-10px; transform: rotate(24deg); }
+
+.pc-pin{
+  position:absolute;
+  left:50%; top:50%;
+  width: 7px; height: 7px;
+  transform: translate(-50%,-50%);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.75);
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.18);
+}
+
+/* Second hand (tick movement) */
+.pc-hand{
+  position:absolute;
+  left:50%; top:50%;
+  width: 3px; height: 54px;
+  transform-origin: 50% calc(100% - 6px);
+  transform: translate(-50%,-100%) rotate(0deg);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.85);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.30);
+  animation: pc-tick 1.2s steps(8, end) infinite;
+}
+
+/* Tagline (subtle, appears late, fades out) */
+.pc-tagline{
+  margin-top: 16px;
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.72);
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: translateY(8px);
+  animation: pc-tagline 2.4s ease-in-out infinite;
+}
+
+@keyframes pc-breathe{
+  0%,100% { transform: scale(1); }
+  50%     { transform: scale(1.03); }
+}
+
+@keyframes pc-glow{
+  0%   { opacity: 0.00; transform: scale(0.98); }
+  40%  { opacity: 0.55; transform: scale(1.02); }
+  70%  { opacity: 0.25; transform: scale(1.05); }
+  100% { opacity: 0.00; transform: scale(0.98); }
+}
+
+@keyframes pc-tick{
+  0%   { transform: translate(-50%,-100%) rotate(0deg); }
+  100% { transform: translate(-50%,-100%) rotate(45deg); } /* small satisfying sweep */
+}
+
+@keyframes pc-tagline{
+  0%   { opacity: 0; transform: translateY(10px); }
+  45%  { opacity: 0; transform: translateY(10px); }
+  70%  { opacity: 1; transform: translateY(0px); }
+  92%  { opacity: 0.55; transform: translateY(0px); }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
