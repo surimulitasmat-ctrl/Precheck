@@ -543,3 +543,74 @@ body.theme-anim *{
   .tile .title{font-size:17px}
   .dash-title{font-size:17px}
 }
+/* ================================
+   PreCheck Splash – Stopwatch
+   ================================ */
+.pc-splash {
+  position: fixed;
+  inset: 0;
+  background: #0e0f12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.pc-splash-inner {
+  text-align: center;
+  animation: pcFadeIn 600ms ease-out;
+}
+
+.pc-watch {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.35);
+  position: relative;
+  margin: 0 auto;
+  animation: pcBreathe 2.8s ease-in-out infinite;
+}
+
+.pc-watch::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 2px;
+  height: 38px;
+  background: #fff;
+  transform-origin: bottom;
+  animation: pcHand 1.4s ease-in-out infinite;
+}
+
+.pc-tagline {
+  margin-top: 22px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: rgba(255,255,255,0.65);
+  animation: pcTagline 2.8s ease-in-out infinite;
+}
+
+/* Animations */
+@keyframes pcBreathe {
+  0%,100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes pcHand {
+  0%,100% { transform: translateX(-50%) rotate(-8deg); }
+  50% { transform: translateX(-50%) rotate(8deg); }
+}
+
+@keyframes pcTagline {
+  0% { opacity: 0; }
+  40% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes pcFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
