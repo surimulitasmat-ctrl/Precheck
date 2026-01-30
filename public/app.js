@@ -445,6 +445,9 @@ function closeModal() {
    LOADING / SAVING OVERLAY ✅
    Used by staff save + manager actions so app doesn't feel stuck
    ========================================================= */
+/* =========================================================
+   LOADING / SAVING OVERLAY (Sandwich Edition 🥪)
+   ========================================================= */
 function ensureSavingOverlay() {
   let el = document.getElementById("pcSavingOverlay");
   if (el) return el;
@@ -454,17 +457,31 @@ function ensureSavingOverlay() {
   el.className = "hidden";
   el.style.position = "fixed";
   el.style.inset = "0";
-  el.style.background = "rgba(0,0,0,0.35)";
+  el.style.background = "rgba(0,0,0,0.45)"; // Slightly darker for contrast
+  el.style.backdropFilter = "blur(4px)"; // Blur background content
   el.style.zIndex = "9999";
   el.style.display = "flex";
   el.style.alignItems = "center";
   el.style.justifyContent = "center";
+  
+  // New HTML with Sandwich Animation Structure
   el.innerHTML = `
-    <div style="background:#fff;border-radius:18px;padding:14px 16px;min-width:220px;box-shadow:0 20px 60px rgba(0,0,0,0.25)">
-      <div id="pcSavingMsg" style="font-weight:1200;font-size:16px">Saving…</div>
-      <div class="muted" style="margin-top:6px;font-weight:1000">Please wait</div>
+    <div style="background:#fff; border-radius:24px; padding:24px 30px; min-width:240px; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;">
+      
+      <div class="sandwich-loader">
+        <div class="sb-layer sb-bun-bot"></div>
+        <div class="sb-layer sb-meat"></div>
+        <div class="sb-layer sb-cheese"></div>
+        <div class="sb-layer sb-lettuce"></div>
+        <div class="sb-layer sb-tomato"></div>
+        <div class="sb-layer sb-bun-top"></div>
+      </div>
+
+      <div id="pcSavingMsg" style="font-weight:1200; font-size:18px; color:#111;">Making it fresh...</div>
+      <div class="muted" style="margin-top:6px; font-weight:900; font-size:14px;">Please wait</div>
     </div>
   `;
+  
   document.body.appendChild(el);
   return el;
 }
