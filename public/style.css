@@ -543,3 +543,79 @@ body.theme-anim *{
   .tile .title{font-size:17px}
   .dash-title{font-size:17px}
 }
+/* =========================
+   NEW UI IMPROVEMENTS
+   (Paste at the bottom of style.css)
+   ========================= */
+
+/* 1. Progress Bar Styles */
+.prog-track {
+  height: 6px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-left: 10px;
+  flex: 1;
+  max-width: 100px;
+}
+.prog-fill {
+  height: 100%;
+  background: var(--green);
+  transition: width 0.3s ease;
+}
+
+/* 2. Skeleton Loading Animation */
+.skeleton {
+  background: #eee;
+  background: linear-gradient(110deg, #ececec 8%, #f5f5f5 18%, #ececec 33%);
+  background-size: 200% 100%;
+  animation: 1.5s shine linear infinite;
+  border-radius: 12px;
+  color: transparent !important;
+  pointer-events: none;
+}
+@keyframes shine {
+  to { background-position-x: -200%; }
+}
+.skeleton-card {
+  height: 80px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+}
+
+/* 3. Glassmorphism (Blurry Bars) - Overrides existing .topbar/.save-bar */
+.topbar {
+  background: rgba(0, 154, 68, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.save-bar {
+  background: rgba(246, 247, 248, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(0,0,0,0.05);
+}
+
+/* 4. Modern Inputs - Overrides existing .input */
+.input, .select {
+  padding: 16px 16px;
+  border: 1px solid transparent;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  transition: all 0.2s ease;
+}
+.input:focus, .select:focus {
+  background: #fff;
+  border-color: var(--green);
+  box-shadow: 0 4px 12px rgba(0, 154, 68, 0.15);
+  transform: translateY(-1px);
+}
+
+/* 5. Typography Polish */
+body {
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+.page-title, .modal-title, .brand {
+  letter-spacing: -0.03em;
+}
