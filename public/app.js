@@ -831,6 +831,8 @@ function renderHome() {
   const main = $("#main");
 
   const cats = (state.data.categories || []).map((c) => c.name);
+  
+  // Create Category Tiles HTML (Keep your existing logic)
   const counts = {};
   for (const it of state.data.items || []) {
     counts[it.category] = (counts[it.category] || 0) + 1;
@@ -841,9 +843,7 @@ function renderHome() {
       const emoji = CAT_EMOJI[name] || "✅";
       const tone = tileToneFor(name);
       return `
-      <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(
-        name
-      )}" type="button">
+      <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(name)}" type="button">
         <div class="emoji" style="font-size:54px">${emoji}</div>
         <div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(name)}</div>
         <div class="sub">${counts[name] || 0} items</div>
@@ -852,20 +852,91 @@ function renderHome() {
     })
     .join("");
 
+  // --- NEW: Render Structure ---
   main.innerHTML = `
     <div class="col">
-      <div class="tiles-2col">${tiles}</div>
+      <div style="position:relative; margin-bottom: 10px;">
+        <input id="homeSearch" class="input" placeholder="🔍 Search item..." 
+               style="padding-left: 44px; height: 50px; border-radius: 99px; box-shadow: var(--shadow-soft);">
+        <div style="position:absolute; left:16px; top:13px; font-size:20px">🔍</div>
+      </div>
+
+      <div id="homeSearchResults" class="hidden col"></div>
+
+      <div id="homeTiles" class="tiles-2col">${tiles}</div>
     </div>
   `;
 
+  // --- Bind Category Clicks ---
   $$(".tile", main).forEach((b) => {
     b.addEventListener("click", () => {
       const cat = b.dataset.cat;
       setView({ page: "category", category: cat, sauceSub: null }, true);
     });
   });
-}
 
+  // --- NEW: Bind Search Logic ---
+  const inp = $("#homeSearch");
+  const res = $("#homeSearchResults");
+  const grid = $("#homeTiles");
+
+  inp.addEventListener("input", (e) => {
+    const q = e.target.value.toLowerCase().trim();
+
+    if (!q) {
+      res.classList.add("hidden");
+      grid.classList.remove("hidden");
+      return;
+    }
+
+    grid.classList.add("hidden");
+    res.classList.remove("hidden");
+
+    // Filter Items
+    const matches = (state.data.items || []).filter(it => 
+      it.name.toLowerCase().includes(q)
+    );
+
+    if (matches.length === 0) {
+      res.innerHTML = `
+        <div class="card" style="text-align:center; padding:30px;">
+          <div style="font-size:32px">🤔</div>
+          <div style="font-weight:1200; margin-top:10px">No items found</div>
+        </div>`;
+      return;
+    }
+
+    // Render Matching Items (Re-using renderItemEditor logic is tricky here because 
+    // renderItemEditor expects a specific context. 
+    // Instead, we make "Jump to Category" buttons).
+    res.innerHTML = matches.map(it => `
+      <button class="card row jump-btn" style="width:100%; text-align:left; padding:16px;" 
+              data-cat="${escapeHtml(it.category)}" 
+              data-sub="${escapeHtml(it.sub_category || "")}">
+        <div style="flex:1">
+          <div style="font-weight:1200; font-size:16px">${escapeHtml(it.name)}</div>
+          <div class="muted" style="font-size:12px; margin-top:2px">
+            in ${escapeHtml(it.category)} ${it.sub_category ? `• ${escapeHtml(it.sub_category)}` : ""}
+          </div>
+        </div>
+        <div style="font-weight:900; color:var(--blue)">Go ›</div>
+      </button>
+    `).join("");
+
+    // Bind Jump Buttons
+    $$(".jump-btn", res).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const cat = btn.dataset.cat;
+        const sub = btn.dataset.sub || null;
+        
+        // 1. Go to category
+        setView({ page: "category", category: cat, sauceSub: sub }, true);
+        
+        // 2. Optional: Scroll to item (Advanced) - requires setTimeout to wait for render
+      });
+    });
+  });
+}
 function tileToneFor(name) {
   const map = {
     "Prepared items": "t-green",
