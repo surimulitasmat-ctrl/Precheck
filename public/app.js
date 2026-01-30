@@ -926,20 +926,29 @@ function renderHome() {
     // Render Matching Items (Re-using renderItemEditor logic is tricky here because 
     // renderItemEditor expects a specific context. 
     // Instead, we make "Jump to Category" buttons).
+   // Render Matching Items (New Clean Design)
     res.innerHTML = matches.map(it => `
-      <button class="card row jump-btn" style="width:100%; text-align:left; padding:16px;" 
+      <button class="search-result-card jump-btn" 
               data-cat="${escapeHtml(it.category)}" 
               data-sub="${escapeHtml(it.sub_category || "")}">
-        <div style="flex:1">
-          <div style="font-weight:1200; font-size:16px">${escapeHtml(it.name)}</div>
-          <div class="muted" style="font-size:12px; margin-top:2px">
-            in ${escapeHtml(it.category)} ${it.sub_category ? `• ${escapeHtml(it.sub_category)}` : ""}
+        
+        <div style="flex:1; padding-right:10px; overflow:hidden;">
+          <div style="font-weight:1200; font-size:17px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${escapeHtml(it.name)}
+          </div>
+          <div style="font-size:13px; opacity:0.6; font-weight:800; display:flex; align-items:center; gap:4px">
+            <span style="font-size:14px">📂</span> 
+            ${escapeHtml(it.category)} 
+            ${it.sub_category ? `• ${escapeHtml(it.sub_category)}` : ""}
           </div>
         </div>
-        <div style="font-weight:900; color:var(--blue)">Go ›</div>
+
+        <div class="search-pill">
+          Go
+        </div>
+
       </button>
     `).join("");
-
     // Bind Jump Buttons
     $$(".jump-btn", res).forEach(btn => {
       btn.addEventListener("click", () => {
