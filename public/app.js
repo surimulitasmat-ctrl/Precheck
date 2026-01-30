@@ -888,7 +888,7 @@ function renderCategory() {
   const main = $("#main");
   const cat = state.view.category;
 
-  // Sauce sub-menu
+  // --- 1. Handle "Sauce" Sub-menu Navigation ---
   if (cat === "Sauce" && !state.view.sauceSub) {
     const tiles = SAUCE_SUBS.map((s, idx) => {
       const tone =
@@ -918,6 +918,7 @@ function renderCategory() {
     return;
   }
 
+  // --- 2. Prepare Items & Progress ---
   const sauceSub = state.view.sauceSub;
   const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
 
@@ -927,31 +928,40 @@ function renderCategory() {
   }
 
   const prog = categoryProgress(items, cat);
-  const progText = prog.total === 0 ? "" : `${prog.done}/${prog.total} (${prog.pct}%)`;
   const doneAll = prog.total > 0 && prog.done === prog.total;
 
+  // --- 3. Render List of Editors ---
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
+
+  // --- 4. New Visual Empty Hint ---
   const emptyHint = items.length
     ? ""
     : `
-    <div class="card" style="border-left:6px solid var(--yellow)">
-      <div style="font-weight:1200">No items found</div>
-      <div class="muted" style="margin-top:6px">
-        This means your Sauce sub-category names in DB don’t match exactly.
-      </div>
+    <div style="text-align:center; padding: 40px 20px; opacity:0.6">
+      <div style="font-size:48px; margin-bottom:10px">🥬</div>
+      <div style="font-weight:1200; font-size:18px">No items here</div>
+      <div style="font-size:14px; margin-top:4px">Everything looks clean!</div>
     </div>
   `;
 
+  // --- 5. Render Main HTML (With Progress Bar) ---
   main.innerHTML = `
     <div class="page-head">
       <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      
+      <div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1">
         <span>${escapeHtml(title)}</span>
         ${
           prog.total
-            ? `<span id="catProgPill" style="font-weight:1200;font-size:12px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid var(--line)">
-    ${escapeHtml(progText)}
-  </span>`
+            ? `
+            <div style="display:flex; align-items:center; margin-left:auto;">
+               <span id="catProgText" style="font-size:12px; font-weight:900; opacity:0.7; margin-right:8px">
+                 ${prog.done}/${prog.total}
+               </span>
+               <div class="prog-track">
+                 <div id="catProgBar" class="prog-fill" style="width:${prog.pct}%"></div>
+               </div>
+            </div>`
             : ""
         }
       </div>
@@ -965,8 +975,9 @@ function renderCategory() {
       <button
         id="saveBtn"
         type="button"
+        id="saveBtn"
         style="width:min(92%,520px); margin:0 auto; padding:14px 18px; border-radius:999px; font-weight:1200; font-size:16px;
-               background:var(--green); color:#fff; border:0"
+               background:var(--green); color:#fff; border:0; box-shadow:0 14px 26px rgba(0,0,0,.16);"
       >${doneAll ? "Done checking ✅ (Save)" : "Save"}</button>
     </div>
   `;
@@ -978,7 +989,6 @@ function renderCategory() {
     await saveCategory(items, cat);
   });
 }
-
 function itemKey(it) {
   return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`;
 }
@@ -1032,14 +1042,21 @@ function categoryProgress(items, cat) {
 }
 function refreshCategoryProgressUI(items, cat) {
   const prog = categoryProgress(items, cat);
-  const pill = document.getElementById("catProgPill");
-  const saveBtn = document.getElementById("saveBtn");
-
-  if (pill) {
-    pill.textContent = prog.total ? `${prog.done}/${prog.total} (${prog.pct}%)` : "";
-    pill.classList.toggle("hidden", !prog.total);
+  
+  // 1. Update text (e.g., "5/10")
+  const textEl = document.getElementById("catProgText");
+  if (textEl) {
+    textEl.textContent = prog.total ? `${prog.done}/${prog.total}` : "";
   }
 
+  // 2. Animate the bar width
+  const barEl = document.getElementById("catProgBar");
+  if (barEl) {
+    barEl.style.width = `${prog.pct}%`;
+  }
+
+  // 3. Update Save button state
+  const saveBtn = document.getElementById("saveBtn");
   if (saveBtn) {
     const doneAll = prog.total > 0 && prog.done === prog.total;
     saveBtn.textContent = doneAll ? "Done checking ✅ (Save)" : "Save";
@@ -1972,8 +1989,12 @@ async function renderStockAlerts() {
   $("#btnBack").addEventListener("click", goBack);
 
   const wrap = $("#saWrap");
-  wrap.innerHTML = `<div class="card">Loading…</div>`;
-
+  // Replace the old loading line with this:
+  wrap.innerHTML = `
+    <div class="card skeleton skeleton-card"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.6"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.3"></div>
+  `;
   await refreshStockDot().catch(() => {});
   const rows = state.stock.rows || [];
 
@@ -2289,8 +2310,12 @@ function updateSummaryModeButtons() {
 async function drawSummaryCards() {
   const wrap = $("#sumWrap");
   if (!wrap) return;
-  wrap.innerHTML = `<div class="card">Loading…</div>`;
-
+ // Replace the old loading line with this:
+  wrap.innerHTML = `
+    <div class="card skeleton skeleton-card"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.6"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.3"></div>
+  `;
   const mode = state.session.isManager ? state.view.summaryMode || "PDD" : state.session.store;
 
   const today = todayISO();
@@ -2363,7 +2388,13 @@ async function renderSummaryList() {
   $("#btnBack").addEventListener("click", goBack);
 
   const wrap = $("#sumList");
-  wrap.innerHTML = `<div class="card">Loading…</div>`;
+  
+  // 1. Correct Loading State (Skeleton)
+  wrap.innerHTML = `
+    <div class="card skeleton skeleton-card"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.6"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.3"></div>
+  `;
 
   const today = todayISO();
   const tomorrow = addDaysISO(today, 1);
@@ -2379,8 +2410,16 @@ async function renderSummaryList() {
     return e !== today && e !== tomorrow;
   });
 
+  // 2. Correct Empty State (The Fix is here!)
+  // Previously, you had the skeleton code here by mistake.
   if (!rows.length) {
-    wrap.innerHTML = `<div class="card">No items</div>`;
+    wrap.innerHTML = `
+      <div style="text-align:center; padding: 40px 20px; opacity:0.6">
+        <div style="font-size:48px; margin-bottom:10px">✨</div>
+        <div style="font-weight:1200; font-size:18px">No items found</div>
+        <div style="font-size:14px; margin-top:4px">Nothing in this list.</div>
+      </div>
+    `;
     return;
   }
 
