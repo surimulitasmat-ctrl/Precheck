@@ -310,18 +310,17 @@ function renderRolePill() {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
+
+  // 1. Assign the classes. 
+  // The CSS (.role-btn.manager or .role-btn.staff) will handle the colors now.
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
-  if (state.session.isManager) {
-    btn.style.background = "var(--red)";
-    btn.style.color = "#fff";
-  } else {
-    btn.style.background = "var(--yellow)";
-    btn.style.color = "#111";
-  }
+
+  // 2. Set the text/icon
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
     <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
   `;
+
   btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
   host.appendChild(btn);
 }
