@@ -768,3 +768,66 @@ body {
   letter-spacing: 0.5px;
   box-shadow: 0 4px 10px rgba(21, 101, 192, 0.2); /* Soft blue shadow */
 }
+/* =========================
+   HEADER POLISH (Paste at bottom)
+   ========================= */
+
+/* 1. Rich Gradient Background */
+.topbar {
+  background: linear-gradient(135deg, #009A44 0%, #007a33 100%);
+  padding: 12px 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px); /* Safari support */
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 4px 20px rgba(0, 122, 51, 0.25);
+}
+
+/* 2. Refined Title Typography */
+.brand {
+  font-size: 20px;
+  letter-spacing: -0.5px;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+/* 3. Professional Session Data Line */
+.session-line {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  opacity: 0.9;
+  margin-top: 3px;
+  font-weight: 700;
+  text-shadow: none;
+}
+
+/* 4. "White Pill" Button Design */
+.role-btn {
+  background: #ffffff !important; /* Force white background */
+  border: 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 6px 14px; /* Tighter padding for a sleek pill shape */
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform 0.1s ease;
+}
+
+.role-btn:active {
+  transform: scale(0.96);
+}
+
+/* Specific Text Colors for the White Button */
+.role-btn.staff {
+  color: #F9A825 !important; /* Dark Yellow text */
+}
+
+.role-btn.manager {
+  color: #D32F2F !important; /* Deep Red text */
+}
+
+/* Adjust the icon inside the button */
+.role-ico {
+  font-size: 16px;
+  line-height: 1;
+}
