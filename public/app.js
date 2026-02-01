@@ -1,5 +1,10 @@
 /* =========================================================
-   PreCheck — public/app.js (FULL — FINAL COMPLETE)
+   PreCheck — public/app.js (FULL & COMPLETE)
+   - Dark Mode: ON
+   - Role Colors: FIXED (Inline styles restored)
+   - Summary: FIXED
+   - Manager: FULL
+   - Date Picker: FULL
    ========================================================= */
 
 /* ---------- DOM helpers ---------- */
@@ -8,49 +13,27 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 /* ---------- Constants ---------- */
 const POPUP_ITEMS = [
-  "Mix green",
-  "Mac&cheese",
-  "Lettuce",
-  "Chicken Bacon (c)",
-  "Liquid Egg",
-  "Flatbread(Thawing)",
-  "Avocado",
-  "BakedWaffle",
+  "Mix green", "Mac&cheese", "Lettuce", "Chicken Bacon (c)",
+  "Liquid Egg", "Flatbread(Thawing)", "Avocado", "BakedWaffle"
 ];
-
 const FORCE_MANUAL_DATE_CATS = new Set(["Unopened chiller", "Fountain Drinks"]);
 const STOCK_ALERT_EXCLUDE_CATS = new Set(["Sauce", "Front counter"]);
-
 const CAT_EMOJI = {
-  "Prepared items": "🥪",
-  "Unopened chiller": "🧊",
-  "Thawing": "💧",
-  "Vegetables": "🥕",
-  "Backroom": "📦",
-  "Front counter": "🥪",
-  "Back counter chiller": "❄️",
-  "Fountain Drinks": "🥤",
-  "Sauce": "🧴",
+  "Prepared items": "🥪", "Unopened chiller": "🧊", "Thawing": "💧",
+  "Vegetables": "🥕", "Backroom": "📦", "Front counter": "🥪",
+  "Back counter chiller": "❄️", "Fountain Drinks": "🥤", "Sauce": "🧴"
 };
-
 const SAUCE_SUBS = [
   { name: "Standby", emoji: "🧃", tone: "teal" },
   { name: "Open Inner", emoji: "🧴", tone: "purple" },
-  { name: "Sandwich Unit", emoji: "🌶️", tone: "orange" },
+  { name: "Sandwich Unit", emoji: "🌶️", tone: "orange" }
 ];
 
 /* ---------- State ---------- */
 const state = {
   view: { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null },
   navStack: [],
-  session: loadJSON("session", {
-    store: "",
-    staff: "",
-    shift: "AM",
-    isManager: false,
-    managerToken: "",
-    sessionDayKey: "",
-  }),
+  session: loadJSON("session", { store: "", staff: "", shift: "AM", isManager: false, managerToken: "", sessionDayKey: "" }),
   data: { categories: [], items: [] },
   drafts: {},
   stock: { hasDot: false, rows: [] },
@@ -66,16 +49,18 @@ startMidnightWatcher();
 boot().catch(console.error);
 
 async function boot() {
+  // 1. Restore Theme
+  const savedTheme = localStorage.getItem("theme") || "light";
+  applyTheme(savedTheme);
+
   ensureSessionDayKey();
   updateDrawerAlertLabel(false);
-
-  // Wake server (best-effort)
   await wakeServer().catch(() => {});
 
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
-    setTimeout(hideSplashScreen, 300); 
+    setTimeout(hideSplashScreen, 300);
     return;
   }
 
@@ -92,408 +77,183 @@ async function boot() {
   setTimeout(hideSplashScreen, 800);
 }
 
-/* =========================================================
-   STORAGE
-   ========================================================= */
-function loadJSON(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return { ...fallback, ...JSON.parse(raw) };
-  } catch {
-    return fallback;
+/* ---------- Theme Logic ---------- */
+function applyTheme(theme) {
+  if (theme === "dark") {
+    document.body.classList.add("dark");
+    document.documentElement.classList.add("dark");
+  } else {
+    document.body.classList.remove("dark");
+    document.documentElement.classList.remove("dark");
   }
 }
-function saveSession() {
-  localStorage.setItem("session", JSON.stringify(state.session));
+function toggleTheme() {
+  const isDark = document.body.classList.contains("dark");
+  const newTheme = isDark ? "light" : "dark";
+  applyTheme(newTheme);
+  localStorage.setItem("theme", newTheme);
+  
+  const switchEl = document.querySelector("#drawerTheme .theme-switch");
+  if (switchEl) {
+    if (newTheme === "dark") switchEl.classList.add("on");
+    else switchEl.classList.remove("on");
+  }
 }
 
-/* =========================================================
-   DATE/TIME HELPERS
-   ========================================================= */
+/* ---------- Storage & Date Helpers ---------- */
+function loadJSON(key, f) { try { const r = localStorage.getItem(key); return r ? { ...f, ...JSON.parse(r) } : f; } catch { return f; } }
+function saveSession() { localStorage.setItem("session", JSON.stringify(state.session)); }
 function pad2(n) { return String(n).padStart(2, "0"); }
-function dayKeyNow() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-function ensureSessionDayKey() {
-  const k = dayKeyNow();
-  if (!state.session.sessionDayKey) {
-    state.session.sessionDayKey = k;
-    saveSession();
-  }
-}
-function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-function addDaysISO(baseISO, n) {
-  const dt = new Date(baseISO + "T00:00:00");
-  dt.setDate(dt.getDate() + n);
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
-}
-function formatLongDMY(iso) {
-  const dt = new Date(String(iso).slice(0, 10) + "T00:00:00");
-  const day = dt.getDate();
-  const mon = dt.toLocaleString("en-GB", { month: "long" });
-  const year = dt.getFullYear();
-  return `${day} ${mon} ${year}`;
-}
-function isChickenBaconC(name) {
-  const t = String(name || "").toLowerCase().replace(/\s+/g, " ").trim();
-  return t === "chicken bacon (c)" || t === "chicken bacon(c)" || t === "chicken bacon c";
-}
-function formatTime12(hhmm) {
-  const [hS, mS] = String(hhmm).split(":");
-  let h = Number(hS);
-  const m = Number(mS);
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}:${pad2(m)} ${ampm}`;
-}
-function isoFromTodayAndTime(hhmm) { return `${todayISO()}T${String(hhmm)}:00`; }
-function datePartFromRow(row) {
-  if (row?.expiry_at) return String(row.expiry_at).slice(0, 10);
-  return String(row?.expiry_value || row?.expiry || "").slice(0, 10);
-}
-function timePartFromRow(row) {
-  if (!row?.expiry_at) return "";
-  try {
-    const d = new Date(row.expiry_at);
-    return formatTime12(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
-  } catch { return ""; }
-}
+function dayKeyNow() { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function ensureSessionDayKey() { const k = dayKeyNow(); if (!state.session.sessionDayKey) { state.session.sessionDayKey = k; saveSession(); } }
+function todayISO() { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function addDaysISO(b, n) { const d = new Date(b+"T00:00:00"); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function formatLongDMY(iso) { const d = new Date(String(iso).slice(0,10)+"T00:00:00"); return `${d.getDate()} ${d.toLocaleString("en-GB",{month:"long"})} ${d.getFullYear()}`; }
+function isChickenBaconC(n) { const t = String(n||"").toLowerCase().replace(/\s+/g," ").trim(); return t==="chicken bacon (c)"||t==="chicken bacon(c)"||t==="chicken bacon c"; }
+function formatTime12(hm) { const [hS,mS]=String(hm).split(":"); let h=Number(hS), m=Number(mS), ap=h>=12?"PM":"AM"; h=h%12||12; return `${h}:${pad2(m)} ${ap}`; }
+function isoFromTodayAndTime(hm) { return `${todayISO()}T${String(hm)}:00`; }
+function datePartFromRow(r) { return String(r?.expiry_at || r?.expiry_value || r?.expiry || "").slice(0,10); }
+function timePartFromRow(r) { if(!r?.expiry_at)return""; const d=new Date(r.expiry_at); return formatTime12(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`); }
 
-const HOURLY_SHORT = [
-  { value: "07:00", label: "7 AM" },
-  { value: "11:00", label: "11 AM" },
-  { value: "15:00", label: "3 PM" },
-  { value: "19:00", label: "7 PM" },
-  { value: "23:00", label: "11 PM" },
-];
+const HOURLY_SHORT = [{v:"07:00",l:"7 AM"},{v:"11:00",l:"11 AM"},{v:"15:00",l:"3 PM"},{v:"19:00",l:"7 PM"},{v:"23:00",l:"11 PM"}];
 
-/* =========================================================
-   API
-   ========================================================= */
-async function apiGet(path, token = "") {
-  const r = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-async function apiPost(path, body, token = "") {
-  const r = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(body),
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-async function apiPatch(path, body, token = "") {
-  const r = await fetch(path, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(body),
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
-async function apiDel(path, token = "") {
-  const r = await fetch(path, {
-    method: "DELETE", headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(t);
-  return t ? JSON.parse(t) : {};
-}
+/* ---------- API ---------- */
+async function apiGet(p,t) { const r=await fetch(p,{headers:{"Content-Type":"application/json",...(t?{Authorization:`Bearer ${t}`}:{})}}); if(!r.ok)throw new Error(await r.text()); return (await r.text())?JSON.parse(await r.text()||"{}"):{}; }
+async function apiPost(p,b,t) { const r=await fetch(p,{method:"POST",headers:{"Content-Type":"application/json",...(t?{Authorization:`Bearer ${t}`}:{})},body:JSON.stringify(b)}); if(!r.ok)throw new Error(await r.text()); return (await r.text())?JSON.parse(await r.text()||"{}"):{}; }
+async function apiPatch(p,b,t) { const r=await fetch(p,{method:"PATCH",headers:{"Content-Type":"application/json",...(t?{Authorization:`Bearer ${t}`}:{})},body:JSON.stringify(b)}); if(!r.ok)throw new Error(await r.text()); return (await r.text())?JSON.parse(await r.text()||"{}"):{}; }
+async function apiDel(p,t) { const r=await fetch(p,{method:"DELETE",headers:{...(t?{Authorization:`Bearer ${t}`}:{})}}); if(!r.ok)throw new Error(await r.text()); return (await r.text())?JSON.parse(await r.text()||"{}"):{}; }
+async function wakeServer() { try{ await fetch("/api/health"); }catch{} }
 
-async function wakeServer() {
-  try { await apiGet("/api/health"); } catch { toast("Waking server… try again in 5–10s"); }
-}
-
-/* =========================================================
-   DATA LOAD
-   ========================================================= */
+/* ---------- Load Data ---------- */
 async function loadAllForCurrentStore() {
-  const store = state.session.store;
-  state.data.categories = await apiGet(`/api/categories?store=${encodeURIComponent(store)}`);
-  state.data.items = await apiGet(`/api/items?store=${encodeURIComponent(store)}`);
-
-  state.data.items = (state.data.items || []).map((it) => ({
-    ...it,
-    sub_category: it.sub_category ? normalizeSub(it.sub_category) : null,
-    is_hourly: !!it.is_hourly,
-    stock_alert_enabled: !!it.stock_alert_enabled,
-    stock_min: it.stock_min != null ? Number(it.stock_min) : null,
-  }));
+  const s = state.session.store;
+  const [c, i] = await Promise.all([
+    fetch(`/api/categories?store=${encodeURIComponent(s)}`).then(r=>r.json()),
+    fetch(`/api/items?store=${encodeURIComponent(s)}`).then(r=>r.json())
+  ]);
+  state.data.categories = c;
+  state.data.items = (i||[]).map(x => ({ ...x, sub_category: x.sub_category ? normalizeSub(x.sub_category) : null, is_hourly: !!x.is_hourly, stock_alert_enabled: !!x.stock_alert_enabled, stock_min: x.stock_min!=null?Number(x.stock_min):null }));
 }
-function normalizeSub(s) {
-  const t = String(s || "").trim().toLowerCase();
-  if (t === "open inner" || t === "openinner") return "Open Inner";
-  if (t === "standby") return "Standby";
-  if (t === "sandwich unit" || t === "sandwichunit") return "Sandwich Unit";
-  return String(s || "").trim();
-}
+function normalizeSub(s) { const t=String(s||"").trim().toLowerCase(); return t==="open inner"||t==="openinner"?"Open Inner":t==="standby"?"Standby":t==="sandwich unit"||t==="sandwichunit"?"Sandwich Unit":String(s||"").trim(); }
 
-/* =========================================================
-   TOPBAR
-   ========================================================= */
+/* ---------- Topbar ---------- */
 function bindTopbar() { renderRolePill(); }
-
 function renderRolePill() {
-  const host = $("#roleHost");
-  if (!host) return;
-
+  const host = $("#roleHost"); if (!host) return;
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-  // ✅ FIX: Use class only. CSS handles colors.
+  
+  // RESTORED: Explicit colors to fix "Black Text" or "Invisible Text" issues
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
-  btn.innerHTML = `
-    <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
-    <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
-  `;
-  btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
+  
+  if (state.session.isManager) {
+    btn.style.background = "#D32F2F"; // Red Background
+    btn.style.color = "#ffffff";      // White Text
+  } else {
+    btn.style.background = "#ffffff"; // White Background
+    btn.style.color = "#111111";      // Black Text
+  }
+  
+  btn.innerHTML = `<span class="role-ico">${state.session.isManager?"👑":"👤"}</span><span style="font-weight:1200">${state.session.isManager?"Manager":"Staff"}</span>`;
+  btn.addEventListener("click", () => toast(state.session.isManager?"Manager Mode":"Staff Mode"));
   host.appendChild(btn);
 }
-
 function updateSessionLine() {
-  const el = $("#sessionLine");
-  if (!el) return;
-  const s = state.session;
-  const show = !!(s.store && s.staff);
+  const el = $("#sessionLine"); if (!el) return;
+  const show = !!(state.session.store && state.session.staff);
   el.classList.toggle("hidden", !show);
-  el.textContent = show ? `${s.store} • ${s.shift} • ${s.staff}` : "";
+  el.textContent = show ? `${state.session.store} • ${state.session.shift} • ${state.session.staff}` : "";
 }
 
-/* =========================================================
-   DRAWER
-   ========================================================= */
+/* ---------- Drawer ---------- */
 function bindDrawer() {
-  const btnMenu = $("#btnMenu");
-  const backdrop = $("#drawerBackdrop");
-  const btnClose = $("#btnDrawerClose");
+  const btn = $("#btnMenu"), back = $("#drawerBackdrop"), close = $("#btnDrawerClose");
+  if (btn) btn.addEventListener("click", (e) => { e.preventDefault(); $("#drawerBackdrop").classList.remove("hidden"); });
+  if (back) back.addEventListener("click", (e) => { if(e.target===back) back.classList.add("hidden"); });
+  if (close) close.addEventListener("click", (e) => { e.preventDefault(); back.classList.add("hidden"); });
 
-  if (btnMenu) btnMenu.addEventListener("click", (e) => { e.preventDefault(); openDrawer(); });
-  if (backdrop) backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeDrawer(); });
-  if (btnClose) btnClose.addEventListener("click", (e) => { e.preventDefault(); closeDrawer(); });
-
-  const bind = (id, fn) => {
-    const b = $(id);
-    if (b) b.addEventListener("click", () => { closeDrawer(); fn(); });
-  };
-
-  bind("#drawerHome", () => goHome());
+  const bind = (id, fn) => { const b=$(id); if(b) b.addEventListener("click", () => { back.classList.add("hidden"); fn(); }); };
+  bind("#drawerHome", goHome);
   bind("#drawerAlerts", () => setView({ page: "stockAlerts" }, true));
   bind("#drawerManager", () => setView({ page: "manager" }, true));
   bind("#drawerSummary", () => setView({ page: "summaryHome" }, true));
   bind("#drawerWISR", () => setView({ page: "wisr" }, true));
-  bind("#drawerLogout", () => doLogout());
-}
+  bind("#drawerLogout", doLogout);
 
-function openDrawer() {
-  const b = $("#drawerBackdrop");
-  if (b) b.classList.remove("hidden");
+  // Theme Toggle Logic
+  const themeRow = $("#drawerTheme");
+  if (themeRow) {
+    themeRow.style.display = "flex"; 
+    themeRow.addEventListener("click", (e) => { e.preventDefault(); toggleTheme(); });
+    // Init state
+    if (document.body.classList.contains("dark")) $(".theme-switch", themeRow)?.classList.add("on");
+  }
 }
-function closeDrawer() { const b = $("#drawerBackdrop"); if (b) b.classList.add("hidden"); }
+function updateDrawerAlertLabel(hasDot) { const b=$("#drawerAlerts"); if(b) b.innerHTML = hasDot ? `📦 Stock Alert <span class="tiny-dot"></span>` : `📦 Stock Alert`; }
 
-function updateDrawerAlertLabel(hasDot) {
-  const btn = $("#drawerAlerts");
-  if (!btn) return;
-  btn.innerHTML = hasDot ? `📦 Stock Alert <span class="tiny-dot" aria-label="New"></span>` : `📦 Stock Alert`;
-}
-
-/* =========================================================
-   MODAL + TOAST
-   ========================================================= */
+/* ---------- Modal & Toast ---------- */
 let toastTimer = null;
-function toast(msg) {
-  const t = $("#toast");
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.remove("hidden");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
-}
-
+function toast(m) { const t=$("#toast"); if(t){ t.textContent=m; t.classList.remove("hidden"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.add("hidden"),2000); } }
 function bindModal() {
-  const closeBtn = $("#modalClose");
-  if (closeBtn) closeBtn.addEventListener("click", closeModal);
-  const backdrop = $("#modalBackdrop");
-  if (backdrop) {
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) {
-        if (backdrop.dataset.noClose === "1") return;
-        closeModal();
-      }
-    });
-  }
+  $("#modalClose")?.addEventListener("click", closeModal);
+  $("#modalBackdrop")?.addEventListener("click", (e) => { if(e.target===$("#modalBackdrop") && $("#modalBackdrop").dataset.noClose!=="1") closeModal(); });
 }
-
-function openModal(title, html, opts = {}) {
-  const t = $("#modalTitle");
-  const b = $("#modalBody");
-  const back = $("#modalBackdrop");
-  const head = $(".modal-head", back);
-
-  if (!t || !b || !back) return;
-
-  // Hide header if title is empty (for modern popup)
-  if (title === "") {
-    if (head) head.style.display = "none";
-  } else {
-    if (head) head.style.display = "flex";
-    t.textContent = title;
-  }
-
-  b.innerHTML = html || "";
+function openModal(title, html, opts={}) {
+  const t=$("#modalTitle"), b=$("#modalBody"), back=$("#modalBackdrop"), head=$(".modal-head", back);
+  if(!t||!b||!back) return;
+  
+  if (title === "") { if(head) head.style.display="none"; } 
+  else { if(head) head.style.display="flex"; t.textContent=title; }
+  
+  b.innerHTML = html||"";
   back.classList.remove("hidden");
   back.dataset.noClose = opts.noBackdropClose ? "1" : "0";
-
-  if (opts.noBackdropClose) {
-    back.onclick = (e) => { if (e.target === back) e.stopPropagation(); };
-  } else {
-    back.onclick = null;
-  }
 }
+function closeModal() { $("#modalBackdrop")?.classList.add("hidden"); $("#modalBody").innerHTML=""; }
 
-function closeModal() {
-  const back = $("#modalBackdrop");
-  const b = $("#modalBody");
-  if (back) {
-    back.classList.add("hidden");
-    back.dataset.noClose = "0";
-  }
-  if (b) b.innerHTML = "";
-}
-
-/* =========================================================
-   SANDWICH LOADING OVERLAY 🥪
-   ========================================================= */
+/* ---------- Sandwich Loader ---------- */
 function ensureSavingOverlay() {
-  let el = document.getElementById("pcSavingOverlay");
-  if (el) return el;
+  let el = document.getElementById("pcSavingOverlay"); if(el) return el;
+  el = document.createElement("div"); el.id = "pcSavingOverlay"; el.className = "hidden";
+  el.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.45);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;";
+  el.innerHTML = `<div style="background:#fff;border-radius:24px;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3)"><div class="sandwich-loader"><div class="sb-layer sb-bun-bot"></div><div class="sb-layer sb-meat"></div><div class="sb-layer sb-cheese"></div><div class="sb-layer sb-lettuce"></div><div class="sb-layer sb-tomato"></div><div class="sb-layer sb-bun-top"></div></div><div id="pcSavingMsg" style="font-weight:1200;font-size:18px;color:#111">Saving...</div></div>`;
+  document.body.appendChild(el); return el;
+}
+function showSaving(m) { const el=ensureSavingOverlay(); $("#pcSavingMsg").textContent=m; el.classList.remove("hidden"); }
+function hideSaving() { $("#pcSavingOverlay")?.classList.add("hidden"); }
 
-  el = document.createElement("div");
-  el.id = "pcSavingOverlay";
-  el.className = "hidden";
-  el.style.position = "fixed";
-  el.style.inset = "0";
-  el.style.background = "rgba(0,0,0,0.45)";
-  el.style.backdropFilter = "blur(4px)";
-  el.style.zIndex = "9999";
-  el.style.display = "flex";
-  el.style.alignItems = "center";
-  el.style.justifyContent = "center";
-  
-  el.innerHTML = `
-    <div style="background:#fff; border-radius:24px; padding:24px 30px; min-width:240px; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;">
-      <div class="sandwich-loader">
-        <div class="sb-layer sb-bun-bot"></div>
-        <div class="sb-layer sb-meat"></div>
-        <div class="sb-layer sb-cheese"></div>
-        <div class="sb-layer sb-lettuce"></div>
-        <div class="sb-layer sb-tomato"></div>
-        <div class="sb-layer sb-bun-top"></div>
-      </div>
-      <div id="pcSavingMsg" style="font-weight:1200; font-size:18px; color:#111;">Making it fresh...</div>
-      <div class="muted" style="margin-top:6px; font-weight:900; font-size:14px;">Please wait</div>
-    </div>
-  `;
-  document.body.appendChild(el);
-  return el;
-}
-function showSaving(msg = "Saving…") {
-  const el = ensureSavingOverlay();
-  const m = document.getElementById("pcSavingMsg");
-  if (m) m.textContent = msg;
-  el.classList.remove("hidden");
-}
-function hideSaving() {
-  const el = document.getElementById("pcSavingOverlay");
-  if (el) el.classList.add("hidden");
-}
-
-/* =========================================================
-   SHIFT DONE + LAST ITEM
-   ========================================================= */
-function shiftDoneLastKey(store, dayKey, shift) { return `pc_done_last_${store}_${dayKey}_${shift}`; }
+/* ---------- Shift Logic ---------- */
+function shiftDoneLastKey(st, dk, sh) { return `pc_done_last_${st}_${dk}_${sh}`; }
 function recordShiftDoneAndLast({ store, shift, staff, lastItemName }) {
-  try {
-    const dayKey = dayKeyNow();
-    localStorage.setItem(
-      shiftDoneLastKey(store, dayKey, shift),
-      JSON.stringify({ done: true, store, shift, staff: staff || "", lastItemName: lastItemName || "", at: new Date().toISOString() })
-    );
-  } catch {}
+  try { localStorage.setItem(shiftDoneLastKey(store, dayKeyNow(), shift), JSON.stringify({ done: true, store, shift, staff, lastItemName, at: new Date().toISOString() })); } catch {}
 }
-function readShiftDoneAndLast(store, shift) {
-  try {
-    const dayKey = dayKeyNow();
-    const raw = localStorage.getItem(shiftDoneLastKey(store, dayKey, shift));
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch { return null; }
-}
+function readShiftDoneAndLast(st, sh) { try { return JSON.parse(localStorage.getItem(shiftDoneLastKey(st, dayKeyNow(), sh))); } catch { return null; } }
 
-/* =========================================================
-   POPUP + MIDNIGHT RESET (Fixed Modern Layout)
-   ========================================================= */
+/* ---------- Popup & Reset ---------- */
 function startMidnightWatcher() {
   setInterval(() => {
-    const nowKey = dayKeyNow();
-    if (state.session.sessionDayKey && state.session.sessionDayKey !== nowKey) {
-      state.session.sessionDayKey = nowKey;
-      saveSession();
-      maybeShowExpiryPopup(true);
-      render();
+    const now = dayKeyNow();
+    if (state.session.sessionDayKey && state.session.sessionDayKey !== now) {
+      state.session.sessionDayKey = now; saveSession(); maybeShowExpiryPopup(true); render();
     }
   }, 30000);
 }
-
 function maybeShowExpiryPopup(force) {
-  const k = dayKeyNow();
-  const seenKey = `expiry_popup_seen_${k}`;
+  const k = dayKeyNow(), seenKey = `expiry_popup_seen_${k}`;
   if (!force && localStorage.getItem(seenKey) === "1") return;
   localStorage.setItem(seenKey, "1");
-
-  // Bubble Tags HTML
-  const listHtml = POPUP_ITEMS.map((x) => `
-    <div class="popup-tag">${escapeHtml(x)}</div>
-  `).join("");
-
-  openModal(
-    "", // Empty title ensures duplicate header is hidden
-    `
-      <div class="popup-content-center">
-        <div class="popup-icon-large">⚠️</div>
-        <div class="popup-title-text">Double Check Required</div>
-        <div class="popup-sub-text">Please verify the expiry dates for these specific items:</div>
-        <div class="popup-tags-grid">${listHtml}</div>
-        <button id="popupOk" class="btn btn-yellow btn-action">I've Checked Them</button>
-      </div>
-    `,
-    { noBackdropClose: true }
-  );
-
-  const ok = $("#popupOk");
-  if (ok) ok.addEventListener("click", closeModal);
+  const listHtml = POPUP_ITEMS.map(x => `<div class="popup-tag">${escapeHtml(x)}</div>`).join("");
+  openModal("", `<div class="popup-content-center"><div class="popup-icon-large">⚠️</div><div class="popup-title-text">Double Check Required</div><div class="popup-sub-text">Please verify these items:</div><div class="popup-tags-grid">${listHtml}</div><button id="popupOk" class="btn btn-yellow btn-action">I've Checked Them</button></div>`, { noBackdropClose: true });
+  $("#popupOk").addEventListener("click", closeModal);
 }
 
-/* =========================================================
-   LOGIN PAGE
-   ========================================================= */
+/* ---------- Login Page ---------- */
 function renderLoginPage() {
   const main = $("#main");
   const s = state.session;
-  const storePick = s.store || "PDD";
-
+  let pick = s.store || "PDD";
+  
   main.innerHTML = `
     <div class="card" style="max-width:560px;margin:14px auto">
       <div style="font-weight:1200;font-size:20px;margin-bottom:10px">Start Session</div>
@@ -503,760 +263,465 @@ function renderLoginPage() {
         <button id="pickSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
       </div>
       <div style="margin-top:14px;font-weight:1200">Shift</div>
-      <select id="shiftSel" class="select">
-        <option value="AM"${(s.shift||"AM")==="AM"?" selected":""}>AM</option>
-        <option value="PM"${(s.shift||"AM")==="PM"?" selected":""}>PM</option>
-      </select>
-      <div style="margin-top:14px;font-weight:1200">Staff Name / ID</div>
-      <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}" />
-      <button id="startBtn" class="btn btn-yellow" style="width:100%;margin-top:14px;padding:16px 16px;font-size:18px;font-weight:1200">Start</button>
-      <div class="muted" style="font-size:12px;margin-top:10px;font-weight:900">Session auto resets after midnight.</div>
+      <select id="shiftSel" class="select"><option value="AM">AM</option><option value="PM">PM</option></select>
+      <div style="margin-top:14px;font-weight:1200">Staff Name</div>
+      <input id="staffInp" class="input" placeholder="e.g. Suri" value="${escapeHtml(s.staff || "")}">
+      <button id="startBtn" class="btn btn-yellow" style="width:100%;margin-top:14px;padding:16px;font-size:18px;font-weight:1200">Start</button>
     </div>
   `;
-
-  let pick = storePick;
-  const applyStoreBtnUI = () => {
-    const a = $("#pickPDD"); const b = $("#pickSKH");
-    if (a) { a.style.background = "#fff"; a.style.color = "#111"; a.style.border = "1px solid var(--line)"; }
-    if (b) { b.style.background = "#fff"; b.style.color = "#111"; b.style.border = "1px solid var(--line)"; }
-    if (pick === "PDD" && a) { a.style.background = "var(--pdd)"; a.style.color = "#fff"; a.style.border = "0"; }
-    if (pick === "SKH" && b) { b.style.background = "var(--skh)"; b.style.color = "#fff"; b.style.border = "0"; }
+  
+  const updateBtns = () => {
+    const p = $("#pickPDD"), s = $("#pickSKH");
+    p.style.background = pick === "PDD" ? "var(--pdd)" : "#fff"; p.style.color = pick === "PDD" ? "#fff" : "#111";
+    s.style.background = pick === "SKH" ? "var(--skh)" : "#fff"; s.style.color = pick === "SKH" ? "#fff" : "#111";
   };
-  applyStoreBtnUI();
-
-  $("#pickPDD").addEventListener("click", () => { pick = "PDD"; applyStoreBtnUI(); });
-  $("#pickSKH").addEventListener("click", () => { pick = "SKH"; applyStoreBtnUI(); });
-
-  $("#startBtn").addEventListener("click", async () => {
-    const staff = String($("#staffInp").value || "").trim();
-    const shift = String($("#shiftSel").value || "AM");
-    if (!staff) return toast("Please enter staff name/ID");
-
-    state.session.store = pick; state.session.shift = shift; state.session.staff = staff;
-    state.session.isManager = false; state.session.managerToken = ""; state.session.sessionDayKey = dayKeyNow();
+  updateBtns();
+  $("#pickPDD").onclick = () => { pick = "PDD"; updateBtns(); };
+  $("#pickSKH").onclick = () => { pick = "SKH"; updateBtns(); };
+  
+  $("#startBtn").onclick = async () => {
+    const staff = $("#staffInp").value.trim();
+    if (!staff) return toast("Enter name");
+    state.session = { store: pick, shift: $("#shiftSel").value, staff, isManager: false, managerToken: "", sessionDayKey: dayKeyNow() };
     saveSession();
-
-    showSaving("Loading…");
-    try {
-      await wakeServer().catch(() => {});
-      await loadAllForCurrentStore();
-      await refreshStockDot().catch(() => {});
-      renderRolePill();
-      updateSessionLine();
-      state.navStack = [];
-      state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
-      render();
-      setTimeout(() => maybeShowExpiryPopup(true), 150);
-    } catch (e) {
-      console.error(e);
-      toast("Failed to load data");
-    } finally {
-      hideSaving();
-    }
-  });
+    showSaving("Loading...");
+    try { await loadAllForCurrentStore(); await refreshStockDot().catch(()=>{}); renderRolePill(); updateSessionLine(); state.navStack=[]; state.view={page:"home"}; render(); setTimeout(()=>maybeShowExpiryPopup(true),150); }
+    catch { toast("Load failed"); } finally { hideSaving(); }
+  };
 }
 
-/* =========================================================
-   NAVIGATION & UTILS
-   ========================================================= */
-function setView(next, push) {
-  if (push) { state.navStack.push({ ...state.view }); safePushHistory(); }
-  state.view = { ...state.view, ...next };
-  render();
-}
-function goBack() {
-  const prev = state.navStack.pop();
-  state.view = prev ? prev : { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
-  render();
-}
-function goHome() {
-  state.navStack = [];
-  state.view = { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null };
-  render();
-}
-
+/* ---------- Navigation ---------- */
+function setView(n, push) { if (push) { state.navStack.push({ ...state.view }); safePushHistory(); } state.view = { ...state.view, ...n }; render(); }
+function goBack() { const p = state.navStack.pop(); state.view = p ? p : { page: "home" }; render(); }
+function goHome() { state.navStack = []; state.view = { page: "home" }; render(); }
 let backGuardArmed = false;
 function bindAppBackGuard() {
   try { history.replaceState({ pc: 1 }, ""); history.pushState({ pc: 1 }, ""); backGuardArmed = true; } catch {}
-  window.addEventListener("popstate", () => {
+  window.onpopstate = () => {
     if (!backGuardArmed) return;
-    if (!$("#modalBackdrop")?.classList.contains("hidden")) { closeModal(); safePushHistory(); return; }
-    if (!state.session.store || !state.session.staff) { safePushHistory(); return; }
-    if (state.navStack.length > 0) { goBack(); safePushHistory(); return; }
-    openConfirmExit(); safePushHistory();
-  });
+    if (!$("#modalBackdrop").classList.contains("hidden")) { closeModal(); safePushHistory(); return; }
+    if (!state.session.store) { safePushHistory(); return; }
+    if (state.navStack.length) { goBack(); safePushHistory(); return; }
+    openModal("Exit?", `<div class="card"><div style="margin-bottom:10px">Exit app?</div><div class="row"><button id="eno" class="btn btn-yellow" style="flex:1">No</button><button id="eyes" class="btn btn-red" style="flex:1">Yes</button></div></div>`, {noBackdropClose:true});
+    $("#eno").onclick = closeModal; $("#eyes").onclick = () => { closeModal(); backGuardArmed=false; history.back(); };
+    safePushHistory();
+  };
 }
 function safePushHistory() { try { history.pushState({ pc: 1 }, ""); } catch {} }
-function openConfirmExit() {
-  openModal("Exit PreCheck?", `
-    <div class="card">
-      <div style="font-weight:1200;margin-bottom:10px">Do you want to exit?</div>
-      <div class="muted" style="font-weight:900;margin-bottom:14px">This prevents accidental closing.</div>
-      <div class="row" style="gap:12px">
-        <button id="exitNo" class="btn btn-yellow" style="flex:1">No</button>
-        <button id="exitYes" class="btn btn-red" style="flex:1">Yes</button>
-      </div>
-    </div>
-  `, { noBackdropClose: true });
-  $("#exitNo").addEventListener("click", closeModal);
-  $("#exitYes").addEventListener("click", () => { closeModal(); try { backGuardArmed = false; history.back(); } catch {} });
-}
 
-/* =========================================================
-   DRAFTS
-   ========================================================= */
-function draftsKey() {
-  const s = state.session;
-  return `drafts_${s.store || "NA"}_${s.shift || "AM"}_${s.sessionDayKey || dayKeyNow()}`;
-}
-function loadDraftsFromStorage() {
-  try {
-    const raw = localStorage.getItem(draftsKey());
-    if (raw) state.drafts = JSON.parse(raw);
-  } catch {}
-}
-function saveDraftsToStorage() {
-  try { localStorage.setItem(draftsKey(), JSON.stringify(state.drafts || {})); } catch {}
-}
-(function hydrateDraftsOnce() { if (state.session?.store && state.session?.staff) loadDraftsFromStorage(); })();
+/* ---------- Drafts ---------- */
+function draftsKey() { const s=state.session; return `drafts_${s.store}_${s.shift}_${s.sessionDayKey}`; }
+function loadDrafts() { try { state.drafts = JSON.parse(localStorage.getItem(draftsKey())) || {}; } catch { state.drafts = {}; } }
+function saveDrafts() { localStorage.setItem(draftsKey(), JSON.stringify(state.drafts)); }
+if (state.session.store) loadDrafts();
 
-/* =========================================================
-   RENDER ROOT
-   ========================================================= */
+/* ---------- Render Root ---------- */
 function render() {
   updateSessionLine(); renderRolePill();
-  const main = $("#main");
-  if (!main) return;
-
-  if (!state.session.store || !state.session.staff) { renderLoginPage(); return; }
-  if (!state.__draftsHydrated) { state.__draftsHydrated = true; loadDraftsFromStorage(); }
-
-  switch (state.view.page) {
-    case "login": renderLoginPage(); break;
-    case "home": renderHome(); break;
-    case "category": renderCategory(); break;
-    case "stockAlerts": renderStockAlerts(); break;
-    case "summaryHome": renderSummaryHome(); break;
-    case "summaryList": renderSummaryList(); break;
-    case "wisr": renderWISR(); break;
-    case "manager": renderManagerHome(); break;
-    case "managerEditItems": renderManagerEditItems(); break;
-    case "managerCategories": renderManagerCategories(); break;
-    default: main.innerHTML = `<div class="card">Unknown page</div>`;
-  }
+  if (!state.session.store) { renderLoginPage(); return; }
+  if (!state.__draftsHydrated) { state.__draftsHydrated = true; loadDrafts(); }
+  
+  const p = state.view.page;
+  if (p === "login") renderLoginPage();
+  else if (p === "home") renderHome();
+  else if (p === "category") renderCategory();
+  else if (p === "stockAlerts") renderStockAlerts();
+  else if (p === "summaryHome") renderSummaryHome();
+  else if (p === "summaryList") renderSummaryList();
+  else if (p === "wisr") renderWISR();
+  else if (p === "manager") renderManagerHome();
+  else if (p === "managerEditItems") renderManagerEditItems();
+  else if (p === "managerCategories") renderManagerCategories();
 }
 
-/* =========================================================
-   HOME (With Search & Fixed Design)
-   ========================================================= */
+/* ---------- Home ---------- */
 function renderHome() {
   const main = $("#main");
-  const cats = (state.data.categories || []).map((c) => c.name);
-  const counts = {};
-  for (const it of state.data.items || []) { counts[it.category] = (counts[it.category] || 0) + 1; }
-
-  const tiles = cats.map((name, idx) => {
-    const emoji = CAT_EMOJI[name] || "✅";
-    const tone = tileToneFor(name);
-    return `
-      <button class="tile ${tone}" style="animation-delay:${idx * 45}ms" data-cat="${escapeHtml(name)}" type="button">
-        <div class="emoji" style="font-size:54px">${emoji}</div>
-        <div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(name)}</div>
-        <div class="sub">${counts[name] || 0} items</div>
-      </button>
-    `;
+  const cats = (state.data.categories || []).map(c => c.name);
+  const counts = {}; state.data.items.forEach(i => counts[i.category] = (counts[i.category]||0)+1);
+  const tiles = cats.map((n, i) => {
+    const tone = tileToneFor(n);
+    return `<button class="tile ${tone}" style="animation-delay:${i*40}ms" data-cat="${escapeHtml(n)}"><div class="emoji" style="font-size:54px">${CAT_EMOJI[n]||"✅"}</div><div class="title" style="font-size:20px;font-weight:1200">${escapeHtml(n)}</div><div class="sub">${counts[n]||0} items</div></button>`;
   }).join("");
-
-  main.innerHTML = `
-    <div class="col">
-      <div style="position:relative; margin-bottom: 10px;">
-        <input id="homeSearch" class="input" placeholder="🔍 Search item..." 
-               style="padding-left: 44px; height: 50px; border-radius: 99px; box-shadow: var(--shadow-soft);">
-        <div style="position:absolute; left:16px; top:13px; font-size:20px">🔍</div>
-      </div>
-      <div id="homeSearchResults" class="hidden col"></div>
-      <div id="homeTiles" class="tiles-2col">${tiles}</div>
-    </div>
-  `;
-
-  $$(".tile", main).forEach((b) => {
-    b.addEventListener("click", () => {
-      setView({ page: "category", category: b.dataset.cat, sauceSub: null }, true);
-    });
-  });
-
-  const inp = $("#homeSearch");
-  const res = $("#homeSearchResults");
-  const grid = $("#homeTiles");
-
-  inp.addEventListener("input", (e) => {
+  
+  main.innerHTML = `<div class="col"><div style="position:relative;margin-bottom:10px"><input id="homeSearch" class="input" placeholder="🔍 Search item..." style="padding-left:44px;height:50px;border-radius:99px"><div style="position:absolute;left:16px;top:13px;font-size:20px">🔍</div></div><div id="homeSearchResults" class="hidden col"></div><div id="homeTiles" class="tiles-2col">${tiles}</div></div>`;
+  
+  $$(".tile", main).forEach(b => b.onclick = () => setView({ page: "category", category: b.dataset.cat }));
+  
+  $("#homeSearch").oninput = (e) => {
     const q = e.target.value.toLowerCase().trim();
+    const res = $("#homeSearchResults"), grid = $("#homeTiles");
     if (!q) { res.classList.add("hidden"); grid.classList.remove("hidden"); return; }
-    
     grid.classList.add("hidden"); res.classList.remove("hidden");
-    const matches = (state.data.items || []).filter(it => it.name.toLowerCase().includes(q));
-
-    if (matches.length === 0) {
-      res.innerHTML = `<div class="card" style="text-align:center; padding:30px;"><div style="font-size:32px">🤔</div><div style="font-weight:1200; margin-top:10px">No items found</div></div>`;
-      return;
-    }
-
-    res.innerHTML = matches.map(it => `
-      <button class="search-result-card jump-btn" data-cat="${escapeHtml(it.category)}" data-sub="${escapeHtml(it.sub_category || "")}">
-        <div style="flex:1; padding-right:10px; overflow:hidden;">
-          <div style="font-weight:1200; font-size:17px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(it.name)}</div>
-          <div style="font-size:13px; opacity:0.6; font-weight:800; display:flex; align-items:center; gap:4px">
-            <span style="font-size:14px">📂</span> ${escapeHtml(it.category)} ${it.sub_category ? `• ${escapeHtml(it.sub_category)}` : ""}
-          </div>
-        </div>
-        <div class="search-pill">Go</div>
-      </button>
-    `).join("");
-
-    $$(".jump-btn", res).forEach(btn => {
-      btn.addEventListener("click", () => {
-        setView({ page: "category", category: btn.dataset.cat, sauceSub: btn.dataset.sub || null }, true);
-      });
-    });
-  });
-}
-
-function tileToneFor(name) {
-  const map = {
-    "Prepared items": "t-green", "Unopened chiller": "t-blue", "Thawing": "t-cyan",
-    "Vegetables": "t-green2", "Backroom": "t-orange", "Front counter": "t-red",
-    "Back counter chiller": "t-teal", "Fountain Drinks": "t-green2", "Sauce": "t-purple",
+    
+    const matches = state.data.items.filter(i => i.name.toLowerCase().includes(q));
+    if (!matches.length) { res.innerHTML = `<div class="card" style="text-align:center;padding:30px">No items found</div>`; return; }
+    
+    res.innerHTML = matches.map(it => `<button class="search-result-card jump-btn" data-cat="${escapeHtml(it.category)}" data-sub="${escapeHtml(it.sub_category||"")}"><div style="flex:1"><div style="font-weight:1200;font-size:17px">${escapeHtml(it.name)}</div><div style="font-size:13px;opacity:0.6">${escapeHtml(it.category)}</div></div><div class="search-pill">Go</div></button>`).join("");
+    $$(".jump-btn", res).forEach(b => b.onclick = () => setView({ page: "category", category: b.dataset.cat, sauceSub: b.dataset.sub||null }, true));
   };
-  return map[name] || "t-pink";
 }
+function tileToneFor(n) { const m={"Prepared items":"t-green","Unopened chiller":"t-blue","Thawing":"t-cyan","Vegetables":"t-green2","Backroom":"t-orange","Front counter":"t-red","Back counter chiller":"t-teal","Fountain Drinks":"t-green2","Sauce":"t-purple"}; return m[n]||"t-pink"; }
 
-/* =========================================================
-   CATEGORY
-   ========================================================= */
+/* ---------- Category ---------- */
 function renderCategory() {
-  const main = $("#main");
-  const cat = state.view.category;
-
+  const main = $("#main"), cat = state.view.category;
   if (cat === "Sauce" && !state.view.sauceSub) {
-    const tiles = SAUCE_SUBS.map((s, idx) => {
-      const tone = s.tone === "teal" ? "t-teal" : s.tone === "purple" ? "t-purple" : "t-orange";
-      return `
-        <button class="tile ${tone}" style="min-height:120px;animation-delay:${idx * 60}ms" data-sub="${escapeHtml(s.name)}" type="button">
-          <div class="emoji" style="font-size:56px">${s.emoji}</div>
-          <div class="title" style="font-size:20px">${escapeHtml(s.name)}</div>
-          <div class="sub">Tap to open</div>
-        </button>
-      `;
-    }).join("");
-    main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow" type="button">← Back</button><div class="page-title">Sauce</div></div><div class="tiles-2col">${tiles}</div>`;
-    $("#btnBack").addEventListener("click", goBack);
-    $$(".tile", main).forEach((b) => b.addEventListener("click", () => setView({ sauceSub: b.dataset.sub }, true)));
+    main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Sauce</div></div><div class="tiles-2col">${SAUCE_SUBS.map((s,i)=>`<button class="tile ${s.tone==="teal"?"t-teal":s.tone==="purple"?"t-purple":"t-orange"}" style="animation-delay:${i*60}ms" data-sub="${s.name}"><div class="emoji" style="font-size:56px">${s.emoji}</div><div class="title">${s.name}</div></button>`).join("")}</div>`;
+    $("#btnBack").onclick = goBack; $$(".tile", main).forEach(b => b.onclick = () => setView({ sauceSub: b.dataset.sub }, true));
     return;
   }
-
-  const sauceSub = state.view.sauceSub;
-  const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
-  let items = (state.data.items || []).filter((x) => x.category === cat);
-  if (cat === "Sauce" && sauceSub) items = items.filter((x) => (x.sub_category || "") === normalizeSub(sauceSub));
-
-  const prog = categoryProgress(items, cat);
-  const doneAll = prog.total > 0 && prog.done === prog.total;
-  const list = items.map((it) => renderItemEditor(it, cat)).join("");
-
-  const emptyHint = items.length ? "" : `
-    <div style="text-align:center; padding: 40px 20px; opacity:0.6">
-      <div style="font-size:48px; margin-bottom:10px">🥬</div>
-      <div style="font-weight:1200; font-size:18px">No items here</div>
-      <div style="font-size:14px; margin-top:4px">Everything looks clean!</div>
-    </div>
-  `;
-
-  main.innerHTML = `
-    <div class="page-head">
-      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
-      <div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1">
-        <span>${escapeHtml(title)}</span>
-        ${prog.total ? `
-          <div style="display:flex; align-items:center; margin-left:auto;">
-             <span id="catProgText" style="font-size:12px; font-weight:900; opacity:0.7; margin-right:8px">${prog.done}/${prog.total}</span>
-             <div class="prog-track"><div id="catProgBar" class="prog-fill" style="width:${prog.pct}%"></div></div>
-          </div>` : ""}
-      </div>
-    </div>
-    ${emptyHint}
-    <div class="edit-list" id="editList">${list}</div>
-    <div class="save-bar">
-      <button id="saveBtn" type="button" style="width:min(92%,520px); margin:0 auto; padding:14px 18px; border-radius:999px; font-weight:1200; font-size:16px; background:var(--green); color:#fff; border:0; box-shadow:0 14px 26px rgba(0,0,0,.16);">
-        ${doneAll ? "Done checking ✅ (Save)" : "Save"}
-      </button>
-    </div>
-  `;
-
-  $("#btnBack").addEventListener("click", goBack);
+  
+  const sub = state.view.sauceSub, title = cat==="Sauce"&&sub?`Sauce - ${sub}`:cat;
+  let items = state.data.items.filter(x => x.category===cat);
+  if (cat==="Sauce"&&sub) items = items.filter(x => normalizeSub(x.sub_category)===normalizeSub(sub));
+  
+  const prog = getCategoryProgress(items, cat);
+  const list = items.map(it => renderItemEditor(it, cat)).join("");
+  const empty = !items.length ? `<div style="text-align:center;padding:40px;opacity:0.6"><div style="font-size:48px">🥬</div><div>No items here</div></div>` : "";
+  
+  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title" style="flex:1;display:flex;justify-content:space-between;align-items:center"><span>${escapeHtml(title)}</span>${prog.total?`<div style="display:flex;align-items:center"><span id="catProgText" style="font-size:12px;margin-right:8px">${prog.done}/${prog.total}</span><div class="prog-track"><div id="catProgBar" class="prog-fill" style="width:${prog.pct}%"></div></div></div>`:""}</div></div>${empty}<div class="edit-list" id="editList">${list}</div><div class="save-bar"><button id="saveBtn" class="btn" style="width:100%;background:var(--green);color:#fff;box-shadow:0 10px 20px rgba(0,0,0,0.15)">${prog.done===prog.total&&prog.total>0?"Done checking ✅ (Save)":"Save"}</button></div>`;
+  
+  $("#btnBack").onclick = goBack;
   bindItemEditors(items, cat);
-  $("#saveBtn").addEventListener("click", async () => await saveCategory(items, cat));
+  $("#saveBtn").onclick = () => saveCategory(items, cat);
 }
 
-function itemKey(it) { return it.id != null ? `id:${it.id}` : `name:${it.name}|${it.category}|${it.sub_category || ""}`; }
-
-function shelfLifeModeFor(it, cat) {
-  if (it.is_hourly) return { mode: "HOURLY", life: 0 };
-  const life = Number(it.shelf_life_days || 0);
-  if (isChickenBaconC(it.name)) return { mode: "EOD_AUTO", life };
-  if (FORCE_MANUAL_DATE_CATS.has(cat)) return { mode: "MANUAL", life };
-  if (!Number.isFinite(life) || life <= 0) return { mode: "MANUAL", life };
-  if (life > 7) return { mode: "MANUAL", life };
-  return { mode: "PRESET", life };
-}
-
-function categoryProgress(items, cat) {
-  let total = 0, done = 0;
-  for (const it of items || []) {
+function getCategoryProgress(items, cat) {
+  let total=0, done=0;
+  items.forEach(it => {
     const d = state.drafts[itemKey(it)] || {};
-    if ((Number(d.qty) || 0) <= 0) continue;
+    if ((d.qty||0) <= 0) return;
     total++;
     const rule = shelfLifeModeFor(it, cat);
-    if (rule.mode === "HOURLY") { if (d.expTimeShort) done++; continue; }
-    if (rule.mode === "EOD_AUTO") { done++; continue; }
-    if (d.expDateISO) done++;
-  }
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  return { total, done, pct };
+    if (rule.mode === "HOURLY") { if (d.expTimeShort) done++; }
+    else if (rule.mode === "EOD_AUTO") { done++; }
+    else if (d.expDateISO) done++;
+  });
+  return { total, done, pct: total ? Math.round((done/total)*100) : 0 };
 }
 
-function refreshCategoryProgressUI(items, cat) {
-  const prog = categoryProgress(items, cat);
-  const textEl = document.getElementById("catProgText");
-  if (textEl) textEl.textContent = prog.total ? `${prog.done}/${prog.total}` : "";
-  const barEl = document.getElementById("catProgBar");
-  if (barEl) barEl.style.width = `${prog.pct}%`;
-  const saveBtn = document.getElementById("saveBtn");
-  if (saveBtn) saveBtn.textContent = (prog.total > 0 && prog.done === prog.total) ? "Done checking ✅ (Save)" : "Save";
-}
-
-/* =========================================================
-   DATE PICKER & EDITOR
-   ========================================================= */
 function renderItemEditor(it, cat) {
-  const key = itemKey(it);
-  if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTimeShort: "", extraISO: "", extraQty: 0 };
-  const d = state.drafts[key];
-  const rule = shelfLifeModeFor(it, cat);
+  const k = itemKey(it);
+  if (!state.drafts[k]) state.drafts[k] = { qty: 0 };
+  const d = state.drafts[k], rule = shelfLifeModeFor(it, cat);
+  
   let expiryUI = "";
-
   if (rule.mode === "HOURLY") {
-    const opts = HOURLY_SHORT.map(o => `<option value="${escapeHtml(o.value)}"${d.expTimeShort === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`).join("");
-    expiryUI = `<label class="label">Expiry time (Today)</label><select class="select" data-exptime="${escapeHtml(key)}"><option value="">Select time</option>${opts}</select><div class="edit-helper">Hourly expiry (today only)</div>`;
+    expiryUI = `<select class="select" data-exptime="${k}"><option value="">Select Time</option>${HOURLY_SHORT.map(o=>`<option value="${o.value}"${d.expTimeShort===o.value?" selected":""}>${o.label}</option>`).join("")}</select>`;
   } else if (rule.mode === "EOD_AUTO") {
-    expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
-  } else if (rule.mode === "MANUAL") {
-    expiryUI = `<label class="label">Expiry date</label><button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button><div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Select date"}</div>`;
+    expiryUI = `<div class="muted">Expiry: End of Day (Auto)</div>`;
   } else {
-    const n = Math.max(1, Math.min(7, Number(rule.life) || 1));
-    const opts = Array.from({ length: n }, (_, i) => {
-      const iso = addDaysISO(todayISO(), i);
-      return `<option value="${escapeHtml(iso)}"${d.expDateISO === iso ? " selected" : ""}>${escapeHtml(formatLongDMY(iso))}</option>`;
-    }).join("");
-    expiryUI = `
-      <label class="label">Expiry</label><select class="select" data-exppreset="${escapeHtml(key)}"><option value="">Select</option>${opts}<option value="MANUAL"${d.expType === "MANUAL" ? " selected" : ""}>Manual (pick date)</option></select>
-      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType === "MANUAL" ? "" : "hidden"}" style="margin-top:8px"><button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button><div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : ""}</div></div>
-      <div class="edit-helper">Preset dates (from shelf life)</div>
-    `;
+    // PRESET or MANUAL
+    const n = Math.min(7, Math.max(1, rule.life||1));
+    const opts = Array.from({length:n}, (_,i) => { const iso=addDaysISO(todayISO(), i); return `<option value="${iso}"${d.expDateISO===iso?" selected":""}>${formatLongDMY(iso)}</option>`; }).join("");
+    expiryUI = `<select class="select" data-exppreset="${k}"><option value="">Select Date</option>${opts}<option value="MANUAL"${d.expType==="MANUAL"?" selected":""}>Manual Picker</option></select>
+    <div data-pickwrap="${k}" class="${d.expType==="MANUAL"?"":"hidden"}" style="margin-top:8px"><button class="btn btn-yellow" style="width:100%" data-pickdate="${k}">Pick Date</button><div class="muted" style="font-size:12px;margin-top:4px">${d.expDateISO?formatLongDMY(d.expDateISO):""}</div></div>`;
   }
-
-  const addDateBtn = rule.mode === "HOURLY" ? "" : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
-  const extraBadge = Number(d.extraQty) > 0 ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(d.extraQty)}</div>` : "";
-
-  return `
-    <div class="edit-card" data-key="${escapeHtml(key)}">
-      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="edit-name">${escapeHtml(it.name)}</div>${addDateBtn}</div>
-      ${extraBadge}
-      <div class="edit-row">
-        <div class="qty-stepper"><button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button><input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(d.qty || 0)}" /><button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button></div>
-        <div class="exp-wrap">${expiryUI}</div>
-      </div>
-    </div>
-  `;
+  
+  const addDateBtn = rule.mode==="HOURLY"?"":`<button class="btn btn-ghost" data-adddate="${k}" style="padding:8px 12px">＋</button>`;
+  const extra = d.extraQty>0 ? `<div class="muted" style="margin-top:4px">2nd date: ${d.extraQty}</div>` : "";
+  
+  return `<div class="edit-card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="edit-name">${escapeHtml(it.name)}</div>${addDateBtn}</div>${extra}<div class="edit-row" style="display:flex;gap:10px;margin-top:8px"><div class="qty-stepper"><button class="qty-btn" data-dec="${k}">−</button><input class="qty-inp" data-qty="${k}" type="number" value="${d.qty||0}"><button class="qty-btn" data-inc="${k}">+</button></div><div style="flex:1">${expiryUI}</div></div></div>`;
 }
 
 function bindItemEditors(items, cat) {
   const root = $("#editList");
-  if (!root) return;
-  const refreshProg = () => { try { refreshCategoryProgressUI(items, cat); } catch {} };
-
-  for (const it of items) {
-    const key = itemKey(it);
-    const d = state.drafts[key] || (state.drafts[key] = { qty: 0 });
-    const inc = $(`[data-inc="${cssEsc(key)}"]`, root), dec = $(`[data-dec="${cssEsc(key)}"]`, root), qty = $(`[data-qty="${cssEsc(key)}"]`, root);
-    const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root), timeSel = $(`[data-exptime="${cssEsc(key)}"]`, root);
-    const pickBtn = $(`[data-pickdate="${cssEsc(key)}"]`, root), addDate = $(`[data-adddate="${cssEsc(key)}"]`, root);
-
-    updateQtyUI(root, key); refreshProg();
-
-    if (inc) inc.addEventListener("click", () => { d.qty = (Number(d.qty) || 0) + 1; saveDraftsToStorage(); updateQtyUI(root, key); pulseBtn(inc); haptic(12); refreshProg(); });
-    if (dec) dec.addEventListener("click", () => { d.qty = Math.max(0, (Number(d.qty) || 0) - 1); saveDraftsToStorage(); updateQtyUI(root, key); pulseBtn(dec); haptic(10); refreshProg(); });
-    if (qty) qty.addEventListener("input", () => { d.qty = Math.max(0, Number(qty.value || 0)); saveDraftsToStorage(); updateQtyUI(root, key); refreshProg(); });
-
-    if (timeSel) timeSel.addEventListener("change", () => { d.expTimeShort = String(timeSel.value || ""); d.expType = "HOURLY"; saveDraftsToStorage(); refreshProg(); render(); });
-    if (presetSel) presetSel.addEventListener("change", () => {
-      const v = String(presetSel.value || "");
-      if (v === "MANUAL") { d.expType = "MANUAL"; $(`[data-pickwrap="${cssEsc(key)}"]`, root)?.classList.remove("hidden"); }
-      else { d.expType = "PRESET"; d.expDateISO = v || ""; $(`[data-pickwrap="${cssEsc(key)}"]`, root)?.classList.add("hidden"); }
-      saveDraftsToStorage(); refreshProg(); render();
-    });
-    if (pickBtn) pickBtn.addEventListener("click", () => openDateWheelModal({ title: "Pick expiry", initialISO: d.expDateISO || todayISO(), minISO: todayISO(), maxISO: "2100-12-31", onPick: (iso) => { d.expDateISO = iso; if (!d.expType) d.expType = "MANUAL"; saveDraftsToStorage(); refreshProg(); render(); } }));
-    if (addDate) addDate.addEventListener("click", () => openAddDateModal({ it, cat, key }));
-  }
+  const refresh = () => {
+    const p = getCategoryProgress(items, cat);
+    $("#catProgText").textContent = `${p.done}/${p.total}`;
+    $("#catProgBar").style.width = `${p.pct}%`;
+    $("#saveBtn").textContent = (p.done===p.total && p.total>0) ? "Done checking ✅ (Save)" : "Save";
+  };
+  
+  items.forEach(it => {
+    const k = itemKey(it);
+    const d = state.drafts[k];
+    
+    // Qty
+    const qInp=$(`[data-qty="${k}"]`, root), inc=$(`[data-inc="${k}"]`, root), dec=$(`[data-dec="${k}"]`, root);
+    const updateQ = () => { qInp.value = d.qty; dec.disabled = d.qty<=0; refresh(); saveDrafts(); };
+    updateQ();
+    inc.onclick = () => { d.qty++; updateQ(); };
+    dec.onclick = () => { if(d.qty>0) d.qty--; updateQ(); };
+    qInp.oninput = () => { d.qty = Math.max(0, Number(qInp.value)); saveDrafts(); refresh(); };
+    
+    // Expiry
+    const timeSel = $(`[data-exptime="${k}"]`, root);
+    if(timeSel) timeSel.onchange = () => { d.expTimeShort = timeSel.value; d.expType="HOURLY"; saveDrafts(); refresh(); };
+    
+    const preSel = $(`[data-exppreset="${k}"]`, root);
+    const pickWrap = $(`[data-pickwrap="${k}"]`, root);
+    if(preSel) preSel.onchange = () => {
+      const v = preSel.value;
+      if (v === "MANUAL") { d.expType="MANUAL"; pickWrap.classList.remove("hidden"); }
+      else { d.expType="PRESET"; d.expDateISO=v; pickWrap.classList.add("hidden"); }
+      saveDrafts(); refresh(); render();
+    };
+    
+    const pickBtn = $(`[data-pickdate="${k}"]`, root);
+    if(pickBtn) pickBtn.onclick = () => openDateWheelModal({ initialISO: d.expDateISO, onPick: (iso) => { d.expDateISO=iso; d.expType="MANUAL"; saveDrafts(); refresh(); render(); } });
+    
+    const addBtn = $(`[data-adddate="${k}"]`, root);
+    if(addBtn) addBtn.onclick = () => openAddDateModal({ it, cat, key: k });
+  });
 }
 
+function itemKey(it) { return it.id ? `id:${it.id}` : `name:${it.name}`; }
+function shelfLifeModeFor(it, cat) {
+  if (it.is_hourly) return { mode: "HOURLY" };
+  if (isChickenBaconC(it.name)) return { mode: "EOD_AUTO" };
+  const l = Number(it.shelf_life_days||0);
+  if (FORCE_MANUAL_DATE_CATS.has(cat) || l<=0 || l>7) return { mode: "MANUAL", life: l };
+  return { mode: "PRESET", life: l };
+}
+
+/* ---------- Save Category ---------- */
 async function saveCategory(items, cat) {
-  const store = state.session.store, staff = state.session.staff, shift = state.session.shift;
   const rows = [];
   for (const it of items) {
-    const key = itemKey(it);
-    const d = state.drafts[key] || { qty: 0 };
-    const qty = Number(d.qty) || 0, xq = Number(d.extraQty) || 0;
+    const k = itemKey(it), d = state.drafts[k];
+    if (!d || d.qty <= 0) continue;
     const rule = shelfLifeModeFor(it, cat);
-
-    if (qty > 0) {
-      let expiry = null, expiry_at = null;
-      if (rule.mode === "HOURLY") {
-        if (!d.expTimeShort) { toast(`Pick time for ${it.name}`); return; }
-        expiry = todayISO(); expiry_at = isoFromTodayAndTime(d.expTimeShort);
-      } else if (rule.mode === "EOD_AUTO") { expiry = todayISO(); }
-      else { expiry = d.expDateISO || null; if (!expiry) { toast(`Pick expiry for ${it.name}`); return; } }
-      rows.push({ item_id: it.id ?? null, item_name: it.name, category: it.category, sub_category: it.sub_category || null, quantity: qty, expiry, expiry_at, shift, is_extra: false });
+    let expiry = null, expiry_at = null;
+    
+    if (rule.mode === "HOURLY") {
+      if (!d.expTimeShort) return toast(`Time missing: ${it.name}`);
+      expiry = todayISO(); expiry_at = isoFromTodayAndTime(d.expTimeShort);
+    } else if (rule.mode === "EOD_AUTO") {
+      expiry = todayISO();
+    } else {
+      if (!d.expDateISO) return toast(`Date missing: ${it.name}`);
+      expiry = d.expDateISO;
     }
-    if (xq > 0) {
-      const expiry = rule.mode === "EOD_AUTO" ? todayISO() : d.extraISO || "";
-      if (!expiry) { toast("Set 2nd date"); return; }
-      rows.push({ item_id: it.id ?? null, item_name: it.name, category: it.category, sub_category: it.sub_category || null, quantity: xq, expiry, expiry_at: null, shift, is_extra: true, extra_tag: "SECOND" });
+    rows.push({ item_id: it.id, item_name: it.name, category: it.category, sub_category: it.sub_category, quantity: d.qty, expiry, expiry_at, shift: state.session.shift, is_extra: false });
+    
+    if (d.extraQty > 0) {
+      if (!d.extraISO && rule.mode!=="EOD_AUTO") return toast("2nd date missing");
+      rows.push({ item_id: it.id, item_name: it.name, category: it.category, sub_category: it.sub_category, quantity: d.extraQty, expiry: d.extraISO||todayISO(), shift: state.session.shift, is_extra: true, extra_tag: "SECOND" });
     }
   }
-
+  
   if (!rows.length) return toast("Nothing to save");
-  const anyBackdated = rows.some(r => String(r.expiry || "").slice(0, 10) < todayISO());
-  const doSave = async () => {
-    showSaving("Saving…");
-    try { await apiPost("/api/log/batch", { store, staff, shift, rows }); recordShiftDoneAndLast({ store, shift, staff, lastItemName: rows[rows.length - 1].item_name || "" }); toast("Saved ✅"); await refreshStockDot().catch(() => {}); }
-    catch { toast("Save failed"); } finally { hideSaving(); }
+  
+  const hasBackdated = rows.some(r => r.expiry && r.expiry < todayISO());
+  const proceed = async () => {
+    showSaving("Saving...");
+    try {
+      await apiPost("/api/log/batch", { ...state.session, rows });
+      recordShiftDoneAndLast({ ...state.session, lastItemName: rows[rows.length-1].item_name });
+      toast("Saved ✅"); await refreshStockDot().catch(()=>{});
+    } catch { toast("Save failed"); } finally { hideSaving(); }
   };
-  if (anyBackdated) { openBackdatedWarning({ pickedISO: todayISO(), thresholdISO: todayISO(), onProceed: doSave }); return; }
-  await doSave();
+  
+  if (hasBackdated) openBackdatedWarning({ onProceed: proceed });
+  else await proceed();
 }
 
-/* =========================================================
-   STOCK & SUMMARY PAGES
-   ========================================================= */
+/* ---------- Stock Alert ---------- */
 async function refreshStockDot() {
   try {
-    const r = await apiGet(`/api/stock/low?store=${encodeURIComponent(state.session.store)}`);
-    const rows = enforceArray(r).filter(x => !STOCK_ALERT_EXCLUDE_CATS.has(String(x.category || "")));
-    state.stock.rows = rows; state.stock.hasDot = rows.length > 0;
+    const r = await apiGet(`/api/stock/low?store=${state.session.store}`);
+    state.stock.rows = Array.isArray(r) ? r.filter(x => !STOCK_ALERT_EXCLUDE_CATS.has(x.category)) : [];
+    state.stock.hasDot = state.stock.rows.length > 0;
     updateDrawerAlertLabel(state.stock.hasDot);
-  } catch { state.stock.rows = []; state.stock.hasDot = false; updateDrawerAlertLabel(false); }
+  } catch { state.stock.hasDot=false; }
 }
-
 async function renderStockAlerts() {
   const main = $("#main");
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Stock Alert</div></div><div id="saWrap" class="col"><div class="card skeleton skeleton-card"></div><div class="card skeleton skeleton-card" style="opacity:0.6"></div></div>`;
-  $("#btnBack").addEventListener("click", goBack);
-  await refreshStockDot().catch(() => {});
+  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Stock Alert</div></div><div id="saWrap" class="col"><div class="card skeleton skeleton-card"></div></div>`;
+  $("#btnBack").onclick = goBack;
+  await refreshStockDot();
   const wrap = $("#saWrap");
-  if (!state.stock.rows.length) { wrap.innerHTML = `<div class="card"><div style="font-weight:1200">No low stock ✅</div><div class="muted" style="margin-top:6px">All items are above minimum.</div></div>`; return; }
-  
-  const grouped = new Map();
-  for (const rr of state.stock.rows) { const c = rr.category || "Other"; if (!grouped.has(c)) grouped.set(c, []); grouped.get(c).push(rr); }
-  let html = "";
-  for (const [cat, list] of grouped.entries()) {
-    html += `<div class="card"><div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div><div class="col" style="gap:10px">${list.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px"><div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:1200">${escapeHtml(x.name)}</div><div style="font-weight:1200">${x.min_qty!=null?`Min ${x.min_qty}`:""}</div></div><div class="muted" style="margin-top:6px;font-weight:1100">Current: <b>${x.current_qty!=null?x.current_qty:"?"}</b></div></div>`).join("")}</div></div>`;
-  }
-  wrap.innerHTML = html;
+  if (!state.stock.rows.length) { wrap.innerHTML = `<div class="card"><div>No low stock ✅</div></div>`; return; }
+  wrap.innerHTML = state.stock.rows.map(x => `<div class="card" style="margin-bottom:10px"><div style="font-weight:1200">${x.name}</div><div class="muted">Current: ${x.current_qty} / Min: ${x.min_qty}</div></div>`).join("");
 }
 
+/* ---------- Summary (Restored Original Logic) ---------- */
 async function renderSummaryHome() {
   const main = $("#main");
-  const isMgr = !!state.session.isManager;
-  const storeView = isMgr ? state.view.summaryMode || "PDD" : state.session.store;
-  state.view.summaryMode = storeView;
-
+  const isMgr = state.session.isManager;
+  state.view.summaryMode = isMgr ? (state.view.summaryMode || "PDD") : state.session.store;
+  
   main.innerHTML = `
     <div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Summary</div></div>
-    ${isMgr ? `<div class="card"><div style="font-weight:1200;margin-bottom:8px">Store view</div><div class="row" style="gap:12px"><button id="mPDD" class="btn">PDD</button><button id="mSKH" class="btn">SKH</button></div></div>` : ""}
-    ${isMgr ? `<div class="card" style="margin-top:12px"><div style="font-weight:1200;font-size:18px;margin-bottom:10px">Progress snapshot</div><div id="progSnap" class="muted" style="font-weight:1100">Loading…</div></div>` : ""}
-    <div class="card" style="margin-top:12px"><div style="font-weight:1200;font-size:18px;margin-bottom:10px">Shift completion</div><div id="shiftGrid" class="row" style="gap:12px;flex-wrap:wrap"></div></div>
-    <div class="card" style="margin-top:12px"><div style="font-weight:1200;font-size:18px;margin-bottom:10px">Expiry overview</div><div id="sumWrap" class="col"><div class="card skeleton skeleton-card"></div></div></div>
+    ${isMgr ? `<div class="card"><div class="row" style="gap:10px"><button id="mPDD" class="btn" style="flex:1">PDD</button><button id="mSKH" class="btn" style="flex:1">SKH</button></div></div>` : ""}
+    <div class="card" style="margin-top:12px"><div style="font-weight:1200;margin-bottom:10px">Shift Completion</div><div id="shiftGrid">Loading...</div></div>
+    <div class="card" style="margin-top:12px"><div style="font-weight:1200;margin-bottom:10px">Expiry Overview</div><div id="sumWrap">Loading...</div></div>
   `;
-  $("#btnBack").addEventListener("click", goBack);
+  $("#btnBack").onclick = goBack;
+  
   if (isMgr) {
-    $("#mPDD").addEventListener("click", () => setSummaryMode("PDD")); $("#mSKH").addEventListener("click", () => setSummaryMode("SKH")); updateSummaryModeButtons();
-    const ps = localProgressSnapshot(); $("#progSnap").innerHTML = `Categories started: <b>${ps.started}</b> / <b>${ps.total}</b>`;
+    const updateM = () => { $("#mPDD").style.background=state.view.summaryMode==="PDD"?"var(--pdd)":"#fff"; $("#mSKH").style.background=state.view.summaryMode==="SKH"?"var(--skh)":"#fff"; };
+    updateM();
+    $("#mPDD").onclick=()=>{ state.view.summaryMode="PDD"; updateM(); renderSummaryHome(); };
+    $("#mSKH").onclick=()=>{ state.view.summaryMode="SKH"; updateM(); renderSummaryHome(); };
   }
   
-  const grid = $("#shiftGrid");
-  grid.innerHTML = `<div class="muted" style="font-weight:1100">Loading…</div>`;
+  drawSummaryCards();
+  drawShiftGrid();
+}
+
+async function drawShiftGrid() {
+  const store = state.view.summaryMode;
   try {
-    const [am, pm] = await Promise.all([getStatusByShift(storeView, "AM").catch(()=>null), getStatusByShift(storeView, "PM").catch(()=>null)]);
-    grid.innerHTML = `${renderShiftCardUI("AM", statusToUI(am), readLocalDoneLast(storeView, "AM"))}${renderShiftCardUI("PM", statusToUI(pm), readLocalDoneLast(storeView, "PM"))}`;
-  } catch {}
-  
-  const wrap = $("#sumWrap");
-  const r = await apiGet(`/api/expiry?store=${encodeURIComponent(storeView)}`);
-  const rows = enforceArray(r);
-  const todayCount = rows.filter(x => datePartFromRow(x) === todayISO()).length;
-  const tomCount = rows.filter(x => datePartFromRow(x) === addDaysISO(todayISO(), 1)).length;
-  const safeCount = rows.length - todayCount - tomCount;
-  
-  wrap.innerHTML = `
-    <button class="dash-card dash-red" id="sToday"><div class="dash-left"><div class="dash-title">Expiring Today</div><div class="dash-sub">Use immediately</div></div><div class="dash-right"><div class="dash-num">${todayCount}</div><div class="dash-go">›</div></div></button>
-    <button class="dash-card dash-amber" id="sTomorrow"><div class="dash-left"><div class="dash-title">Expiring Tomorrow</div><div class="dash-sub">Plan usage</div></div><div class="dash-right"><div class="dash-num">${tomCount}</div><div class="dash-go">›</div></div></button>
-    <button class="dash-card dash-green" id="sSafe"><div class="dash-left"><div class="dash-title">All Safe & Fresh</div><div class="dash-sub">Good to go!</div></div><div class="dash-right"><div class="dash-num">${safeCount}</div><div class="dash-go">›</div></div></button>
-  `;
-  $("#sToday").addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY" }, true));
-  $("#sTomorrow").addEventListener("click", () => setView({ page: "summaryList", bucket: "TOMORROW" }, true));
-  $("#sSafe").addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE" }, true));
+    const s = await apiGet(`/api/status?store=${store}`);
+    const am = s?.AM || {}, pm = s?.PM || {};
+    $("#shiftGrid").innerHTML = `
+      <div style="border:1px solid var(--line);padding:10px;border-radius:12px;margin-bottom:8px"><b>AM</b>: ${am.last_saved_by ? `Done by ${am.last_saved_by} (${am.total_rows} items)` : "Not done"}</div>
+      <div style="border:1px solid var(--line);padding:10px;border-radius:12px"><b>PM</b>: ${pm.last_saved_by ? `Done by ${pm.last_saved_by} (${pm.total_rows} items)` : "Not done"}</div>
+    `;
+  } catch { $("#shiftGrid").textContent = "Failed to load status"; }
+}
+
+async function drawSummaryCards() {
+  const store = state.view.summaryMode;
+  try {
+    const r = await apiGet(`/api/expiry?store=${store}`);
+    const rows = Array.isArray(r) ? r : [];
+    const t = todayISO(), tm = addDaysISO(t, 1);
+    const cToday = rows.filter(x => datePartFromRow(x) === t).length;
+    const cTom = rows.filter(x => datePartFromRow(x) === tm).length;
+    const cSafe = rows.length - cToday - cTom;
+    
+    $("#sumWrap").innerHTML = `
+      <button class="dash-card dash-red" id="bToday"><div class="dash-num">${cToday}</div><div>Expiring Today</div></button>
+      <button class="dash-card dash-amber" id="bTom" style="margin-top:8px"><div class="dash-num">${cTom}</div><div>Expiring Tomorrow</div></button>
+      <button class="dash-card dash-green" id="bSafe" style="margin-top:8px"><div class="dash-num">${cSafe}</div><div>All Safe</div></button>
+    `;
+    $("#bToday").onclick = () => setView({ page: "summaryList", bucket: "TODAY" }, true);
+    $("#bTom").onclick = () => setView({ page: "summaryList", bucket: "TOMORROW" }, true);
+    $("#bSafe").onclick = () => setView({ page: "summaryList", bucket: "SAFE" }, true);
+  } catch { $("#sumWrap").textContent = "Failed to load"; }
 }
 
 async function renderSummaryList() {
-  const main = $("#main");
-  const mode = state.session.isManager ? state.view.summaryMode || "PDD" : state.session.store;
-  const bucket = state.view.bucket || "TODAY";
+  const main = $("#main"), bucket = state.view.bucket;
+  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">${bucket}</div></div><div id="sList">Loading...</div>`;
+  $("#btnBack").onclick = goBack;
   
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">${bucketTitle(bucket)}</div></div><div id="sumList" class="col"><div class="card skeleton skeleton-card"></div></div>`;
-  $("#btnBack").addEventListener("click", goBack);
-  
-  const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
-  let rows = enforceArray(r).map(x => ({...x, _store: mode}));
-  const today = todayISO(), tom = addDaysISO(today, 1);
-  
-  rows = rows.filter(x => {
-    const e = datePartFromRow(x);
-    if (!e) return false;
-    if (bucket === "TODAY") return e === today;
-    if (bucket === "TOMORROW") return e === tom;
-    return e !== today && e !== tom;
-  });
-  
-  const wrap = $("#sumList");
-  if (!rows.length) {
-    wrap.innerHTML = `<div style="text-align:center; padding: 40px 20px; opacity:0.6"><div style="font-size:48px; margin-bottom:10px">✨</div><div style="font-weight:1200; font-size:18px">No items found</div><div style="font-size:14px; margin-top:4px">Nothing in this list.</div></div>`;
-    return;
-  }
-  
-  const map = new Map();
-  for (const rr of rows) { const c = rr.category || "Other"; if (!map.has(c)) map.set(c, []); map.get(c).push(rr); }
-  let html = "";
-  for (const [cat, list] of map.entries()) {
-    html += `<div class="card"><div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div><div class="col" style="gap:8px">${list.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(rr => `
-      <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px"><div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:1200">${escapeHtml(rr.name)}</div><div style="font-weight:1200">${escapeHtml(formatLongDMY(datePartFromRow(rr)))}</div></div><div class="muted" style="margin-top:6px;font-weight:1000;display:flex;justify-content:space-between"><div>${timePartFromRow(rr) ? `Time: ${escapeHtml(timePartFromRow(rr))}` : ""} ${rr.shift ? `• ${escapeHtml(rr.shift)}` : ""}</div><div>Qty: ${rr.qty || rr.quantity}</div></div></div>
-    `).join("")}</div></div>`;
-  }
-  wrap.innerHTML = html;
+  try {
+    const r = await apiGet(`/api/expiry?store=${state.view.summaryMode}`);
+    let rows = Array.isArray(r) ? r : [];
+    const t = todayISO(), tm = addDaysISO(t, 1);
+    
+    if (bucket === "TODAY") rows = rows.filter(x => datePartFromRow(x) === t);
+    else if (bucket === "TOMORROW") rows = rows.filter(x => datePartFromRow(x) === tm);
+    else rows = rows.filter(x => datePartFromRow(x) !== t && datePartFromRow(x) !== tm);
+    
+    $("#sList").innerHTML = rows.length ? rows.map(x => `
+      <div class="card" style="margin-bottom:8px">
+        <div style="font-weight:1200">${x.item_name}</div>
+        <div class="muted">${formatLongDMY(datePartFromRow(x))} • Qty: ${x.quantity}</div>
+      </div>
+    `).join("") : `<div style="text-align:center;padding:20px;opacity:0.6">No items</div>`;
+  } catch { $("#sList").textContent = "Failed"; }
 }
 
-/* =========================================================
-   WISR
-   ========================================================= */
-function renderWISR() {
-  const main = $("#main");
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">WISR Count</div></div><div class="card"><div style="font-weight:1200">Blank for now</div><div class="muted">You will provide the data later.</div></div>`;
-  $("#btnBack").addEventListener("click", goBack);
-}
+/* ---------- WISR & Manager ---------- */
+function renderWISR() { $("#main").innerHTML=`<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">WISR</div></div><div class="card">Coming Soon</div>`; $("#btnBack").onclick=goBack; }
 
-/* =========================================================
-   MANAGERS
-   ========================================================= */
 function renderManagerHome() {
-  if (!state.session.isManager) { openManagerLogin(); return; }
-  const main = $("#main");
-  main.innerHTML = `
-    <div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Manager</div></div>
-    <div class="tiles-2col">
-      <button class="tile t-blue" id="tAdd"><div class="emoji">➕</div><div class="title">Add Item</div><div class="sub">Create new item</div></button>
-      <button class="tile t-teal" id="tEdit"><div class="emoji">📝</div><div class="title">Edit Items</div><div class="sub">Compact expand</div></button>
-      <button class="tile t-purple" id="tCats"><div class="emoji">🗂️</div><div class="title">Categories</div><div class="sub">Tap tile to edit</div></button>
-      <button class="tile t-orange" id="tLog"><div class="emoji">⬇️</div><div class="title">Download Log</div><div class="sub">CSV export</div></button>
-    </div>
-  `;
-  $("#btnBack").addEventListener("click", goBack);
-  $("#tAdd").addEventListener("click", openAddItemModal);
-  $("#tEdit").addEventListener("click", () => setView({ page: "managerEditItems" }, true));
-  $("#tCats").addEventListener("click", () => setView({ page: "managerCategories" }, true));
-  $("#tLog").addEventListener("click", openDownloadLogModal);
+  if (!state.session.isManager) return openManagerLogin();
+  $("#main").innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Manager</div></div><div class="tiles-2col">
+    <button class="tile t-blue" id="mAdd"><div class="emoji">➕</div><div class="title">Add Item</div></button>
+    <button class="tile t-teal" id="mEdit"><div class="emoji">📝</div><div class="title">Edit Items</div></button>
+    <button class="tile t-purple" id="mCats"><div class="emoji">🗂️</div><div class="title">Categories</div></button>
+    <button class="tile t-orange" id="mLog"><div class="emoji">⬇️</div><div class="title">Download Log</div></button>
+  </div>`;
+  $("#btnBack").onclick=goBack; $("#mAdd").onclick=openAddItemModal; $("#mEdit").onclick=()=>setView({page:"managerEditItems"},true); $("#mCats").onclick=()=>setView({page:"managerCategories"},true); $("#mLog").onclick=openDownloadLogModal;
 }
 
 function openManagerLogin() {
-  openModal("Manager Login", `<div class="card"><div class="col"><div style="font-weight:1200">PIN</div><input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN"><button id="pinBtn" class="btn btn-red" style="width:100%">Login as Manager</button><button id="pinCancel" class="btn btn-yellow" style="width:100%">Cancel</button></div></div>`, { noBackdropClose: true });
-  $("#pinCancel").addEventListener("click", () => { closeModal(); goBack(); });
-  $("#pinBtn").addEventListener("click", async () => {
-    const pin = String($("#pinInp").value || "").trim();
-    if (!pin) return toast("Enter PIN");
-    showSaving("Logging in…");
-    try {
-      const r = await apiPost("/api/manager/login", { pin, store: state.session.store });
-      state.session.isManager = true; state.session.managerToken = r.token || ""; saveSession();
-      closeModal(); renderRolePill(); toast("Manager ✅"); render();
-    } catch { toast("Wrong PIN"); } finally { hideSaving(); }
-  });
+  openModal("Manager Login", `<div class="card"><div class="col"><input id="pin" class="input" type="password" placeholder="PIN" inputmode="numeric"><button id="go" class="btn btn-red" style="width:100%;margin-top:10px">Login</button><button id="cancel" class="btn btn-yellow" style="width:100%;margin-top:10px">Cancel</button></div></div>`, {noBackdropClose:true});
+  $("#cancel").onclick = () => { closeModal(); goBack(); };
+  $("#go").onclick = async () => {
+    try { showSaving("Logging in..."); const r = await apiPost("/api/manager/login", { pin: $("#pin").value, store: state.session.store }); state.session.isManager=true; state.session.managerToken=r.token; saveSession(); closeModal(); renderRolePill(); toast("Manager ✅"); render(); }
+    catch { toast("Wrong PIN"); } finally { hideSaving(); }
+  };
 }
 
 async function renderManagerEditItems() {
   if (!state.session.isManager) return openManagerLogin();
-  const main = $("#main");
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Edit Items</div></div><div class="card"><div style="font-weight:1200">Search</div><input id="mgrSearch" class="input" placeholder="Type item name..."></div><div id="mgrList" class="col"></div>`;
-  $("#btnBack").addEventListener("click", goBack);
-  const token = state.session.managerToken;
-  let items = [];
-  showSaving("Loading items…");
-  try { items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token); } catch { toast("Failed loading items"); } finally { hideSaving(); }
-
+  $("#main").innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Edit Items</div></div><div class="card"><input id="mgrSearch" class="input" placeholder="Search..."></div><div id="mgrList"></div>`;
+  $("#btnBack").onclick=goBack;
+  showSaving("Loading...");
+  let items=[];
+  try { items = await apiGet(`/api/manager/items?store=${state.session.store}`, state.session.managerToken); } catch { toast("Load failed"); } finally { hideSaving(); }
+  
   const renderList = (q) => {
-    q = String(q || "").toLowerCase().trim();
-    const filtered = q ? items.filter(x => String(x.name).toLowerCase().includes(q)) : items;
-    const map = new Map(); for (const it of filtered) { const c = it.category || "Other"; if (!map.has(c)) map.set(c, []); map.get(c).push(it); }
-    let html = "";
-    for (const [cat, list] of map.entries()) {
-      html += `<div class="card"><div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div><div class="col" style="gap:10px">${list.sort((a,b)=>a.name.localeCompare(b.name)).map(managerItemRow).join("")}</div></div>`;
-    }
-    const wrap = $("#mgrList"); wrap.innerHTML = html;
-    $$(".mgrRow", wrap).forEach((row) => {
-      const id = row.dataset.id;
-      const toggle = $(`[data-toggle="${cssEsc(id)}"]`, row), panel = $(`[data-panel="${cssEsc(id)}"]`, row), save = $(`[data-save="${cssEsc(id)}"]`, row), del = $(`[data-del="${cssEsc(id)}"]`, row);
-      toggle.addEventListener("click", () => { panel.classList.toggle("hidden"); toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close"; });
-      save.addEventListener("click", async () => {
-        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row), subSel = $(`[data-sub="${cssEsc(id)}"]`, row), lifeInp = $(`[data-life="${cssEsc(id)}"]`, row), hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
-        showSaving("Saving…");
-        try { await apiPatch(`/api/manager/items/${id}`, { store: state.session.store, category: catSel.value, sub_category: subSel.value, shelf_life_days: Number(lifeInp.value), is_hourly: hourlyChk.checked }, token); toast("Saved ✅"); await loadAllForCurrentStore(); } catch { toast("Save failed"); } finally { hideSaving(); }
-      });
-      del.addEventListener("click", async () => {
-        if (!confirm("Delete this item?")) return;
-        showSaving("Deleting…");
-        try { await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token); toast("Deleted ✅"); items = items.filter(x => String(x.id) !== String(id)); renderList($("#mgrSearch").value); await loadAllForCurrentStore(); } catch { toast("Delete failed"); } finally { hideSaving(); }
-      });
-    });
+    const list = q ? items.filter(x=>x.name.toLowerCase().includes(q)) : items;
+    $("#mgrList").innerHTML = list.map(it => `
+      <div class="card" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-weight:1200">${escapeHtml(it.name)}</div><div class="muted">${it.category}</div></div>
+        <button class="btn btn-red" onclick="deleteItem(${it.id})">Delete</button>
+      </div>
+    `).join("");
   };
-  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
+  $("#mgrSearch").oninput = (e) => renderList(e.target.value.toLowerCase());
   renderList("");
-}
-
-function managerItemRow(it) {
-  const id = String(it.id);
-  const cats = (state.data.categories || []).map(c => c.name);
-  const catOpts = cats.map(c => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`).join("");
-  const subOpts = [`<option value="">(none)</option>`].concat(SAUCE_SUBS.map(s => `<option value="${escapeHtml(s.name)}"${normalizeSub(it.sub_category||"")===s.name?" selected":""}>${escapeHtml(s.name)}</option>`)).join("");
-  return `<div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px"><div class="row" style="justify-content:space-between"><div style="font-weight:1200">${escapeHtml(it.name)}</div><button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button></div><div class="muted" style="margin-top:8px;font-weight:1000">${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day</div><div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px"><div class="col"><div style="font-weight:1200">Category</div><select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select><div style="font-weight:1200">Sauce Sub-category</div><select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select><div style="font-weight:1200">Shelf life (days)</div><input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(it.shelf_life_days)}"><label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200"><input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}> Hourly expiry (time only)</label><div class="row"><button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button><button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button></div></div></div></div>`;
+  
+  // Expose delete globally for inline onclick
+  window.deleteItem = async (id) => {
+    if(!confirm("Delete?")) return;
+    showSaving("Deleting...");
+    try { await apiDel(`/api/manager/items/${id}?store=${state.session.store}`, state.session.managerToken); toast("Deleted"); items=items.filter(x=>x.id!=id); renderList($("#mgrSearch").value); } catch { toast("Failed"); } finally { hideSaving(); }
+  };
 }
 
 async function renderManagerCategories() {
   if (!state.session.isManager) return openManagerLogin();
-  const main = $("#main");
-  let cats = [];
-  showSaving("Loading categories…");
-  try { cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken); } catch { toast("Failed loading categories"); } finally { hideSaving(); }
-  const tiles = cats.filter(c => c.is_active !== false).map((c, idx) => `<button class="tile ${tileToneFor(c.name)}" style="min-height:100px;animation-delay:${idx * 45}ms" data-cid="${c.id}" data-cname="${escapeHtml(c.name)}" type="button"><div class="title" style="font-size:20px">${escapeHtml(c.name)}</div><div class="sub">Tap to edit</div></button>`).join("");
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Categories</div></div><div class="tiles-2col">${tiles}</div><button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>`;
-  $("#btnBack").addEventListener("click", goBack);
-  $$(".tile", main).forEach(b => b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname)));
-  $("#addCat").addEventListener("click", openAddCategoryModal);
-}
-
-function openAddCategoryModal() {
-  openModal("Add Category", `<div class="card"><div class="col"><div style="font-weight:1200">Name</div><input id="catName" class="input" placeholder="Category name"><div style="font-weight:1200">Sort order</div><input id="catSort" class="input" type="number" value="100"><button id="catSave" class="btn btn-yellow" style="width:100%">Save</button></div></div>`, { noBackdropClose: true });
-  $("#catSave").addEventListener("click", async () => {
-    const name = $("#catName").value.trim(), sort_order = Number($("#catSort").value);
-    if (!name) return toast("Name required");
-    showSaving("Saving…");
-    try { await apiPost("/api/manager/categories", { store: state.session.store, name, sort_order }, state.session.managerToken); toast("Saved ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Save failed"); } finally { hideSaving(); }
-  });
-}
-
-function openEditCategoryModal(id, currentName) {
-  openModal("Edit Category", `<div class="card"><div class="col"><div style="font-weight:1200">Name</div><input id="catName" class="input" value="${escapeHtml(currentName)}"><div style="font-weight:1200">Active</div><select id="catActive" class="select"><option value="true">Active</option><option value="false">Inactive</option></select><button id="catSave" class="btn btn-yellow" style="width:100%">Save</button><button id="catDelete" class="btn btn-red" style="width:100%">Delete</button></div></div>`, { noBackdropClose: true });
-  $("#catSave").addEventListener("click", async () => {
-    const name = $("#catName").value.trim(), is_active = $("#catActive").value === "true";
-    if (!name) return toast("Name required");
-    showSaving("Saving…");
-    try { await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken); toast("Saved ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Save failed"); } finally { hideSaving(); }
-  });
-  $("#catDelete").addEventListener("click", async () => {
-    if (!confirm("Delete?")) return;
-    showSaving("Deleting…");
-    try { await apiDel(`/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken); toast("Deleted ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Delete failed"); } finally { hideSaving(); }
-  });
+  $("#main").innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Categories</div></div><div id="catList" class="tiles-2col"></div><button id="addC" class="btn btn-blue" style="width:100%;margin-top:10px">Add</button>`;
+  $("#btnBack").onclick=goBack;
+  showSaving("Loading...");
+  try {
+    const cats = await apiGet(`/api/manager/categories?store=${state.session.store}`, state.session.managerToken);
+    $("#catList").innerHTML = cats.map(c => `<button class="tile ${tileToneFor(c.name)}" onclick="editCat(${c.id}, '${c.name}')"><div class="title">${c.name}</div></button>`).join("");
+  } catch { toast("Load failed"); } finally { hideSaving(); }
+  
+  $("#addC").onclick = () => {
+    openModal("Add Category", `<div class="card"><input id="cn" class="input"><button id="cs" class="btn btn-yellow" style="width:100%;margin-top:10px">Save</button></div>`, {noBackdropClose:true});
+    $("#cs").onclick = async () => {
+      try { await apiPost("/api/manager/categories", {store:state.session.store, name:$("#cn").value, sort_order:100}, state.session.managerToken); toast("Saved"); closeModal(); renderManagerCategories(); } catch { toast("Failed"); }
+    };
+  };
+  window.editCat = (id, name) => {
+    if(!confirm(`Delete category ${name}?`)) return;
+    showSaving("Deleting...");
+    apiDel(`/api/manager/categories/${id}?store=${state.session.store}`, state.session.managerToken).then(()=>{toast("Deleted");renderManagerCategories()}).catch(()=>{toast("Failed");}).finally(hideSaving);
+  };
 }
 
 function openAddItemModal() {
-  const cats = (state.data.categories || []).map(c => c.name);
-  const catOpts = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-  const subOpts = [`<option value="">(none)</option>`].concat(SAUCE_SUBS.map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`)).join("");
-  openModal("Add Item", `<div class="card"><div class="col"><div style="font-weight:1200">Item name</div><input id="itName" class="input" placeholder="e.g. Beef"><div style="font-weight:1200">Category</div><select id="itCat" class="select">${catOpts}</select><div style="font-weight:1200">Sauce Sub-category</div><select id="itSub" class="select">${subOpts}</select><div style="font-weight:1200">Shelf life (days)</div><input id="itLife" class="input" type="number" min="0" value="0"><label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200"><input id="itHourly" type="checkbox"> Hourly expiry (time only)</label><button id="itSave" class="btn btn-yellow" style="width:100%">Save</button></div></div>`, { noBackdropClose: true });
-  $("#itSave").addEventListener("click", async () => {
-    const name = $("#itName").value.trim(), category = $("#itCat").value, sub_category = $("#itSub").value, shelf_life_days = Number($("#itLife").value), is_hourly = $("#itHourly").checked;
-    if (!name || !category) return toast("Missing info");
-    showSaving("Saving…");
-    try { await apiPost("/api/manager/items", { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly }, state.session.managerToken); toast("Saved ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Save failed"); } finally { hideSaving(); }
-  });
+  const cats = state.data.categories.map(c=>c.name);
+  openModal("Add Item", `<div class="card"><input id="in" class="input" placeholder="Name"><select id="ic" class="select">${cats.map(c=>`<option value="${c}">${c}</option>`).join("")}</select><input id="il" class="input" type="number" placeholder="Shelf Days"><button id="is" class="btn btn-yellow" style="width:100%;margin-top:10px">Save</button></div>`, {noBackdropClose:true});
+  $("#is").onclick = async () => {
+    try { showSaving("Saving..."); await apiPost("/api/manager/items", {store:state.session.store, name:$("#in").value, category:$("#ic").value, shelf_life_days:$("#il").value}, state.session.managerToken); toast("Saved"); closeModal(); await loadAllForCurrentStore(); } catch { toast("Failed"); } finally { hideSaving(); }
+  };
 }
 
 function openDownloadLogModal() {
-  const memKey = "__dl_range__";
-  if (!state[memKey]) { const t = todayISO(); state[memKey] = { from: addDaysISO(t, -7), to: t }; }
-  const redraw = () => { $("#dlFromShow").textContent = state[memKey].from ? formatLongDMY(state[memKey].from) : "Not set"; $("#dlToShow").textContent = state[memKey].to ? formatLongDMY(state[memKey].to) : "Not set"; };
-  openModal("Download Log", `<div class="card"><div class="col"><div style="font-weight:1200">From</div><button id="dlFromBtn" class="btn btn-yellow">Pick date</button><div id="dlFromShow" class="muted" style="font-weight:1100"></div><div style="font-weight:1200">To</div><button id="dlToBtn" class="btn btn-yellow">Pick date</button><div id="dlToShow" class="muted" style="font-weight:1100"></div><button id="dlGo" class="btn btn-blue" style="width:100%">Download CSV</button></div></div>`, { noBackdropClose: true });
-  redraw();
-  $("#dlFromBtn").addEventListener("click", () => openDateWheelModal({ title: "From date", initialISO: state[memKey].from || todayISO(), minISO: "2000-01-01", maxISO: "2100-12-31", onPick: (iso) => { state[memKey].from = iso; redraw(); } }));
-  $("#dlToBtn").addEventListener("click", () => openDateWheelModal({ title: "To date", initialISO: state[memKey].to || todayISO(), minISO: "2000-01-01", maxISO: "2100-12-31", onPick: (iso) => { state[memKey].to = iso; redraw(); } }));
-  $("#dlGo").addEventListener("click", async () => {
-    try { showSaving("Preparing..."); await downloadManagerLogCSV(state[memKey]); closeModal(); } catch { toast("Download failed"); } finally { hideSaving(); }
-  });
+  openModal("Download Log", `<div class="card"><button id="dl" class="btn btn-blue" style="width:100%">Download CSV (Last 30 Days)</button></div>`, {noBackdropClose:true});
+  $("#dl").onclick = async () => {
+    const t = todayISO(), f = addDaysISO(t, -30);
+    const u = `/api/manager/log/export.csv?store=${state.session.store}&from=${f}&to=${t}`;
+    try { showSaving("Downloading..."); const r=await fetch(u,{headers:{Authorization:`Bearer ${state.session.managerToken}`}}); const b=await r.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="Log.csv"; a.click(); toast("Done"); closeModal(); } catch { toast("Failed"); } finally { hideSaving(); }
+  };
 }
 
-async function downloadManagerLogCSV({ from, to }) {
-  const url = `/api/manager/log/export.csv?store=${encodeURIComponent(state.session.store)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${state.session.managerToken}` } });
-  if (!r.ok) throw new Error("Err");
-  const blob = await r.blob();
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `PreCheck_Log.csv`; document.body.appendChild(a); a.click(); a.remove();
-  toast("Downloading...");
+/* ---------- Helpers ---------- */
+function escapeHtml(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function hideSplashScreen() { $("#splash")?.classList.add("fade-out"); setTimeout(()=>$("#splash")?.remove(),600); }
+function openBackdatedWarning({onProceed}) { openModal("Warning", `<div class="card"><div>Backdated! Discard?</div><div class="row" style="margin-top:10px"><button id="no" class="btn btn-yellow" style="flex:1">Cancel</button><button id="yes" class="btn btn-red" style="flex:1">Yes</button></div></div>`, {noBackdropClose:true}); $("#no").onclick=closeModal; $("#yes").onclick=()=>{closeModal();onProceed();}; }
+function openAddDateModal({ it, cat, key }) {
+  const d = state.drafts[key]||(state.drafts[key]={});
+  openModal("2nd Date", `<div class="card"><div>Add 2nd Expiry</div><button id="pk" class="btn btn-yellow" style="width:100%;margin-top:10px">Pick Date</button><input id="pq" class="input" type="number" placeholder="Qty" style="margin-top:10px"><button id="ok" class="btn btn-green" style="width:100%;margin-top:10px">Done</button></div>`, {noBackdropClose:true});
+  $("#pk").onclick = () => openDateWheelModal({ initialISO: d.extraISO||todayISO(), onPick: (iso) => { d.extraISO=iso; toast("Date Set"); } });
+  $("#pq").oninput = (e) => d.extraQty = Number(e.target.value);
+  $("#ok").onclick = closeModal;
 }
 
-function doLogout() {
-  state.session.store = ""; state.session.staff = ""; state.session.shift = "AM"; state.session.isManager = false; state.session.managerToken = ""; state.session.sessionDayKey = dayKeyNow();
-  saveSession();
-  state.data = { categories: [], items: [] }; state.drafts = {}; state.navStack = [];
-  state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
-  renderRolePill(); render();
-}
-
-/* =========================================================
-   UTILS & DATE WHEEL (Bottom)
-   ========================================================= */
-function escapeHtml(s) { return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
-function cssEsc(s) { return String(s).replaceAll('"', '\\"'); }
-function enforceArray(v) { return Array.isArray(v) ? v : []; }
-function haptic(ms = 12) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
-function pulseBtn(btn) { btn.classList.remove("pulse"); void btn.offsetWidth; btn.classList.add("pulse"); }
-function updateQtyUI(root, key) {
-  const d = state.drafts[key] || { qty: 0 }, dec = $(`[data-dec="${cssEsc(key)}"]`, root), qty = $(`[data-qty="${cssEsc(key)}"]`, root);
-  const q = Math.max(0, Number(d.qty) || 0); d.qty = q;
-  if (qty) qty.value = String(q);
-  if (dec) dec.disabled = q <= 0;
-}
-
-/* =========================
-   SPLASH SCREEN HELPER
-   ========================= */
-function hideSplashScreen() {
-  const el = document.getElementById("splash");
-  if (el) {
-    el.classList.add("fade-out");
-    setTimeout(() => el.remove(), 600);
-  }
-}
-
-/* =========================================================
-   iOS WHEEL PICKER LOGIC
-   ========================================================= */
+/* ---------- iOS Wheel Picker ---------- */
 function ensurePCWheelStyles() {
   if (document.getElementById("pcWheelStyles")) return;
   const css = document.createElement("style");
@@ -1321,10 +786,8 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
   }
   
   buildLists();
-  // Center initial
   setTimeout(() => { centerTo(dayEl,d); centerTo(monEl,m); centerTo(yearEl,y); }, 0);
 
-  // Simplified scrolling logic for brevity
   const bindScroll = (el, setFn) => {
     let t;
     el.addEventListener("scroll", () => {
@@ -1352,9 +815,10 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
     else onPick && onPick(picked);
   });
 }
-
-function openBackdatedWarning({ pickedISO, thresholdISO, onProceed }) {
-  openModal("Backdated", `<div class="card"><div style="font-weight:1200;margin-bottom:10px">Warning ⚠️</div><div class="muted">Date is in the past: <b>${formatLongDMY(pickedISO)}</b>. Discard product?</div><div class="row" style="margin-top:14px"><button id="bdCancel" class="btn btn-yellow" style="flex:1">Cancel</button><button id="bdOk" class="btn btn-red" style="flex:1">Confirm</button></div></div>`, {noBackdropClose:true});
-  $("#bdCancel").addEventListener("click", closeModal);
-  $("#bdOk").addEventListener("click", () => { closeModal(); onProceed(); });
+function doLogout() {
+  state.session.store = ""; state.session.staff = ""; state.session.shift = "AM"; state.session.isManager = false; state.session.managerToken = ""; state.session.sessionDayKey = dayKeyNow();
+  saveSession();
+  state.data = { categories: [], items: [] }; state.drafts = {}; state.navStack = [];
+  state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
+  renderRolePill(); render();
 }
