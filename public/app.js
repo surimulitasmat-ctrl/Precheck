@@ -103,6 +103,7 @@ async function boot() {
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
+    setTimeout(hideSplashScreen, 300); // ✅ Hide splash on login
     return;
   }
 
@@ -116,8 +117,10 @@ async function boot() {
 
   maybeShowExpiryPopup(false);
   render();
+  
+  // ✅ Hide splash screen after successful load
+  setTimeout(hideSplashScreen, 800); 
 }
-
 /* =========================================================
    STORAGE
    ========================================================= */
@@ -310,17 +313,15 @@ function renderRolePill() {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-
-  // 1. Assign the classes. 
-  // The CSS (.role-btn.manager or .role-btn.staff) will handle the colors now.
+  
+  // ✅ CSS handles colors now. No manual .style.background here.
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
-
-  // 2. Set the text/icon
+  
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
     <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
   `;
-
+  
   btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
   host.appendChild(btn);
 }
@@ -456,17 +457,16 @@ function ensureSavingOverlay() {
   el.className = "hidden";
   el.style.position = "fixed";
   el.style.inset = "0";
-  el.style.background = "rgba(0,0,0,0.45)"; // Slightly darker for contrast
-  el.style.backdropFilter = "blur(4px)"; // Blur background content
+  el.style.background = "rgba(0,0,0,0.45)"; 
+  el.style.backdropFilter = "blur(4px)";
   el.style.zIndex = "9999";
   el.style.display = "flex";
   el.style.alignItems = "center";
   el.style.justifyContent = "center";
   
-  // New HTML with Sandwich Animation Structure
+  // ✅ Sandwich Loader HTML
   el.innerHTML = `
     <div style="background:#fff; border-radius:24px; padding:24px 30px; min-width:240px; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;">
-      
       <div class="sandwich-loader">
         <div class="sb-layer sb-bun-bot"></div>
         <div class="sb-layer sb-meat"></div>
@@ -475,7 +475,6 @@ function ensureSavingOverlay() {
         <div class="sb-layer sb-tomato"></div>
         <div class="sb-layer sb-bun-top"></div>
       </div>
-
       <div id="pcSavingMsg" style="font-weight:1200; font-size:18px; color:#111;">Making it fresh...</div>
       <div class="muted" style="margin-top:6px; font-weight:900; font-size:14px;">Please wait</div>
     </div>
@@ -551,17 +550,32 @@ function maybeShowExpiryPopup(force) {
   if (!force && localStorage.getItem(seenKey) === "1") return;
   localStorage.setItem(seenKey, "1");
 
-  const list = POPUP_ITEMS.map((x) => `
-    <li><span class="popup-dot"></span>${escapeHtml(x)}</li>
+  // ✅ Generate Tags
+  const listHtml = POPUP_ITEMS.map((x) => `
+    <div class="popup-tag">${escapeHtml(x)}</div>
   `).join("");
 
+  // ✅ Open Modal with Modern Layout (Empty title hides default header)
   openModal(
-    "PLEASE check the expiry date",
+    "", 
     `
-      <div class="popup-title">PLEASE check the expiry date of the items below:</div>
-      <div class="popup-lead muted">Make sure expiry is correct before saving.</div>
-      <ul class="popup-list">${list}</ul>
-      <button id="popupOk" class="btn btn-yellow" style="width:100%; margin-top:8px">OK</button>
+      <div class="popup-content-center">
+        <div class="popup-icon-large">⚠️</div>
+        
+        <div class="popup-title-text">Double Check Required</div>
+        
+        <div class="popup-sub-text">
+          Please verify the expiry dates for these specific items:
+        </div>
+
+        <div class="popup-tags-grid">
+          ${listHtml}
+        </div>
+
+        <button id="popupOk" class="btn btn-yellow btn-action">
+          I've Checked Them
+        </button>
+      </div>
     `,
     { noBackdropClose: true }
   );
@@ -847,15 +861,12 @@ function renderHome() {
   const main = $("#main");
 
   const cats = (state.data.categories || []).map((c) => c.name);
-  
-  // Create Category Tiles HTML (Keep your existing logic)
   const counts = {};
   for (const it of state.data.items || []) {
     counts[it.category] = (counts[it.category] || 0) + 1;
   }
 
-  const tiles = cats
-    .map((name, idx) => {
+  const tiles = cats.map((name, idx) => {
       const emoji = CAT_EMOJI[name] || "✅";
       const tone = tileToneFor(name);
       return `
@@ -865,10 +876,9 @@ function renderHome() {
         <div class="sub">${counts[name] || 0} items</div>
       </button>
     `;
-    })
-    .join("");
+    }).join("");
 
-  // --- NEW: Render Structure ---
+  // ✅ New Layout with Search
   main.innerHTML = `
     <div class="col">
       <div style="position:relative; margin-bottom: 10px;">
@@ -883,15 +893,14 @@ function renderHome() {
     </div>
   `;
 
-  // --- Bind Category Clicks ---
+  // Bind Tiles
   $$(".tile", main).forEach((b) => {
     b.addEventListener("click", () => {
-      const cat = b.dataset.cat;
-      setView({ page: "category", category: cat, sauceSub: null }, true);
+      setView({ page: "category", category: b.dataset.cat, sauceSub: null }, true);
     });
   });
 
-  // --- NEW: Bind Search Logic ---
+  // ✅ Search Logic
   const inp = $("#homeSearch");
   const res = $("#homeSearchResults");
   const grid = $("#homeTiles");
@@ -908,56 +917,30 @@ function renderHome() {
     grid.classList.add("hidden");
     res.classList.remove("hidden");
 
-    // Filter Items
-    const matches = (state.data.items || []).filter(it => 
-      it.name.toLowerCase().includes(q)
-    );
+    const matches = (state.data.items || []).filter(it => it.name.toLowerCase().includes(q));
 
     if (matches.length === 0) {
-      res.innerHTML = `
-        <div class="card" style="text-align:center; padding:30px;">
-          <div style="font-size:32px">🤔</div>
-          <div style="font-weight:1200; margin-top:10px">No items found</div>
-        </div>`;
+      res.innerHTML = `<div class="card" style="text-align:center; padding:30px;"><div style="font-size:32px">🤔</div><div style="font-weight:1200; margin-top:10px">No items found</div></div>`;
       return;
     }
 
-    // Render Matching Items (Re-using renderItemEditor logic is tricky here because 
-    // renderItemEditor expects a specific context. 
-    // Instead, we make "Jump to Category" buttons).
-   // Render Matching Items (New Clean Design)
     res.innerHTML = matches.map(it => `
       <button class="search-result-card jump-btn" 
               data-cat="${escapeHtml(it.category)}" 
               data-sub="${escapeHtml(it.sub_category || "")}">
-        
         <div style="flex:1; padding-right:10px; overflow:hidden;">
-          <div style="font-weight:1200; font-size:17px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${escapeHtml(it.name)}
-          </div>
+          <div style="font-weight:1200; font-size:17px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(it.name)}</div>
           <div style="font-size:13px; opacity:0.6; font-weight:800; display:flex; align-items:center; gap:4px">
-            <span style="font-size:14px">📂</span> 
-            ${escapeHtml(it.category)} 
-            ${it.sub_category ? `• ${escapeHtml(it.sub_category)}` : ""}
+            <span style="font-size:14px">📂</span> ${escapeHtml(it.category)} 
           </div>
         </div>
-
-        <div class="search-pill">
-          Go
-        </div>
-
+        <div class="search-pill">Go</div>
       </button>
     `).join("");
-    // Bind Jump Buttons
+
     $$(".jump-btn", res).forEach(btn => {
       btn.addEventListener("click", () => {
-        const cat = btn.dataset.cat;
-        const sub = btn.dataset.sub || null;
-        
-        // 1. Go to category
-        setView({ page: "category", category: cat, sauceSub: sub }, true);
-        
-        // 2. Optional: Scroll to item (Advanced) - requires setTimeout to wait for render
+        setView({ page: "category", category: btn.dataset.cat, sauceSub: btn.dataset.sub || null }, true);
       });
     });
   });
@@ -4075,3 +4058,10 @@ function updateQtyUI(root, key) {
 /* =========================
    END PART 4B / 4
    ========================= */
+function hideSplashScreen() {
+  const el = document.getElementById("splash");
+  if (el) {
+    el.classList.add("fade-out");
+    setTimeout(() => el.remove(), 600);
+  }
+}
