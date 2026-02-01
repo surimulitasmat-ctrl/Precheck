@@ -894,3 +894,100 @@ body {
   font-size: 16px;
   line-height: 1;
 }
+/* =========================
+   FIXED POPUP STYLES (Modern)
+   ========================= */
+
+/* Center everything inside the modal body */
+.popup-content-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 4px;
+}
+
+/* Big Warning Icon */
+.popup-icon-large {
+  font-size: 56px;
+  line-height: 1;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+  animation: popBounce 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes popBounce {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Title & Subtitle spacing */
+.popup-title-text {
+  font-weight: 900;
+  font-size: 20px;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.popup-sub-text {
+  font-size: 15px;
+  opacity: 0.7;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  max-width: 90%;
+}
+
+/* Tags Grid Container */
+.popup-tags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 24px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px; /* Prevent shadow cut-off */
+}
+
+/* Individual Tag Bubble */
+.popup-tag {
+  background: #f3f4f6; /* Light grey bubble */
+  border: 1px solid rgba(0,0,0,0.06);
+  color: #333;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+}
+
+/* Red Dot inside the tag */
+.popup-tag::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  background: #ff5252;
+  border-radius: 50%;
+  margin-right: 8px;
+  box-shadow: 0 0 0 2px rgba(255, 82, 82, 0.15);
+}
+
+/* Full Width Button */
+.btn-action {
+  width: 100%;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 900;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(255, 199, 44, 0.25); /* Glow effect */
+  transition: transform 0.1s ease;
+}
+
+.btn-action:active {
+  transform: scale(0.98);
+}
