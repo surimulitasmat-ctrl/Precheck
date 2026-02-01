@@ -1,12 +1,12 @@
-/* =========================
-   PreCheck — public/app.js (FULL - FINAL FIXED)
-   ========================= */
+/* =========================================================
+   PreCheck — public/app.js (FULL — FINAL COMPLETE)
+   ========================================================= */
 
 /* ---------- DOM helpers ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-/* ---------- constants ---------- */
+/* ---------- Constants ---------- */
 const POPUP_ITEMS = [
   "Mix green",
   "Mac&cheese",
@@ -39,7 +39,7 @@ const SAUCE_SUBS = [
   { name: "Sandwich Unit", emoji: "🌶️", tone: "orange" },
 ];
 
-/* ---------- state ---------- */
+/* ---------- State ---------- */
 const state = {
   view: { page: "home", category: null, sauceSub: null, summaryMode: null, bucket: null },
   navStack: [],
@@ -57,7 +57,7 @@ const state = {
   __draftsHydrated: false,
 };
 
-/* ---------- boot ---------- */
+/* ---------- Boot ---------- */
 bindTopbar();
 bindDrawer();
 bindModal();
@@ -75,7 +75,7 @@ async function boot() {
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
-    setTimeout(hideSplashScreen, 300); // Hide splash on login
+    setTimeout(hideSplashScreen, 300); 
     return;
   }
 
@@ -89,8 +89,6 @@ async function boot() {
 
   maybeShowExpiryPopup(false);
   render();
-  
-  // ✅ FIX: Remove green screen after load
   setTimeout(hideSplashScreen, 800);
 }
 
@@ -244,7 +242,7 @@ function normalizeSub(s) {
 }
 
 /* =========================================================
-   TOPBAR (Fixed Role Pill)
+   TOPBAR
    ========================================================= */
 function bindTopbar() { renderRolePill(); }
 
@@ -255,15 +253,12 @@ function renderRolePill() {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-  
   // ✅ FIX: Use class only. CSS handles colors.
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
-  
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
     <span style="font-weight:1200">${state.session.isManager ? "Manager" : "Staff"}</span>
   `;
-  
   btn.addEventListener("click", () => toast(state.session.isManager ? "Manager mode" : "Staff mode"));
   host.appendChild(btn);
 }
@@ -448,7 +443,7 @@ function readShiftDoneAndLast(store, shift) {
 }
 
 /* =========================================================
-   POPUP + MIDNIGHT RESET (Fixed Layout)
+   POPUP + MIDNIGHT RESET (Fixed Modern Layout)
    ========================================================= */
 function startMidnightWatcher() {
   setInterval(() => {
@@ -468,7 +463,7 @@ function maybeShowExpiryPopup(force) {
   if (!force && localStorage.getItem(seenKey) === "1") return;
   localStorage.setItem(seenKey, "1");
 
-  // ✅ NEW: Bubble Tags HTML
+  // Bubble Tags HTML
   const listHtml = POPUP_ITEMS.map((x) => `
     <div class="popup-tag">${escapeHtml(x)}</div>
   `).join("");
@@ -652,7 +647,7 @@ function render() {
 }
 
 /* =========================================================
-   HOME (With Search)
+   HOME (With Search & Fixed Design)
    ========================================================= */
 function renderHome() {
   const main = $("#main");
@@ -736,7 +731,7 @@ function tileToneFor(name) {
 }
 
 /* =========================================================
-   CATEGORY (With Progress Bar)
+   CATEGORY
    ========================================================= */
 function renderCategory() {
   const main = $("#main");
@@ -842,7 +837,6 @@ function refreshCategoryProgressUI(items, cat) {
 /* =========================================================
    DATE PICKER & EDITOR
    ========================================================= */
-// (Same as before, merged correctly)
 function renderItemEditor(it, cat) {
   const key = itemKey(it);
   if (!state.drafts[key]) state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTimeShort: "", extraISO: "", extraQty: 0 };
@@ -1061,11 +1055,193 @@ async function renderSummaryList() {
 }
 
 /* =========================================================
-   MANAGERS, HELPERS, ETC.
+   WISR
    ========================================================= */
-// (Keep existing Manager, Login, Utils functions here. They are standard.)
-// Ensure `renderManagerHome` and `renderManagerEditItems` are present as per your previous code.
-// I am including the critical missing helper for the splash screen:
+function renderWISR() {
+  const main = $("#main");
+  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">WISR Count</div></div><div class="card"><div style="font-weight:1200">Blank for now</div><div class="muted">You will provide the data later.</div></div>`;
+  $("#btnBack").addEventListener("click", goBack);
+}
+
+/* =========================================================
+   MANAGERS
+   ========================================================= */
+function renderManagerHome() {
+  if (!state.session.isManager) { openManagerLogin(); return; }
+  const main = $("#main");
+  main.innerHTML = `
+    <div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Manager</div></div>
+    <div class="tiles-2col">
+      <button class="tile t-blue" id="tAdd"><div class="emoji">➕</div><div class="title">Add Item</div><div class="sub">Create new item</div></button>
+      <button class="tile t-teal" id="tEdit"><div class="emoji">📝</div><div class="title">Edit Items</div><div class="sub">Compact expand</div></button>
+      <button class="tile t-purple" id="tCats"><div class="emoji">🗂️</div><div class="title">Categories</div><div class="sub">Tap tile to edit</div></button>
+      <button class="tile t-orange" id="tLog"><div class="emoji">⬇️</div><div class="title">Download Log</div><div class="sub">CSV export</div></button>
+    </div>
+  `;
+  $("#btnBack").addEventListener("click", goBack);
+  $("#tAdd").addEventListener("click", openAddItemModal);
+  $("#tEdit").addEventListener("click", () => setView({ page: "managerEditItems" }, true));
+  $("#tCats").addEventListener("click", () => setView({ page: "managerCategories" }, true));
+  $("#tLog").addEventListener("click", openDownloadLogModal);
+}
+
+function openManagerLogin() {
+  openModal("Manager Login", `<div class="card"><div class="col"><div style="font-weight:1200">PIN</div><input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN"><button id="pinBtn" class="btn btn-red" style="width:100%">Login as Manager</button><button id="pinCancel" class="btn btn-yellow" style="width:100%">Cancel</button></div></div>`, { noBackdropClose: true });
+  $("#pinCancel").addEventListener("click", () => { closeModal(); goBack(); });
+  $("#pinBtn").addEventListener("click", async () => {
+    const pin = String($("#pinInp").value || "").trim();
+    if (!pin) return toast("Enter PIN");
+    showSaving("Logging in…");
+    try {
+      const r = await apiPost("/api/manager/login", { pin, store: state.session.store });
+      state.session.isManager = true; state.session.managerToken = r.token || ""; saveSession();
+      closeModal(); renderRolePill(); toast("Manager ✅"); render();
+    } catch { toast("Wrong PIN"); } finally { hideSaving(); }
+  });
+}
+
+async function renderManagerEditItems() {
+  if (!state.session.isManager) return openManagerLogin();
+  const main = $("#main");
+  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Edit Items</div></div><div class="card"><div style="font-weight:1200">Search</div><input id="mgrSearch" class="input" placeholder="Type item name..."></div><div id="mgrList" class="col"></div>`;
+  $("#btnBack").addEventListener("click", goBack);
+  const token = state.session.managerToken;
+  let items = [];
+  showSaving("Loading items…");
+  try { items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token); } catch { toast("Failed loading items"); } finally { hideSaving(); }
+
+  const renderList = (q) => {
+    q = String(q || "").toLowerCase().trim();
+    const filtered = q ? items.filter(x => String(x.name).toLowerCase().includes(q)) : items;
+    const map = new Map(); for (const it of filtered) { const c = it.category || "Other"; if (!map.has(c)) map.set(c, []); map.get(c).push(it); }
+    let html = "";
+    for (const [cat, list] of map.entries()) {
+      html += `<div class="card"><div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div><div class="col" style="gap:10px">${list.sort((a,b)=>a.name.localeCompare(b.name)).map(managerItemRow).join("")}</div></div>`;
+    }
+    const wrap = $("#mgrList"); wrap.innerHTML = html;
+    $$(".mgrRow", wrap).forEach((row) => {
+      const id = row.dataset.id;
+      const toggle = $(`[data-toggle="${cssEsc(id)}"]`, row), panel = $(`[data-panel="${cssEsc(id)}"]`, row), save = $(`[data-save="${cssEsc(id)}"]`, row), del = $(`[data-del="${cssEsc(id)}"]`, row);
+      toggle.addEventListener("click", () => { panel.classList.toggle("hidden"); toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close"; });
+      save.addEventListener("click", async () => {
+        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row), subSel = $(`[data-sub="${cssEsc(id)}"]`, row), lifeInp = $(`[data-life="${cssEsc(id)}"]`, row), hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
+        showSaving("Saving…");
+        try { await apiPatch(`/api/manager/items/${id}`, { store: state.session.store, category: catSel.value, sub_category: subSel.value, shelf_life_days: Number(lifeInp.value), is_hourly: hourlyChk.checked }, token); toast("Saved ✅"); await loadAllForCurrentStore(); } catch { toast("Save failed"); } finally { hideSaving(); }
+      });
+      del.addEventListener("click", async () => {
+        if (!confirm("Delete this item?")) return;
+        showSaving("Deleting…");
+        try { await apiDel(`/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`, token); toast("Deleted ✅"); items = items.filter(x => String(x.id) !== String(id)); renderList($("#mgrSearch").value); await loadAllForCurrentStore(); } catch { toast("Delete failed"); } finally { hideSaving(); }
+      });
+    });
+  };
+  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
+  renderList("");
+}
+
+function managerItemRow(it) {
+  const id = String(it.id);
+  const cats = (state.data.categories || []).map(c => c.name);
+  const catOpts = cats.map(c => `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(c)}</option>`).join("");
+  const subOpts = [`<option value="">(none)</option>`].concat(SAUCE_SUBS.map(s => `<option value="${escapeHtml(s.name)}"${normalizeSub(it.sub_category||"")===s.name?" selected":""}>${escapeHtml(s.name)}</option>`)).join("");
+  return `<div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px"><div class="row" style="justify-content:space-between"><div style="font-weight:1200">${escapeHtml(it.name)}</div><button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button></div><div class="muted" style="margin-top:8px;font-weight:1000">${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day</div><div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px"><div class="col"><div style="font-weight:1200">Category</div><select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select><div style="font-weight:1200">Sauce Sub-category</div><select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select><div style="font-weight:1200">Shelf life (days)</div><input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(it.shelf_life_days)}"><label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200"><input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}> Hourly expiry (time only)</label><div class="row"><button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button><button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button></div></div></div></div>`;
+}
+
+async function renderManagerCategories() {
+  if (!state.session.isManager) return openManagerLogin();
+  const main = $("#main");
+  let cats = [];
+  showSaving("Loading categories…");
+  try { cats = await apiGet(`/api/manager/categories?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken); } catch { toast("Failed loading categories"); } finally { hideSaving(); }
+  const tiles = cats.filter(c => c.is_active !== false).map((c, idx) => `<button class="tile ${tileToneFor(c.name)}" style="min-height:100px;animation-delay:${idx * 45}ms" data-cid="${c.id}" data-cname="${escapeHtml(c.name)}" type="button"><div class="title" style="font-size:20px">${escapeHtml(c.name)}</div><div class="sub">Tap to edit</div></button>`).join("");
+  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Categories</div></div><div class="tiles-2col">${tiles}</div><button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>`;
+  $("#btnBack").addEventListener("click", goBack);
+  $$(".tile", main).forEach(b => b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname)));
+  $("#addCat").addEventListener("click", openAddCategoryModal);
+}
+
+function openAddCategoryModal() {
+  openModal("Add Category", `<div class="card"><div class="col"><div style="font-weight:1200">Name</div><input id="catName" class="input" placeholder="Category name"><div style="font-weight:1200">Sort order</div><input id="catSort" class="input" type="number" value="100"><button id="catSave" class="btn btn-yellow" style="width:100%">Save</button></div></div>`, { noBackdropClose: true });
+  $("#catSave").addEventListener("click", async () => {
+    const name = $("#catName").value.trim(), sort_order = Number($("#catSort").value);
+    if (!name) return toast("Name required");
+    showSaving("Saving…");
+    try { await apiPost("/api/manager/categories", { store: state.session.store, name, sort_order }, state.session.managerToken); toast("Saved ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Save failed"); } finally { hideSaving(); }
+  });
+}
+
+function openEditCategoryModal(id, currentName) {
+  openModal("Edit Category", `<div class="card"><div class="col"><div style="font-weight:1200">Name</div><input id="catName" class="input" value="${escapeHtml(currentName)}"><div style="font-weight:1200">Active</div><select id="catActive" class="select"><option value="true">Active</option><option value="false">Inactive</option></select><button id="catSave" class="btn btn-yellow" style="width:100%">Save</button><button id="catDelete" class="btn btn-red" style="width:100%">Delete</button></div></div>`, { noBackdropClose: true });
+  $("#catSave").addEventListener("click", async () => {
+    const name = $("#catName").value.trim(), is_active = $("#catActive").value === "true";
+    if (!name) return toast("Name required");
+    showSaving("Saving…");
+    try { await apiPatch(`/api/manager/categories/${id}`, { store: state.session.store, name, is_active, sort_order: 100 }, state.session.managerToken); toast("Saved ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Save failed"); } finally { hideSaving(); }
+  });
+  $("#catDelete").addEventListener("click", async () => {
+    if (!confirm("Delete?")) return;
+    showSaving("Deleting…");
+    try { await apiDel(`/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`, state.session.managerToken); toast("Deleted ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Delete failed"); } finally { hideSaving(); }
+  });
+}
+
+function openAddItemModal() {
+  const cats = (state.data.categories || []).map(c => c.name);
+  const catOpts = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  const subOpts = [`<option value="">(none)</option>`].concat(SAUCE_SUBS.map(s => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`)).join("");
+  openModal("Add Item", `<div class="card"><div class="col"><div style="font-weight:1200">Item name</div><input id="itName" class="input" placeholder="e.g. Beef"><div style="font-weight:1200">Category</div><select id="itCat" class="select">${catOpts}</select><div style="font-weight:1200">Sauce Sub-category</div><select id="itSub" class="select">${subOpts}</select><div style="font-weight:1200">Shelf life (days)</div><input id="itLife" class="input" type="number" min="0" value="0"><label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200"><input id="itHourly" type="checkbox"> Hourly expiry (time only)</label><button id="itSave" class="btn btn-yellow" style="width:100%">Save</button></div></div>`, { noBackdropClose: true });
+  $("#itSave").addEventListener("click", async () => {
+    const name = $("#itName").value.trim(), category = $("#itCat").value, sub_category = $("#itSub").value, shelf_life_days = Number($("#itLife").value), is_hourly = $("#itHourly").checked;
+    if (!name || !category) return toast("Missing info");
+    showSaving("Saving…");
+    try { await apiPost("/api/manager/items", { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly }, state.session.managerToken); toast("Saved ✅"); closeModal(); await loadAllForCurrentStore(); render(); } catch { toast("Save failed"); } finally { hideSaving(); }
+  });
+}
+
+function openDownloadLogModal() {
+  const memKey = "__dl_range__";
+  if (!state[memKey]) { const t = todayISO(); state[memKey] = { from: addDaysISO(t, -7), to: t }; }
+  const redraw = () => { $("#dlFromShow").textContent = state[memKey].from ? formatLongDMY(state[memKey].from) : "Not set"; $("#dlToShow").textContent = state[memKey].to ? formatLongDMY(state[memKey].to) : "Not set"; };
+  openModal("Download Log", `<div class="card"><div class="col"><div style="font-weight:1200">From</div><button id="dlFromBtn" class="btn btn-yellow">Pick date</button><div id="dlFromShow" class="muted" style="font-weight:1100"></div><div style="font-weight:1200">To</div><button id="dlToBtn" class="btn btn-yellow">Pick date</button><div id="dlToShow" class="muted" style="font-weight:1100"></div><button id="dlGo" class="btn btn-blue" style="width:100%">Download CSV</button></div></div>`, { noBackdropClose: true });
+  redraw();
+  $("#dlFromBtn").addEventListener("click", () => openDateWheelModal({ title: "From date", initialISO: state[memKey].from || todayISO(), minISO: "2000-01-01", maxISO: "2100-12-31", onPick: (iso) => { state[memKey].from = iso; redraw(); } }));
+  $("#dlToBtn").addEventListener("click", () => openDateWheelModal({ title: "To date", initialISO: state[memKey].to || todayISO(), minISO: "2000-01-01", maxISO: "2100-12-31", onPick: (iso) => { state[memKey].to = iso; redraw(); } }));
+  $("#dlGo").addEventListener("click", async () => {
+    try { showSaving("Preparing..."); await downloadManagerLogCSV(state[memKey]); closeModal(); } catch { toast("Download failed"); } finally { hideSaving(); }
+  });
+}
+
+async function downloadManagerLogCSV({ from, to }) {
+  const url = `/api/manager/log/export.csv?store=${encodeURIComponent(state.session.store)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${state.session.managerToken}` } });
+  if (!r.ok) throw new Error("Err");
+  const blob = await r.blob();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `PreCheck_Log.csv`; document.body.appendChild(a); a.click(); a.remove();
+  toast("Downloading...");
+}
+
+function doLogout() {
+  state.session.store = ""; state.session.staff = ""; state.session.shift = "AM"; state.session.isManager = false; state.session.managerToken = ""; state.session.sessionDayKey = dayKeyNow();
+  saveSession();
+  state.data = { categories: [], items: [] }; state.drafts = {}; state.navStack = [];
+  state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
+  renderRolePill(); render();
+}
+
+/* =========================================================
+   UTILS & DATE WHEEL (Bottom)
+   ========================================================= */
+function escapeHtml(s) { return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
+function cssEsc(s) { return String(s).replaceAll('"', '\\"'); }
+function enforceArray(v) { return Array.isArray(v) ? v : []; }
+function haptic(ms = 12) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
+function pulseBtn(btn) { btn.classList.remove("pulse"); void btn.offsetWidth; btn.classList.add("pulse"); }
+function updateQtyUI(root, key) {
+  const d = state.drafts[key] || { qty: 0 }, dec = $(`[data-dec="${cssEsc(key)}"]`, root), qty = $(`[data-qty="${cssEsc(key)}"]`, root);
+  const q = Math.max(0, Number(d.qty) || 0); d.qty = q;
+  if (qty) qty.value = String(q);
+  if (dec) dec.disabled = q <= 0;
+}
 
 /* =========================
    SPLASH SCREEN HELPER
@@ -1078,10 +1254,107 @@ function hideSplashScreen() {
   }
 }
 
-// ... (Existing Manager Functions like renderManagerHome, openManagerLogin, etc. go here) ...
-// For brevity, assuming you kept the Manager/Utils parts. 
-// Just make sure `openDateWheelModal` and `openAddDateModal` use the new logic below.
+/* =========================================================
+   iOS WHEEL PICKER LOGIC
+   ========================================================= */
+function ensurePCWheelStyles() {
+  if (document.getElementById("pcWheelStyles")) return;
+  const css = document.createElement("style");
+  css.id = "pcWheelStyles";
+  css.textContent = `
+  .pc-ios-wheel{padding:12px 6px 6px;user-select:none;}
+  .pc-ios-wheel .pc-wheel-title{font-weight:1200;font-size:16px;margin-bottom:10px;}
+  .pc-ios-wheel .pc-wheel-frame{position:relative;border-radius:22px;background:#fff;border:1px solid var(--line);overflow:hidden;padding:10px 10px 12px;}
+  .pc-ios-wheel .pc-wheel-cols{display:flex;gap:10px;}
+  .pc-ios-wheel .pc-col{flex:1;min-width:0;}
+  .pc-ios-wheel .pc-label{font-weight:1100;font-size:12px;color:#666;margin:0 4px 6px;}
+  .pc-ios-wheel .pc-list{height:220px;overflow:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border-radius:18px;background:rgba(0,0,0,0.02);position:relative;}
+  .pc-ios-wheel .pc-list::-webkit-scrollbar{display:none;}
+  .pc-ios-wheel .pc-item{height:44px;display:flex;align-items:center;justify-content:center;font-weight:1200;font-size:18px;color:#111;border:0;background:transparent;width:100%;}
+  .pc-ios-wheel .pc-highlight{position:absolute;left:10px;right:10px;top:50%;transform:translateY(-50%);height:44px;border-radius:16px;background:rgba(0,153,84,0.10);border:1px solid rgba(0,153,84,0.18);pointer-events:none;}
+  .pc-ios-wheel .pc-fadeTop{position:absolute;left:0;right:0;top:0;height:42px;pointer-events:none;z-index:3;background:linear-gradient(#fff,rgba(255,255,255,0));}
+  .pc-ios-wheel .pc-fadeBot{position:absolute;left:0;right:0;bottom:0;height:42px;pointer-events:none;z-index:3;background:linear-gradient(rgba(255,255,255,0),#fff);}
+  .pc-ios-wheel .pc-actions{display:flex;gap:12px;margin-top:12px;}
+  .pc-ios-wheel .pc-btn{flex:1;padding:14px 14px;border-radius:999px;font-weight:1200;border:0;}
+  .pc-ios-wheel .pc-btn.cancel{background:var(--yellow);color:#111;}
+  .pc-ios-wheel .pc-btn.ok{background:var(--green);color:#fff;}
+  `;
+  document.head.appendChild(css);
+}
 
-// ... (Existing Utils like escapeHtml, haptic, pulseBtn, updateQtyUI) ...
+function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
+  ensurePCWheelStyles();
+  const today = todayISO();
+  const threshold = String(minISO || today).slice(0, 10);
+  const hardMin = "1900-01-01", hardMax = String(maxISO || "2100-12-31").slice(0, 10);
+  const init = String(initialISO || today).slice(0, 10);
 
-// ... (Existing wheel picker code for openDateWheelModal) ...
+  function clampISO(iso) { let x = String(iso||"").slice(0,10); if(!x)x=today; if(x<hardMin)x=hardMin; if(x>hardMax)x=hardMax; return x; }
+  function toYMD(iso) { const [yy,mm,dd]=String(iso).slice(0,10).split("-").map(n=>Number(n)); return {y:yy||2000,m:mm||1,d:dd||1}; }
+  function daysInMonth(y,m) { return new Date(y,m,0).getDate(); }
+  function monthName(mm) { return new Date(2000,mm-1,1).toLocaleString("en",{month:"long"}); }
+  function toISO(y,m,d) { return `${y}-${pad2(m)}-${pad2(d)}`; }
+
+  let cur = toYMD(clampISO(init));
+  let y=cur.y, m=cur.m, d=cur.d;
+
+  openModal(title || "Pick date", `<div class="pc-ios-wheel"><div class="pc-wheel-title">${escapeHtml(title||"Pick date")}</div><div class="pc-wheel-frame"><div class="pc-wheel-cols"><div class="pc-col"><div class="pc-label">Day</div><div class="pc-list" id="wDay"></div></div><div class="pc-col"><div class="pc-label">Month</div><div class="pc-list" id="wMon"></div></div><div class="pc-col"><div class="pc-label">Year</div><div class="pc-list" id="wYear"></div></div></div><div class="pc-highlight"></div><div class="pc-fadeTop"></div><div class="pc-fadeBot"></div></div><div class="pc-actions"><button class="pc-btn cancel" id="wCancel">Cancel</button><button class="pc-btn ok" id="wOk">Set date</button></div></div>`, { noBackdropClose: true });
+
+  const dayEl=$("#wDay"), monEl=$("#wMon"), yearEl=$("#wYear");
+  $("#wCancel").addEventListener("click", closeModal);
+
+  function renderList(el,arr,fmt) { el.innerHTML=arr.map(v=>`<div class="pc-item" data-v="${v}">${fmt(v)}</div>`).join(""); }
+  function centerTo(el, val) { 
+    const items=$$(".pc-item",el), idx=items.findIndex(x=>String(x.dataset.v)==String(val));
+    if(idx>=0) el.scrollTo({top: items[idx].offsetTop - el.clientHeight/2 + 22}); 
+  }
+
+  const loop=3;
+  function buildLists() {
+    const days=[]; for(let c=0;c<loop;c++) for(let i=1;i<=daysInMonth(y,m);i++) days.push(i);
+    const mons=[]; for(let c=0;c<loop;c++) for(let i=1;i<=12;i++) mons.push(i);
+    const yrs=[]; for(let i=2000;i<=2100;i++) yrs.push(i);
+    
+    renderList(dayEl, days, v=>v);
+    renderList(monEl, mons, v=>monthName(v));
+    renderList(yearEl, yrs, v=>v);
+  }
+  
+  buildLists();
+  // Center initial
+  setTimeout(() => { centerTo(dayEl,d); centerTo(monEl,m); centerTo(yearEl,y); }, 0);
+
+  // Simplified scrolling logic for brevity
+  const bindScroll = (el, setFn) => {
+    let t;
+    el.addEventListener("scroll", () => {
+      clearTimeout(t);
+      t=setTimeout(() => {
+        const center = el.scrollTop + el.clientHeight/2;
+        let best=null, dist=Infinity;
+        $$(".pc-item", el).forEach(it => {
+          const d = Math.abs((it.offsetTop + 22) - center);
+          if(d<dist) { dist=d; best=it; }
+        });
+        if(best) { setFn(Number(best.dataset.v)); haptic(5); }
+      }, 100);
+    });
+  };
+
+  bindScroll(dayEl, v => d=v);
+  bindScroll(monEl, v => { m=v; buildLists(); }); 
+  bindScroll(yearEl, v => { y=v; buildLists(); });
+
+  $("#wOk").addEventListener("click", () => {
+    const picked = clampISO(toISO(y,m,d));
+    closeModal();
+    if(picked < today) openBackdatedWarning({pickedISO:picked, thresholdISO:threshold, onProceed:()=>onPick && onPick(picked)});
+    else onPick && onPick(picked);
+  });
+}
+
+function openBackdatedWarning({ pickedISO, thresholdISO, onProceed }) {
+  openModal("Backdated", `<div class="card"><div style="font-weight:1200;margin-bottom:10px">Warning ⚠️</div><div class="muted">Date is in the past: <b>${formatLongDMY(pickedISO)}</b>. Discard product?</div><div class="row" style="margin-top:14px"><button id="bdCancel" class="btn btn-yellow" style="flex:1">Cancel</button><button id="bdOk" class="btn btn-red" style="flex:1">Confirm</button></div></div>`, {noBackdropClose:true});
+  $("#bdCancel").addEventListener("click", closeModal);
+  $("#bdOk").addEventListener("click", () => { closeModal(); onProceed(); });
+}
