@@ -1,6 +1,7 @@
 /* =========================
-   PreCheck — public/app.js (FULL)
-   PART 1 / 4
+   PreCheck — public/app.js (FULL MERGED)
+   Based on your original code.
+   Only Search, Popup, Sandwich, Splash, and Role Pill features added.
    ========================= */
 
 /* ---------- DOM helpers ---------- */
@@ -81,7 +82,7 @@ async function boot() {
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
-    setTimeout(hideSplashScreen, 300); // ✅ MERGED: Hide splash on login
+    setTimeout(hideSplashScreen, 300); // ✅ MERGE: Hide splash on login
     return;
   }
 
@@ -96,7 +97,7 @@ async function boot() {
   maybeShowExpiryPopup(false);
   render();
   
-  // ✅ MERGED: Hide splash after data load
+  // ✅ MERGE: Hide splash after data load
   setTimeout(hideSplashScreen, 800);
 }
 
@@ -291,8 +292,18 @@ function renderRolePill() {
   const btn = document.createElement("button");
   btn.type = "button";
 
-  // ✅ MERGED FIX: Use class only. Removed the manual color setting so CSS works.
+  // ✅ MERGE: Use class for structure, but manual style for explicit color fix.
+  // This ensures the "White Pill" design works even if CSS is tricky.
   btn.className = `role-btn ${state.session.isManager ? "manager" : "staff"}`;
+  
+  // Force styles to ensure white background + colored text
+  if (state.session.isManager) {
+    btn.style.background = "#ffffff"; 
+    btn.style.color = "#D32F2F";      // Red Text
+  } else {
+    btn.style.background = "#ffffff"; 
+    btn.style.color = "#F9A825";      // Yellow Text
+  }
 
   btn.innerHTML = `
     <span class="role-ico">${state.session.isManager ? "👑" : "👤"}</span>
@@ -340,7 +351,7 @@ function bindDrawer() {
 
   bind("#drawerLogout", () => doLogout());
   
-  // Keep original dark mode toggle logic if you had it
+  // Keep your original dark mode code if it existed, usually attached to #drawerTheme
   const dt = $("#drawerTheme");
   if(dt) dt.addEventListener("click", () => { document.body.classList.toggle("dark"); });
 }
@@ -396,7 +407,7 @@ function openModal(title, html, opts = {}) {
 
   if (!t || !b || !back) return;
 
-  // ✅ MERGED FIX: Hide header if title is empty (for modern popup)
+  // ✅ MERGE: Hide header if title is empty (for modern popup)
   if (title === "") {
     if (head) head.style.display = "none";
   } else {
@@ -446,7 +457,7 @@ function ensureSavingOverlay() {
   el.style.alignItems = "center";
   el.style.justifyContent = "center";
   
-  // ✅ MERGED FIX: Sandwich Animation HTML
+  // ✅ MERGE: Sandwich Animation HTML
   el.innerHTML = `
     <div style="background:#fff; border-radius:24px; padding:24px 30px; min-width:240px; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;">
       
@@ -532,7 +543,7 @@ function maybeShowExpiryPopup(force) {
   if (!force && localStorage.getItem(seenKey) === "1") return;
   localStorage.setItem(seenKey, "1");
 
-  // ✅ MERGED FIX: Bubble Tags HTML
+  // ✅ MERGE: Bubble Tags HTML
   const listHtml = POPUP_ITEMS.map((x) => `
     <div class="popup-tag">${escapeHtml(x)}</div>
   `).join("");
@@ -651,7 +662,7 @@ function renderLoginPage() {
 }
 
 /* =========================================================
-   PART 2: NAVIGATION
+   NAVIGATION
    ========================================================= */
 function setView(next, push) {
   if (push) {
@@ -816,7 +827,7 @@ function render() {
 }
 
 /* =========================================================
-   HOME (MERGED: With Search)
+   HOME (MERGE: Search Bar Added)
    ========================================================= */
 function renderHome() {
   const main = $("#main");
@@ -842,7 +853,7 @@ function renderHome() {
     })
     .join("");
 
-  // ✅ MERGED FIX: Added Search HTML
+  // ✅ MERGE: Added Search HTML
   main.innerHTML = `
     <div class="col">
       <div style="position:relative; margin-bottom: 10px;">
@@ -865,7 +876,7 @@ function renderHome() {
     });
   });
 
-  // ✅ MERGED FIX: Search Logic
+  // ✅ MERGE: Bind Search Logic
   const inp = $("#homeSearch");
   const res = $("#homeSearchResults");
   const grid = $("#homeTiles");
@@ -950,6 +961,7 @@ function renderCategory() {
   const main = $("#main");
   const cat = state.view.category;
 
+  // --- 1. Handle "Sauce" Sub-menu Navigation ---
   if (cat === "Sauce" && !state.view.sauceSub) {
     const tiles = SAUCE_SUBS.map((s, idx) => {
       const tone =
@@ -979,6 +991,7 @@ function renderCategory() {
     return;
   }
 
+  // --- 2. Prepare Items & Progress ---
   const sauceSub = state.view.sauceSub;
   const title = cat === "Sauce" && sauceSub ? `Sauce — ${sauceSub}` : cat;
 
@@ -990,8 +1003,10 @@ function renderCategory() {
   const prog = categoryProgress(items, cat);
   const doneAll = prog.total > 0 && prog.done === prog.total;
 
+  // --- 3. Render List of Editors ---
   const list = items.map((it) => renderItemEditor(it, cat)).join("");
 
+  // --- 4. New Visual Empty Hint ---
   const emptyHint = items.length
     ? ""
     : `
@@ -1002,6 +1017,7 @@ function renderCategory() {
     </div>
   `;
 
+  // --- 5. Render Main HTML (With Progress Bar) ---
   main.innerHTML = `
     <div class="page-head">
       <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
@@ -1110,9 +1126,6 @@ function refreshCategoryProgressUI(items, cat) {
   }
 }
 
-/* =========================
-   END PART 2A / 4
-   ========================= */
 /* =========================================================
    DATE WHEEL PICKER (iOS-style wheel, themed)
    ========================================================= */
@@ -1249,163 +1262,1574 @@ function openDateWheelModal({ title, initialISO, minISO, maxISO, onPick }) {
 
 function openBackdatedWarning({ pickedISO, thresholdISO, onProceed }) {
   openModal("Warning", `<div class="card"><div style="font-weight:1200;margin-bottom:8px">Backdated Date</div><div class="muted">You picked ${formatLongDMY(pickedISO)}. Discard product?</div><div class="row" style="margin-top:14px"><button id="bdCancel" class="btn btn-yellow" style="flex:1">Cancel</button><button id="bdOk" class="btn btn-red" style="flex:1">Confirm</button></div></div>`, {noBackdropClose:true});
-  $("#bdCancel").onclick = closeModal;
-  $("#bdOk").onclick = () => { closeModal(); onProceed(); };
+  $("#bdCancel").addEventListener("click", closeModal);
+  $("#bdOk").addEventListener("click", () => { closeModal(); onProceed(); });
 }
 
 function openAddDateModal({ it, cat, key }) {
   const d = state.drafts[key] || (state.drafts[key] = {});
   d.extraISO = d.extraISO || ""; d.extraQty = d.extraQty || 0;
   openModal("Add 2nd date", `<div class="card"><div style="font-weight:1200;margin-bottom:10px">${escapeHtml(it.name)}</div><div style="border:1px solid var(--line);border-radius:14px;padding:12px"><div style="font-weight:1200;margin-bottom:8px">2nd expiry date</div><button id="exPick" class="btn btn-yellow" style="width:100%">Pick date</button><div id="exShow" style="margin-top:8px;font-weight:1200">${d.extraISO ? escapeHtml(formatLongDMY(d.extraISO)) : "Not set"}</div><div style="margin-top:10px;font-weight:1200">Qty</div><input id="exQty" class="input" inputmode="numeric" value="${escapeHtml(d.extraQty || 0)}"></div><div class="row" style="gap:12px;margin-top:14px"><button id="exCancel" class="btn btn-yellow" style="flex:1">Cancel</button><button id="exOk" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Done</button></div></div>`, {noBackdropClose:true});
-  $("#exQty").oninput = (e) => d.extraQty = Number(e.target.value);
-  $("#exPick").onclick = () => openDateWheelModal({ title: "Pick 2nd expiry", initialISO: d.extraISO || todayISO(), onPick: (iso) => { d.extraISO=iso; $("#exShow").textContent=formatLongDMY(iso); } });
-  $("#exCancel").onclick = closeModal;
-  $("#exOk").onclick = closeModal;
+  $("#exQty")?.addEventListener("input", (e) => d.extraQty = Number(e.target.value));
+  $("#exPick")?.addEventListener("click", () => openDateWheelModal({ title: "Pick 2nd expiry", initialISO: d.extraISO || todayISO(), onPick: (iso) => { d.extraISO=iso; $("#exShow").textContent=formatLongDMY(iso); } }));
+  $("#exCancel")?.addEventListener("click", closeModal);
+  $("#exOk")?.addEventListener("click", closeModal);
 }
 
 /* =========================================================
    Item editor + bind editors
    ========================================================= */
 function renderItemEditor(it, cat) {
-  const key = itemKey(it);
-  if (!state.drafts[key]) { state.drafts[key] = { qty: 0, expType: "", expDateISO: "", expTimeShort: "", extraISO: "", extraQty: 0, }; }
-  const d = state.drafts[key];
-  const rule = shelfLifeModeFor(it, cat);
-  let expiryUI = "";
+  const key = itemKey(it);
+  if (!state.drafts[key]) {
+    state.drafts[key] = {
+      qty: 0,
+      expType: "",
+      expDateISO: "",
+      expTimeShort: "",
+      extraISO: "",
+      extraQty: 0,
+    };
+  }
+  const d = state.drafts[key];
 
-  if (rule.mode === "HOURLY") {
-    const opts = HOURLY_SHORT.map((o) => `<option value="${escapeHtml(o.value)}"${d.expTimeShort === o.value ? " selected" : ""}>${escapeHtml(o.label)}</option>`).join("");
-    expiryUI = `<label class="label">Expiry time (Today)</label><select class="select" data-exptime="${escapeHtml(key)}"><option value="">Select time</option>${opts}</select><div class="edit-helper">Hourly expiry (today only)</div>`;
-  } else if (rule.mode === "EOD_AUTO") {
-    expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
-  } else if (rule.mode === "MANUAL") {
-    expiryUI = `<label class="label">Expiry date</label><button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button><div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Select date"}</div>`;
-  } else {
-    const n = Math.max(1, Math.min(7, Number(rule.life) || 1));
-    const opts = Array.from({ length: n }, (_, i) => { const iso = addDaysISO(todayISO(), i); return `<option value="${escapeHtml(iso)}"${d.expDateISO === iso ? " selected" : ""}>${escapeHtml(formatLongDMY(iso))}</option>`; }).join("");
-    expiryUI = `<label class="label">Expiry</label><select class="select" data-exppreset="${escapeHtml(key)}"><option value="">Select</option>${opts}<option value="MANUAL"${d.expType === "MANUAL" ? " selected" : ""}>Manual (pick date)</option></select><div data-pickwrap="${escapeHtml(key)}" class="${d.expType === "MANUAL" ? "" : "hidden"}" style="margin-top:8px"><button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(key)}" style="width:100%">Pick date</button><div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : ""}</div></div><div class="edit-helper">Preset dates (from shelf life)</div>`;
-  }
+  const rule = shelfLifeModeFor(it, cat);
+  let expiryUI = "";
 
-  const addDateBtn = rule.mode === "HOURLY" ? "" : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(key)}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
-  const extraBadge = Number(d.extraQty) > 0 ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(d.extraQty) || 0}</div>` : "";
+  if (rule.mode === "HOURLY") {
+    const opts = HOURLY_SHORT.map(
+      (o) =>
+        `<option value="${escapeHtml(o.value)}"${
+          d.expTimeShort === o.value ? " selected" : ""
+        }>${escapeHtml(o.label)}</option>`
+    ).join("");
 
-  return `<div class="edit-card" data-key="${escapeHtml(key)}"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="edit-name">${escapeHtml(it.name)}</div>${addDateBtn}</div>${extraBadge}<div class="edit-row"><div class="qty-stepper"><button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button><input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(d.qty || 0)}" /><button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button></div><div class="exp-wrap">${expiryUI}</div></div></div>`;
+    expiryUI = `
+      <label class="label">Expiry time (Today)</label>
+      <select class="select" data-exptime="${escapeHtml(key)}">
+        <option value="">Select time</option>
+        ${opts}
+      </select>
+      <div class="edit-helper">Hourly expiry (today only)</div>
+    `;
+  } else if (rule.mode === "EOD_AUTO") {
+    expiryUI = `<div class="muted" style="font-weight:900">Expiry: End of day (auto)</div>`;
+  } else if (rule.mode === "MANUAL") {
+    expiryUI = `
+      <label class="label">Expiry date</label>
+      <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
+        key
+      )}" style="width:100%">Pick date</button>
+      <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : "Select date"}</div>
+    `;
+  } else {
+    const today = todayISO();
+    const n = Math.max(1, Math.min(7, Number(rule.life) || 1)); // 1..7
+    const opts = Array.from({ length: n }, (_, i) => {
+      const iso = addDaysISO(today, i);
+      const sel = d.expDateISO === iso ? " selected" : "";
+      return `<option value="${escapeHtml(iso)}"${sel}>${escapeHtml(formatLongDMY(iso))}</option>`;
+    }).join("");
+
+    expiryUI = `
+      <label class="label">Expiry</label>
+      <select class="select" data-exppreset="${escapeHtml(key)}">
+        <option value="">Select</option>
+        ${opts}
+        <option value="MANUAL"${d.expType === "MANUAL" ? " selected" : ""}>Manual (pick date)</option>
+      </select>
+      <div data-pickwrap="${escapeHtml(key)}" class="${d.expType === "MANUAL" ? "" : "hidden"}" style="margin-top:8px">
+        <button class="btn btn-yellow" type="button" data-pickdate="${escapeHtml(
+          key
+        )}" style="width:100%">Pick date</button>
+        <div class="edit-helper">${d.expDateISO ? escapeHtml(formatLongDMY(d.expDateISO)) : ""}</div>
+      </div>
+      <div class="edit-helper">Preset dates (from shelf life)</div>
+    `;
+  }
+
+  const addDateBtn =
+    rule.mode === "HOURLY"
+      ? ""
+      : `<button class="btn btn-ghost" type="button" data-adddate="${escapeHtml(
+          key
+        )}" title="Add second expiry" style="padding:10px 12px">＋ Date</button>`;
+
+  const extraBadge =
+    Number(d.extraQty) > 0
+      ? `<div class="muted" style="font-weight:1100;margin-top:6px">2nd date: ${Number(
+          d.extraQty
+        ) || 0}</div>`
+      : "";
+
+  return `
+    <div class="edit-card" data-key="${escapeHtml(key)}">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div class="edit-name">${escapeHtml(it.name)}</div>
+        ${addDateBtn}
+      </div>
+      ${extraBadge}
+
+      <div class="edit-row">
+        <div class="qty-stepper">
+          <button class="qty-btn" type="button" data-dec="${escapeHtml(key)}">−</button>
+          <input class="qty-inp" data-qty="${escapeHtml(key)}" inputmode="numeric" value="${escapeHtml(
+            d.qty || 0
+          )}" />
+          <button class="qty-btn" type="button" data-inc="${escapeHtml(key)}">+</button>
+        </div>
+
+        <div class="exp-wrap">
+          ${expiryUI}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function bindItemEditors(items, cat) {
-  const root = $("#editList"); if (!root) return;
-  const refreshProg = () => { try { if (typeof refreshCategoryProgressUI === "function") { refreshCategoryProgressUI(items, cat); } } catch {} };
-  for (const it of items) {
-    const key = itemKey(it); const d = state.drafts[key] || (state.drafts[key] = { qty: 0 });
-    const inc = $(`[data-inc="${cssEsc(key)}"]`, root), dec = $(`[data-dec="${cssEsc(key)}"]`, root), qty = $(`[data-qty="${cssEsc(key)}"]`, root);
-    const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root), timeSel = $(`[data-exptime="${cssEsc(key)}"]`, root), pickBtn = $(`[data-pickdate="${cssEsc(key)}"]`, root), addDate = $(`[data-adddate="${cssEsc(key)}"]`, root);
-    updateQtyUI(root, key); refreshProg();
-    if (inc) inc.onclick = () => { d.qty++; saveDraftsToStorage(); updateQtyUI(root, key); refreshProg(); };
-    if (dec) dec.onclick = () => { if(d.qty>0) d.qty--; saveDraftsToStorage(); updateQtyUI(root, key); refreshProg(); };
-    if (qty) qty.oninput = () => { d.qty = Math.max(0, Number(qty.value)); saveDraftsToStorage(); updateQtyUI(root, key); refreshProg(); };
-    if (timeSel) timeSel.onchange = () => { d.expTimeShort = timeSel.value; d.expType = "HOURLY"; saveDraftsToStorage(); refreshProg(); };
-    if (presetSel) presetSel.onchange = () => { const v = presetSel.value; const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root); if (v === "MANUAL") { d.expType = "MANUAL"; wrap.classList.remove("hidden"); } else { d.expType = "PRESET"; d.expDateISO = v; wrap.classList.add("hidden"); } saveDraftsToStorage(); refreshProg(); render(); };
-    if (pickBtn) pickBtn.onclick = () => openDateWheelModal({ title: "Pick expiry", initialISO: d.expDateISO || todayISO(), onPick: (iso) => { d.expDateISO = iso; d.expType = "MANUAL"; saveDraftsToStorage(); refreshProg(); render(); } });
-    if (addDate) addDate.onclick = () => openAddDateModal({ it, cat, key });
-  }
+  const root = $("#editList");
+  if (!root) return;
+
+  const refreshProg = () => {
+    try {
+      if (typeof refreshCategoryProgressUI === "function") {
+        refreshCategoryProgressUI(items, cat);
+      }
+    } catch {}
+  };
+
+  for (const it of items) {
+    const key = itemKey(it);
+    const d =
+      state.drafts[key] ||
+      (state.drafts[key] = {
+        qty: 0,
+        expType: "",
+        expDateISO: "",
+        expTimeShort: "",
+        extraISO: "",
+        extraQty: 0,
+      });
+
+    const inc = $(`[data-inc="${cssEsc(key)}"]`, root);
+    const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
+    const qty = $(`[data-qty="${cssEsc(key)}"]`, root);
+
+    const presetSel = $(`[data-exppreset="${cssEsc(key)}"]`, root);
+    const timeSel = $(`[data-exptime="${cssEsc(key)}"]`, root);
+    const pickBtn = $(`[data-pickdate="${cssEsc(key)}"]`, root);
+    const addDate = $(`[data-adddate="${cssEsc(key)}"]`, root);
+
+    updateQtyUI(root, key);
+    refreshProg();
+
+    if (inc)
+      inc.addEventListener("click", () => {
+        d.qty = (Number(d.qty) || 0) + 1;
+        saveDraftsToStorage();
+        updateQtyUI(root, key);
+        pulseBtn(inc);
+        haptic(12);
+        refreshProg();
+      });
+
+    if (dec)
+      dec.addEventListener("click", () => {
+        d.qty = Math.max(0, (Number(d.qty) || 0) - 1);
+        saveDraftsToStorage();
+        updateQtyUI(root, key);
+        pulseBtn(dec);
+        haptic(10);
+        refreshProg();
+      });
+
+    if (qty)
+      qty.addEventListener("input", () => {
+        const n = Number(qty.value || 0);
+        d.qty = Number.isFinite(n) ? Math.max(0, n) : 0;
+        saveDraftsToStorage();
+        updateQtyUI(root, key);
+        refreshProg();
+      });
+
+    if (timeSel)
+      timeSel.addEventListener("change", () => {
+        d.expTimeShort = String(timeSel.value || "");
+        d.expType = "HOURLY";
+        saveDraftsToStorage();
+        refreshProg();
+        render();
+      });
+
+    if (presetSel)
+      presetSel.addEventListener("change", () => {
+        const v = String(presetSel.value || "");
+        const wrap = $(`[data-pickwrap="${cssEsc(key)}"]`, root);
+
+        if (v === "MANUAL") {
+          d.expType = "MANUAL";
+          if (wrap) wrap.classList.remove("hidden");
+        } else {
+          d.expType = "PRESET";
+          d.expDateISO = v || "";
+          if (wrap) wrap.classList.add("hidden");
+        }
+        saveDraftsToStorage();
+        refreshProg();
+        render();
+      });
+
+    // ✅ MERGE: Use New Wheel Picker
+    if (pickBtn)
+      pickBtn.addEventListener("click", () => {
+        openDateWheelModal({
+          title: "Pick expiry date",
+          initialISO: d.expDateISO || todayISO(),
+          minISO: todayISO(),
+          maxISO: "2100-12-31",
+          onPick: (iso) => {
+            d.expDateISO = iso;
+            if (!d.expType) d.expType = "MANUAL";
+            saveDraftsToStorage();
+            refreshProg();
+            render();
+          },
+        });
+      });
+
+    // ✅ MERGE: Use New Add Date Modal
+    if (addDate) addDate.addEventListener("click", () => openAddDateModal({ it, cat, key }));
+  }
 }
 
 async function saveCategory(items, cat) {
-  const store = state.session.store, staff = state.session.staff, shift = state.session.shift, today = todayISO();
-  const rows = [];
-  for (const it of items) {
-    const key = itemKey(it), d = state.drafts[key] || {};
-    const qty = Number(d.qty) || 0, xq = Number(d.extraQty) || 0, rule = shelfLifeModeFor(it, cat);
-    if (qty > 0) { let expiry = null, expiry_at = null; if (rule.mode === "HOURLY") { if (!d.expTimeShort) { toast("Pick time"); return; } expiry = today; expiry_at = isoFromTodayAndTime(d.expTimeShort); } else if (rule.mode === "EOD_AUTO") { expiry = today; } else { expiry = d.expDateISO; if (!expiry) { toast("Pick date"); return; } } rows.push({ item_id: it.id, item_name: it.name, category: it.category, sub_category: it.sub_category, quantity: qty, expiry, expiry_at, shift, is_extra: false }); }
-    if (xq > 0) { const expiry = rule.mode === "EOD_AUTO" ? today : d.extraISO; if (!expiry) { toast("Set 2nd date"); return; } rows.push({ item_id: it.id, item_name: it.name, category: it.category, sub_category: it.sub_category, quantity: xq, expiry, expiry_at: null, shift, is_extra: true, extra_tag: "SECOND" }); }
-  }
-  if (!rows.length) return toast("Nothing to save");
-  const anyBackdated = rows.some((r) => r.expiry && r.expiry < today);
-  const doSave = async () => { showSaving("Saving…"); try { await apiPost("/api/log/batch", { store, staff, shift, rows }); recordShiftDoneAndLast({ store, shift, staff, lastItemName: rows[rows.length - 1].item_name }); toast("Saved ✅"); await refreshStockDot().catch(() => {}); } catch { toast("Save failed"); } finally { hideSaving(); } };
-  if (anyBackdated) openBackdatedWarning({ pickedISO: today, thresholdISO: today, onProceed: doSave }); else await doSave();
+  const store = state.session.store;
+  const staff = state.session.staff;
+  const shift = state.session.shift;
+  const today = todayISO();
+
+  const rows = [];
+
+  for (const it of items) {
+    const key = itemKey(it);
+    const d =
+      state.drafts[key] || {
+        qty: 0,
+        expType: "",
+        expDateISO: "",
+        expTimeShort: "",
+        extraISO: "",
+        extraQty: 0,
+      };
+
+    const qty = Number(d.qty) || 0;
+    const xq = Number(d.extraQty) || 0;
+
+    const rule = shelfLifeModeFor(it, cat);
+
+    if (qty > 0) {
+      let expiry = null;
+      let expiry_at = null;
+
+      if (rule.mode === "HOURLY") {
+        if (!d.expTimeShort) {
+          toast(`Pick time for ${it.name}`);
+          return;
+        }
+        expiry = today;
+        expiry_at = isoFromTodayAndTime(d.expTimeShort);
+      } else if (rule.mode === "EOD_AUTO") {
+        expiry = today;
+      } else {
+        expiry = d.expDateISO || null;
+        if (!expiry) {
+          toast(`Pick expiry for ${it.name}`);
+          return;
+        }
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: qty,
+        expiry,
+        expiry_at,
+        shift,
+        is_extra: false,
+      });
+    }
+
+    if (xq > 0) {
+      const expiry = rule.mode === "EOD_AUTO" ? today : d.extraISO || "";
+      if (!expiry) {
+        toast("Set 2nd date");
+        return;
+      }
+
+      rows.push({
+        item_id: it.id ?? null,
+        item_name: it.name,
+        category: it.category,
+        sub_category: it.sub_category || null,
+        quantity: xq,
+        expiry,
+        expiry_at: null,
+        shift,
+        is_extra: true,
+        extra_tag: "SECOND",
+      });
+    }
+  }
+
+  if (!rows.length) return toast("Nothing to save");
+
+  // ✅ MERGE: Allow backdated with warning (was previously blocking)
+  const anyBackdated = rows.some((r) => {
+    const e = String(r.expiry || "").slice(0, 10);
+    return e && e < today;
+  });
+
+  const doActualSave = async () => {
+    showSaving("Saving…");
+    try {
+      await apiPost("/api/log/batch", { store, staff, shift, rows });
+
+      const lastName = rows.length ? rows[rows.length - 1].item_name || "" : "";
+      recordShiftDoneAndLast({ store, shift, staff, lastItemName: lastName });
+
+      toast("Saved ✅");
+      await refreshStockDot().catch(() => {});
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  };
+
+  if (anyBackdated) {
+    openBackdatedWarning({
+      pickedISO: today, // not used for display in this case
+      thresholdISO: today, // force warning modal
+      onProceed: doActualSave,
+    });
+    return;
+  }
+
+  await doActualSave();
 }
 
-/* =========================
-   PART 3: STOCK & SUMMARY
-   ========================================================= */
 async function refreshStockDot() {
-  const store = state.session.store;
-  try {
-    const r = await apiGet(`/api/stock/low?store=${encodeURIComponent(store)}`);
-    const rows = enforceArray(r).filter((x) => !STOCK_ALERT_EXCLUDE_CATS.has(String(x.category || "")));
-    state.stock.rows = rows; state.stock.hasDot = rows.length > 0; updateDrawerAlertLabel(state.stock.hasDot);
-  } catch { state.stock.rows = []; state.stock.hasDot = false; updateDrawerAlertLabel(false); }
+  const store = state.session.store;
+  try {
+    const r = await apiGet(`/api/stock/low?store=${encodeURIComponent(store)}`);
+    const rows = enforceArray(r).filter(
+      (x) => !STOCK_ALERT_EXCLUDE_CATS.has(String(x.category || ""))
+    );
+    state.stock.rows = rows;
+    state.stock.hasDot = rows.length > 0;
+    updateDrawerAlertLabel(state.stock.hasDot);
+  } catch {
+    state.stock.rows = [];
+    state.stock.hasDot = false;
+    updateDrawerAlertLabel(false);
+  }
 }
 
 async function renderStockAlerts() {
-  const main = $("#main");
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Stock Alert</div></div><div id="saWrap" class="col"></div>`;
-  $("#btnBack").onclick = goBack;
-  const wrap = $("#saWrap"); wrap.innerHTML = `<div class="card skeleton skeleton-card"></div>`;
-  await refreshStockDot().catch(() => {});
-  const rows = state.stock.rows || [];
-  if (!rows.length) { wrap.innerHTML = `<div class="card"><div>No low stock ✅</div></div>`; return; }
-  const grouped = new Map(); for (const rr of rows) { const c = rr.category || "Other"; if (!grouped.has(c)) grouped.set(c, []); grouped.get(c).push(rr); }
-  let html = ""; for (const [cat, list] of grouped.entries()) { html += `<div class="card"><div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div><div class="col" style="gap:10px">${list.map(x=>`<div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px"><div style="font-weight:1200">${escapeHtml(x.name)}</div><div class="muted">Current: ${x.current_qty}</div></div>`).join("")}</div></div>`; }
-  wrap.innerHTML = html;
+  const main = $("#main");
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Stock Alert</div>
+    </div>
+    <div id="saWrap" class="col"></div>
+  `;
+  $("#btnBack").addEventListener("click", goBack);
+
+  const wrap = $("#saWrap");
+  wrap.innerHTML = `
+    <div class="card skeleton skeleton-card"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.6"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.3"></div>
+  `;
+  await refreshStockDot().catch(() => {});
+  const rows = state.stock.rows || [];
+
+  if (!rows.length) {
+    wrap.innerHTML = `
+      <div class="card">
+        <div style="font-weight:1200">No low stock ✅</div>
+        <div class="muted" style="margin-top:6px">All items are above minimum.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const grouped = new Map();
+  for (const rr of rows) {
+    const cat = rr.category || "Other";
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat).push(rr);
+  }
+
+  let html = "";
+  for (const [cat, list] of grouped.entries()) {
+    html += `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">${escapeHtml(cat)}</div>
+        <div class="col" style="gap:10px">
+          ${list
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+            .map((x) => {
+              const cur = x.current_qty != null ? Number(x.current_qty) : null;
+              const min = x.min_qty != null ? Number(x.min_qty) : null;
+              return `
+                <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+                  <div style="display:flex;justify-content:space-between;gap:10px">
+                    <div style="font-weight:1200">${escapeHtml(x.name)}</div>
+                    <div style="font-weight:1200">${min != null ? `Min ${min}` : ""}</div>
+                  </div>
+                  <div class="muted" style="margin-top:6px;font-weight:1100">
+                    Current: <b>${cur != null ? cur : "?"}</b>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  wrap.innerHTML = html;
 }
 
-// RESTORED: Original Summary Logic
-async function getStatusByShift(store, shift) { const data = await apiGet(`/api/status?store=${encodeURIComponent(store)}`); const row = data?.[shift] || null; return row; }
-function renderSummaryHome() {
-  const main = $("#main");
-  const isMgr = !!state.session.isManager;
-  const storeView = isMgr ? state.view.summaryMode || "PDD" : state.session.store;
-  state.view.summaryMode = storeView;
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">Summary</div></div>${isMgr ? `<div class="card"><div class="row"><button id="mPDD" class="btn">PDD</button><button id="mSKH" class="btn">SKH</button></div></div>` : ""}<div class="card" style="margin-top:12px"><div id="shiftGrid">Loading...</div></div><div class="card" style="margin-top:12px"><div id="sumWrap">Loading...</div></div>`;
-  $("#btnBack").onclick = goBack;
-  if(isMgr) { $("#mPDD").onclick=()=>{state.view.summaryMode="PDD"; renderSummaryHome();}; $("#mSKH").onclick=()=>{state.view.summaryMode="SKH"; renderSummaryHome();}; }
-  drawSummaryCards(); drawShiftGrid();
+// ✅ Cross-device status: use /api/status (server truth)
+async function getStatusByShift(store, shift) {
+  const data = await apiGet(`/api/status?store=${encodeURIComponent(store)}`);
+  const sh = String(shift || "AM").toUpperCase() === "PM" ? "PM" : "AM";
+  const row = data?.[sh] || null;
+
+  // Normalize to shape statusToUI() expects
+  return row
+    ? {
+        last_saved_at: row.last_saved_at,
+        last_saved_by: row.last_saved_by,
+        total_rows: row.total_rows || 0,
+        last_item_name: row.last_item_name || "",
+      }
+    : null;
 }
-async function drawShiftGrid() {
-  const s = await apiGet(`/api/status?store=${state.view.summaryMode}`);
-  $("#shiftGrid").innerHTML = `<div>AM: ${s?.AM?.last_saved_by||"-"}</div><div>PM: ${s?.PM?.last_saved_by||"-"}</div>`;
+
+function statusToUI(s) {
+  if (!s || !s.last_saved_by)
+    return { done: false, who: "", hhmm: "", count: 0, lastItemName: "" };
+  const when = s.last_saved_at ? new Date(s.last_saved_at) : null;
+  const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
+  const who = String(s.last_saved_by || "");
+  const count = Number(s.total_rows || 0);
+  const lastItemName = String(s.last_item_name || "");
+  return { done: true, who, hhmm, count, lastItemName };
 }
+
+/* local fallback (same device) */
+function readLocalDoneLast(store, shift) {
+  const local = readShiftDoneAndLast(store, shift); // from PART 1
+  if (!local || !local.done) return { done: false, who: "", hhmm: "", lastItemName: "" };
+
+  const when = local.at ? new Date(local.at) : null;
+  const hhmm = when ? formatTime12(`${pad2(when.getHours())}:${pad2(when.getMinutes())}`) : "";
+  return {
+    done: true,
+    who: String(local.staff || ""),
+    hhmm,
+    lastItemName: String(local.lastItemName || ""),
+  };
+}
+
+function renderShiftCardUI(shift, info, fallback) {
+  // if API not done, but local says done -> show done using fallback
+  const done = info?.done || fallback?.done || false;
+  const who = info?.who || fallback?.who || "";
+  const hhmm = info?.hhmm || fallback?.hhmm || "";
+  const count = info?.count || 0;
+  const lastItemName = info?.lastItemName || fallback?.lastItemName || "";
+
+  const badgeBg = done ? "var(--green)" : "var(--red)";
+  const badgeText = done ? "DONE" : "NOT DONE";
+
+  return `
+    <div style="flex:1;min-width:240px;border:1px solid var(--line);border-radius:18px;padding:14px 14px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="font-weight:1400;font-size:18px">${shift}</div>
+        <div style="background:${badgeBg};color:#fff;border-radius:999px;padding:6px 10px;font-weight:1200;font-size:12px">
+          ${badgeText}
+        </div>
+      </div>
+
+      ${
+        done
+          ? `
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          Done by <b>${escapeHtml(who || "-")}</b>${hhmm ? ` at <b>${escapeHtml(hhmm)}</b>` : ""}
+        </div>
+        ${
+          count
+            ? `<div class="muted" style="margin-top:6px;font-weight:1100">Items saved: <b>${count}</b></div>`
+            : `<div class="muted" style="margin-top:6px;font-weight:1100">Items saved: <b>—</b></div>`
+        }
+        ${
+          lastItemName
+            ? `<div class="muted" style="margin-top:6px;font-weight:1100">Last item saved: <b>${escapeHtml(
+                lastItemName
+              )}</b></div>`
+            : ``
+        }
+      `
+          : `
+        <div class="muted" style="margin-top:10px;font-weight:1100">
+          No save recorded yet.
+        </div>
+      `
+      }
+    </div>
+  `;
+}
+
+function localProgressSnapshot() {
+  const cats = (state.data.categories || []).map((c) => c.name);
+  const catToItems = new Map();
+  for (const c of cats) catToItems.set(c, []);
+  for (const it of state.data.items || []) {
+    if (!catToItems.has(it.category)) catToItems.set(it.category, []);
+    catToItems.get(it.category).push(it);
+  }
+
+  let started = 0;
+  let total = cats.length || 0;
+
+  for (const c of cats) {
+    const items = catToItems.get(c) || [];
+    let any = false;
+    for (const it of items) {
+      const k = itemKey(it);
+      const d = state.drafts[k];
+      if (d && Number(d.qty) > 0) {
+        any = true;
+        break;
+      }
+    }
+    if (any) started++;
+  }
+
+  return { started, total };
+}
+
+async function renderSummaryHome() {
+  const main = $("#main");
+
+  const isMgr = !!state.session.isManager;
+  const storeView = isMgr ? state.view.summaryMode || "PDD" : state.session.store;
+  state.view.summaryMode = storeView;
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Summary</div>
+    </div>
+
+    ${
+      isMgr
+        ? `
+      <div class="card">
+        <div style="font-weight:1200;margin-bottom:8px">Store view</div>
+        <div class="row" style="gap:12px">
+          <button id="mPDD" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">PDD</button>
+          <button id="mSKH" class="btn" style="flex:1;background:#fff;color:#111;border:1px solid var(--line)">SKH</button>
+        </div>
+      </div>
+    `
+        : ""
+    }
+
+    ${
+      isMgr
+        ? `
+      <div class="card" style="margin-top:12px">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Progress snapshot</div>
+        <div id="progSnap" class="muted" style="font-weight:1100">Loading…</div>
+        <div class="muted" style="margin-top:8px;font-weight:1000">
+          *This shows progress on THIS device. For true staff tracking across devices, we add API later.
+        </div>
+      </div>
+    `
+        : ""
+    }
+
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Shift completion</div>
+      <div id="shiftGrid" class="row" style="gap:12px;flex-wrap:wrap"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Expiry overview</div>
+      <div id="sumWrap" class="col"></div>
+    </div>
+  `;
+
+  $("#btnBack").addEventListener("click", goBack);
+
+  if (isMgr) {
+    $("#mPDD").addEventListener("click", () => setSummaryMode("PDD"));
+    $("#mSKH").addEventListener("click", () => setSummaryMode("SKH"));
+    updateSummaryModeButtons();
+
+    const ps = localProgressSnapshot();
+    const el = $("#progSnap");
+    if (el) el.innerHTML = `Categories started: <b>${ps.started}</b> / <b>${ps.total}</b>`;
+  }
+
+  // Shift completion
+  const grid = $("#shiftGrid");
+  if (grid) {
+    grid.innerHTML = `<div class="muted" style="font-weight:1100">Loading…</div>`;
+
+    let am = null,
+      pm = null;
+
+    try {
+      am = await getStatusByShift(storeView, "AM");
+    } catch {}
+    try {
+      pm = await getStatusByShift(storeView, "PM");
+    } catch {}
+
+    const amUI = statusToUI(am);
+    const pmUI = statusToUI(pm);
+
+    const amLocal = readLocalDoneLast(storeView, "AM");
+    const pmLocal = readLocalDoneLast(storeView, "PM");
+
+    grid.innerHTML = `
+      ${renderShiftCardUI("AM", amUI, amLocal)}
+      ${renderShiftCardUI("PM", pmUI, pmLocal)}
+    `;
+  }
+
+  // Expiry overview cards
+  await drawSummaryCards().catch(console.error);
+}
+
+function setSummaryMode(mode) {
+  state.view.summaryMode = mode;
+  updateSummaryModeButtons();
+  renderSummaryHome().catch(console.error);
+}
+
+function updateSummaryModeButtons() {
+  if (!state.session.isManager) return;
+  const m = state.view.summaryMode;
+  const a = $("#mPDD"),
+    b = $("#mSKH");
+
+  if (a) {
+    a.style.background = "#fff";
+    a.style.color = "#111";
+    a.style.border = "1px solid var(--line)";
+  }
+  if (b) {
+    b.style.background = "#fff";
+    b.style.color = "#111";
+    b.style.border = "1px solid var(--line)";
+  }
+
+  if (m === "PDD" && a) {
+    a.style.background = "var(--pdd)";
+    a.style.color = "#fff";
+    a.style.border = "0";
+  }
+  if (m === "SKH" && b) {
+    b.style.background = "var(--skh)";
+    b.style.color = "#fff";
+    b.style.border = "0";
+  }
+}
+
 async function drawSummaryCards() {
-  const r = await apiGet(`/api/expiry?store=${state.view.summaryMode}`);
-  const rows = enforceArray(r);
-  const t = todayISO(); const tm = addDaysISO(t, 1);
-  const todayCount = rows.filter(x => datePartFromRow(x) === t).length;
-  const tomCount = rows.filter(x => datePartFromRow(x) === tm).length;
-  const safeCount = rows.length - todayCount - tomCount;
-  $("#sumWrap").innerHTML = `<button class="dash-card dash-red" id="sToday">Today: ${todayCount}</button><button class="dash-card dash-amber" id="sTomorrow">Tom: ${tomCount}</button><button class="dash-card dash-green" id="sSafe">Safe: ${safeCount}</button>`;
-  $("#sToday").onclick = () => setView({ page: "summaryList", bucket: "TODAY" }, true);
-  $("#sTomorrow").onclick = () => setView({ page: "summaryList", bucket: "TOMORROW" }, true);
-  $("#sSafe").onclick = () => setView({ page: "summaryList", bucket: "SAFE" }, true);
+  const wrap = $("#sumWrap");
+  if (!wrap) return;
+ // Replace the old loading line with this:
+  wrap.innerHTML = `
+    <div class="card skeleton skeleton-card"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.6"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.3"></div>
+  `;
+  const mode = state.session.isManager ? state.view.summaryMode || "PDD" : state.session.store;
+
+  const today = todayISO();
+  const tomorrow = addDaysISO(today, 1);
+
+  const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
+  const rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
+
+  const todayCount = rows.filter((x) => datePartFromRow(x) === today).length;
+  const tomCount = rows.filter((x) => datePartFromRow(x) === tomorrow).length;
+  const safeCount = rows.filter((x) => {
+    const e = datePartFromRow(x);
+    return e && e !== today && e !== tomorrow;
+  }).length;
+
+  wrap.innerHTML = `
+    <button class="dash-card dash-red" id="sToday" type="button">
+      <div class="dash-left">
+        <div class="dash-title">Expiring Today</div>
+        <div class="dash-sub">Use immediately</div>
+      </div>
+      <div class="dash-right">
+        <div class="dash-num">${todayCount}</div>
+        <div class="dash-go">›</div>
+      </div>
+    </button>
+
+    <button class="dash-card dash-amber" id="sTomorrow" type="button">
+      <div class="dash-left">
+        <div class="dash-title">Expiring Tomorrow</div>
+        <div class="dash-sub">Plan usage</div>
+      </div>
+      <div class="dash-right">
+        <div class="dash-num">${tomCount}</div>
+        <div class="dash-go">›</div>
+      </div>
+    </button>
+
+    <button class="dash-card dash-green" id="sSafe" type="button">
+      <div class="dash-left">
+        <div class="dash-title">All Safe & Fresh</div>
+        <div class="dash-sub">Good to go!</div>
+      </div>
+      <div class="dash-right">
+        <div class="dash-num">${safeCount}</div>
+        <div class="dash-go">›</div>
+      </div>
+    </button>
+  `;
+
+  $("#sToday").addEventListener("click", () => setView({ page: "summaryList", bucket: "TODAY" }, true));
+  $("#sTomorrow").addEventListener("click", () =>
+    setView({ page: "summaryList", bucket: "TOMORROW" }, true)
+  );
+  $("#sSafe").addEventListener("click", () => setView({ page: "summaryList", bucket: "SAFE" }, true));
 }
+
 async function renderSummaryList() {
-  const main = $("#main"); const bucket = state.view.bucket;
-  main.innerHTML = `<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><div class="page-title">${bucket}</div></div><div id="sumList">Loading...</div>`;
-  $("#btnBack").onclick = goBack;
-  const r = await apiGet(`/api/expiry?store=${state.view.summaryMode}`);
-  const t = todayISO(); const tm = addDaysISO(t, 1);
-  const rows = r.filter(x => { const d = datePartFromRow(x); if(bucket==="TODAY") return d===t; if(bucket==="TOMORROW") return d===tm; return d!==t && d!==tm; });
-  $("#sumList").innerHTML = rows.map(x=>`<div class="card">${x.item_name} - ${x.quantity}</div>`).join("");
+  const main = $("#main");
+  const mode = state.session.isManager ? state.view.summaryMode || "PDD" : state.session.store;
+  const bucket = state.view.bucket || "TODAY";
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">${bucketTitle(bucket)}</div>
+    </div>
+    <div id="sumList" class="col"></div>
+  `;
+  $("#btnBack").addEventListener("click", goBack);
+
+  const wrap = $("#sumList");
+  
+  // 1. Correct Loading State (Skeleton)
+  wrap.innerHTML = `
+    <div class="card skeleton skeleton-card"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.6"></div>
+    <div class="card skeleton skeleton-card" style="opacity:0.3"></div>
+  `;
+
+  const today = todayISO();
+  const tomorrow = addDaysISO(today, 1);
+
+  const r = await apiGet(`/api/expiry?store=${encodeURIComponent(mode)}`);
+  let rows = enforceArray(r).map((x) => ({ ...x, _store: mode }));
+
+  rows = rows.filter((x) => {
+    const e = datePartFromRow(x);
+    if (!e) return false;
+    if (bucket === "TODAY") return e === today;
+    if (bucket === "TOMORROW") return e === tomorrow;
+    return e !== today && e !== tomorrow;
+  });
+
+  // 2. Correct Empty State (The Fix is here!)
+  // Previously, you had the skeleton code here by mistake.
+  if (!rows.length) {
+    wrap.innerHTML = `
+      <div style="text-align:center; padding: 40px 20px; opacity:0.6">
+        <div style="font-size:48px; margin-bottom:10px">✨</div>
+        <div style="font-weight:1200; font-size:18px">No items found</div>
+        <div style="font-size:14px; margin-top:4px">Nothing in this list.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const map = new Map();
+  for (const rr of rows) {
+    const c = rr.category || "Other";
+    if (!map.has(c)) map.set(c, []);
+    map.get(c).push(rr);
+  }
+
+  let html = "";
+  for (const [cat, list] of map.entries()) {
+    html += `
+      <div class="card">
+        <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
+        <div class="col" style="gap:8px">
+          ${list
+            .sort((a, b) => String(a.name || a.item_name).localeCompare(String(b.name || b.item_name)))
+            .map((rr) => {
+              const dt = formatLongDMY(datePartFromRow(rr));
+              const tm = timePartFromRow(rr);
+              const qty =
+                rr.qty != null ? Number(rr.qty) : rr.quantity != null ? Number(rr.quantity) : null;
+              const sh = rr.shift ? String(rr.shift) : "";
+              return `
+              <div style="border:1px solid var(--line);border-radius:14px;padding:10px 12px">
+                <div style="display:flex;justify-content:space-between;gap:10px">
+                  <div style="font-weight:1200">${escapeHtml(rr.name || rr.item_name)}</div>
+                  <div style="font-weight:1200">${escapeHtml(dt)}</div>
+                </div>
+                <div class="muted" style="margin-top:6px;font-weight:1000;display:flex;justify-content:space-between">
+                  <div>${tm ? `Time: ${escapeHtml(tm)}` : ""} ${sh ? `• ${escapeHtml(sh)}` : ""}</div>
+                  <div>${qty != null ? `Qty: ${qty}` : ""}</div>
+                </div>
+              </div>
+            `;
+            })
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  wrap.innerHTML = html;
+}
+
+function renderWISR() {
+  const main = $("#main");
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">WISR Count</div>
+    </div>
+    <div class="card">
+      <div style="font-weight:1200">Blank for now</div>
+      <div class="muted">You will provide the data later.</div>
+    </div>
+  `;
+  $("#btnBack").addEventListener("click", goBack);
+}
+
+function renderManagerHome() {
+  if (!state.session.isManager) {
+    openManagerLogin();
+    return;
+  }
+
+  const main = $("#main");
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Manager</div>
+    </div>
+
+    <div class="tiles-2col">
+      <button class="tile t-blue" style="animation-delay:0ms" id="tAdd" type="button">
+        <div class="emoji">➕</div>
+        <div class="title">Add Item</div>
+        <div class="sub">Create new item</div>
+      </button>
+
+      <button class="tile t-teal" style="animation-delay:45ms" id="tEdit" type="button">
+        <div class="emoji">📝</div>
+        <div class="title">Edit Items</div>
+        <div class="sub">Compact expand</div>
+      </button>
+
+      <button class="tile t-purple" style="animation-delay:90ms" id="tCats" type="button">
+        <div class="emoji">🗂️</div>
+        <div class="title">Categories</div>
+        <div class="sub">Tap tile to edit</div>
+      </button>
+
+      <button class="tile t-orange" style="animation-delay:135ms" id="tLog" type="button">
+        <div class="emoji">⬇️</div>
+        <div class="title">Download Log</div>
+        <div class="sub">CSV export</div>
+      </button>
+    </div>
+  `;
+
+  $("#btnBack").addEventListener("click", goBack);
+  $("#tAdd").addEventListener("click", () => openAddItemModal());
+  $("#tEdit").addEventListener("click", () => setView({ page: "managerEditItems" }, true));
+  $("#tCats").addEventListener("click", () => setView({ page: "managerCategories" }, true));
+  $("#tLog").addEventListener("click", () => openDownloadLogModal());
+}
+
+function openManagerLogin() {
+  openModal(
+    "Manager Login",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">PIN</div>
+          <input id="pinInp" class="input" type="password" inputmode="numeric" placeholder="Enter PIN">
+          <button id="pinBtn" class="btn btn-red" style="width:100%">Login as Manager</button>
+          <button id="pinCancel" class="btn btn-yellow" style="width:100%">Cancel</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#pinCancel").addEventListener("click", () => {
+    closeModal();
+    goBack();
+  });
+
+  $("#pinBtn").addEventListener("click", async () => {
+    const pin = String($("#pinInp").value || "").trim();
+    if (!pin) return toast("Enter PIN");
+
+    showSaving("Logging in…");
+    try {
+      const r = await apiPost("/api/manager/login", { pin, store: state.session.store });
+      state.session.isManager = true;
+      state.session.managerToken = r.token || "";
+      saveSession();
+      closeModal();
+      renderRolePill();
+      toast("Manager ✅");
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Wrong PIN");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+async function renderManagerEditItems() {
+  if (!state.session.isManager) return openManagerLogin();
+
+  const main = $("#main");
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Edit Items</div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:1200">Search</div>
+      <input id="mgrSearch" class="input" placeholder="Type item name...">
+    </div>
+
+    <div id="mgrList" class="col"></div>
+  `;
+  $("#btnBack").addEventListener("click", goBack);
+
+  const token = state.session.managerToken;
+  let items = [];
+
+  showSaving("Loading items…");
+  try {
+    items = await apiGet(`/api/manager/items?store=${encodeURIComponent(state.session.store)}`, token);
+  } catch (e) {
+    console.error(e);
+    toast("Failed loading items");
+  } finally {
+    hideSaving();
+  }
+
+  const renderList = (q) => {
+    q = String(q || "").toLowerCase().trim();
+    const filtered = q ? items.filter((x) => String(x.name).toLowerCase().includes(q)) : items;
+
+    const map = new Map();
+    for (const it of filtered) {
+      const c = it.category || "Other";
+      if (!map.has(c)) map.set(c, []);
+      map.get(c).push(it);
+    }
+
+    let html = "";
+    for (const [cat, list] of map.entries()) {
+      html += `
+        <div class="card">
+          <div style="font-weight:1200; font-size:18px; margin-bottom:10px">${escapeHtml(cat)}</div>
+          <div class="col" style="gap:10px">
+            ${list
+              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+              .map(managerItemRow)
+              .join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    const wrap = $("#mgrList");
+    wrap.innerHTML = html;
+
+    $$(".mgrRow", wrap).forEach((row) => {
+      const id = row.dataset.id;
+      const toggle = $(`[data-toggle="${cssEsc(id)}"]`, row);
+      const panel = $(`[data-panel="${cssEsc(id)}"]`, row);
+      const save = $(`[data-save="${cssEsc(id)}"]`, row);
+      const del = $(`[data-del="${cssEsc(id)}"]`, row);
+
+      toggle.addEventListener("click", () => {
+        panel.classList.toggle("hidden");
+        toggle.textContent = panel.classList.contains("hidden") ? "Edit" : "Close";
+      });
+
+      save.addEventListener("click", async () => {
+        const catSel = $(`[data-cat="${cssEsc(id)}"]`, row);
+        const subSel = $(`[data-sub="${cssEsc(id)}"]`, row);
+        const lifeInp = $(`[data-life="${cssEsc(id)}"]`, row);
+        const hourlyChk = $(`[data-hourly="${cssEsc(id)}"]`, row);
+
+        const category = String(catSel.value || "").trim();
+        const sub_category = String(subSel.value || "").trim() || null;
+        const shelf_life_days = Number(lifeInp.value || 0);
+        const is_hourly = !!hourlyChk?.checked;
+
+        showSaving("Saving…");
+        try {
+          await apiPatch(
+            `/api/manager/items/${id}`,
+            { store: state.session.store, category, sub_category, shelf_life_days, is_hourly },
+            token
+          );
+          toast("Saved ✅");
+          await loadAllForCurrentStore();
+        } catch (e) {
+          console.error(e);
+          toast("Save failed");
+        } finally {
+          hideSaving();
+        }
+      });
+
+      del.addEventListener("click", async () => {
+        if (!confirm("Delete this item?")) return;
+
+        showSaving("Deleting…");
+        try {
+          await apiDel(
+            `/api/manager/items/${id}?store=${encodeURIComponent(state.session.store)}`,
+            token
+          );
+          toast("Deleted ✅");
+          items = items.filter((x) => String(x.id) !== String(id));
+          renderList($("#mgrSearch").value);
+          await loadAllForCurrentStore();
+        } catch (e) {
+          console.error(e);
+          toast("Delete failed");
+        } finally {
+          hideSaving();
+        }
+      });
+    });
+  };
+
+  $("#mgrSearch").addEventListener("input", (e) => renderList(e.target.value));
+  renderList("");
+}
+
+function managerItemRow(it) {
+  const id = String(it.id);
+  const cats = (state.data.categories || []).map((c) => c.name);
+
+  const catOpts = cats
+    .map(
+      (c) =>
+        `<option value="${escapeHtml(c)}"${c === it.category ? " selected" : ""}>${escapeHtml(
+          c
+        )}</option>`
+    )
+    .join("");
+
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(
+      SAUCE_SUBS.map(
+        (s) =>
+          `<option value="${escapeHtml(s.name)}"${
+            normalizeSub(it.sub_category || "") === s.name ? " selected" : ""
+          }>${escapeHtml(s.name)}</option>`
+      )
+    )
+    .join("");
+
+  return `
+    <div class="mgrRow" data-id="${escapeHtml(id)}" style="border:1px solid var(--line);border-radius:16px;padding:12px">
+      <div class="row" style="justify-content:space-between">
+        <div style="font-weight:1200">${escapeHtml(it.name)}</div>
+        <button class="btn btn-ghost" data-toggle="${escapeHtml(id)}" type="button">Edit</button>
+      </div>
+      <div class="muted" style="margin-top:8px;font-weight:1000">
+        ${escapeHtml(it.category)} • ${escapeHtml(it.shelf_life_days)} day
+      </div>
+
+      <div class="hidden" data-panel="${escapeHtml(id)}" style="margin-top:12px">
+        <div class="col">
+          <div style="font-weight:1200">Category</div>
+          <select class="select" data-cat="${escapeHtml(id)}">${catOpts}</select>
+
+          <div style="font-weight:1200">Sauce Sub-category</div>
+          <select class="select" data-sub="${escapeHtml(id)}">${subOpts}</select>
+
+          <div style="font-weight:1200">Shelf life (days)</div>
+          <input class="input" type="number" min="0" data-life="${escapeHtml(id)}" value="${escapeHtml(
+    it.shelf_life_days
+  )}">
+
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
+            <input type="checkbox" data-hourly="${escapeHtml(id)}" ${it.is_hourly ? "checked" : ""}>
+            Hourly expiry (time only)
+          </label>
+
+          <div class="row">
+            <button class="btn btn-yellow" data-save="${escapeHtml(id)}" type="button" style="flex:1">Save</button>
+            <button class="btn btn-red" data-del="${escapeHtml(id)}" type="button" style="flex:1">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function renderManagerCategories() {
+  if (!state.session.isManager) return openManagerLogin();
+
+  const main = $("#main");
+  let cats = [];
+
+  showSaving("Loading categories…");
+  try {
+    cats = await apiGet(
+      `/api/manager/categories?store=${encodeURIComponent(state.session.store)}`,
+      state.session.managerToken
+    );
+  } catch (e) {
+    console.error(e);
+    toast("Failed loading categories");
+  } finally {
+    hideSaving();
+  }
+
+  const tiles = cats
+    .filter((c) => c.is_active !== false)
+    .map((c, idx) => {
+      const tone = tileToneFor(c.name);
+      return `
+        <button class="tile ${tone}" style="min-height:100px;animation-delay:${idx * 45}ms"
+          data-cid="${c.id}" data-cname="${escapeHtml(c.name)}" type="button">
+          <div class="title" style="font-size:20px">${escapeHtml(c.name)}</div>
+          <div class="sub">Tap to edit</div>
+        </button>
+      `;
+    })
+    .join("");
+
+  main.innerHTML = `
+    <div class="page-head">
+      <button id="btnBack" class="btn btn-yellow" type="button">← Back</button>
+      <div class="page-title">Categories</div>
+    </div>
+
+    <div class="tiles-2col">${tiles}</div>
+
+    <button id="addCat" class="btn btn-blue" style="width:100%">➕ Add Category</button>
+  `;
+
+  $("#btnBack").addEventListener("click", goBack);
+
+  $$(".tile", main).forEach((b) => {
+    b.addEventListener("click", () => openEditCategoryModal(b.dataset.cid, b.dataset.cname));
+  });
+
+  $("#addCat").addEventListener("click", openAddCategoryModal);
+}
+
+function openAddCategoryModal() {
+  openModal(
+    "Add Category",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Name</div>
+          <input id="catName" class="input" placeholder="Category name">
+          <div style="font-weight:1200">Sort order</div>
+          <input id="catSort" class="input" type="number" value="100">
+          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const sort_order = Number($("#catSort").value || 100);
+    if (!name) return toast("Name required");
+
+    showSaving("Saving…");
+    try {
+      await apiPost(
+        "/api/manager/categories",
+        { store: state.session.store, name, sort_order },
+        state.session.managerToken
+      );
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+function openEditCategoryModal(id, currentName) {
+  openModal(
+    "Edit Category",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Name</div>
+          <input id="catName" class="input" value="${escapeHtml(currentName)}">
+          <div style="font-weight:1200">Active</div>
+          <select id="catActive" class="select">
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+
+          <button id="catSave" class="btn btn-yellow" style="width:100%">Save</button>
+          <button id="catDelete" class="btn btn-red" style="width:100%">Delete</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#catSave").addEventListener("click", async () => {
+    const name = String($("#catName").value || "").trim();
+    const is_active = $("#catActive").value === "true";
+    if (!name) return toast("Name required");
+
+    showSaving("Saving…");
+    try {
+      await apiPatch(
+        `/api/manager/categories/${id}`,
+        { store: state.session.store, name, is_active, sort_order: 100 },
+        state.session.managerToken
+      );
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  });
+
+  $("#catDelete").addEventListener("click", async () => {
+    if (!confirm("Delete this category?")) return;
+
+    showSaving("Deleting…");
+    try {
+      await apiDel(
+        `/api/manager/categories/${id}?store=${encodeURIComponent(state.session.store)}`,
+        state.session.managerToken
+      );
+      toast("Deleted ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Delete failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+function openAddItemModal() {
+  const cats = (state.data.categories || []).map((c) => c.name);
+  const catOpts = cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+
+  const subOpts = [`<option value="">(none)</option>`]
+    .concat(SAUCE_SUBS.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`))
+    .join("");
+
+  openModal(
+    "Add Item",
+    `
+      <div class="card">
+        <div class="col">
+          <div style="font-weight:1200">Item name</div>
+          <input id="itName" class="input" placeholder="e.g. Beef Brisket">
+
+          <div style="font-weight:1200">Category</div>
+          <select id="itCat" class="select">${catOpts}</select>
+
+          <div style="font-weight:1200">Sauce Sub-category</div>
+          <select id="itSub" class="select">${subOpts}</select>
+
+          <div style="font-weight:1200">Shelf life (days)</div>
+          <input id="itLife" class="input" type="number" min="0" value="0">
+
+          <label style="display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:1200">
+            <input id="itHourly" type="checkbox">
+            Hourly expiry (time only)
+          </label>
+
+          <button id="itSave" class="btn btn-yellow" style="width:100%">Save</button>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  $("#itSave").addEventListener("click", async () => {
+    const name = String($("#itName").value || "").trim();
+    const category = String($("#itCat").value || "").trim();
+    const sub_category = String($("#itSub").value || "").trim() || null;
+    const shelf_life_days = Number($("#itLife").value || 0);
+    const is_hourly = !!$("#itHourly")?.checked;
+
+    if (!name || !category) return toast("Missing name/category");
+
+    showSaving("Saving…");
+    try {
+      await apiPost(
+        "/api/manager/items",
+        { store: state.session.store, name, category, sub_category, shelf_life_days, is_hourly },
+        state.session.managerToken
+      );
+      toast("Saved ✅");
+      closeModal();
+      await loadAllForCurrentStore();
+      render();
+    } catch (e) {
+      console.error(e);
+      toast("Save failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+function openDownloadLogModal() {
+  openModal(
+    "Download Log",
+    `
+      <div class="card">
+        <div style="font-weight:1200;font-size:18px;margin-bottom:10px">Export (CSV)</div>
+
+        <div class="muted" style="font-weight:1100;margin-bottom:12px">
+          Choose date range. Export includes AM + PM.
+        </div>
+
+        <div class="col" style="gap:10px">
+          <div style="font-weight:1200">From</div>
+          <button id="dlFromBtn" class="btn btn-yellow" style="width:100%">Pick date</button>
+          <div id="dlFromShow" class="muted" style="font-weight:1100">Not set</div>
+
+          <div style="font-weight:1200;margin-top:8px">To</div>
+          <button id="dlToBtn" class="btn btn-yellow" style="width:100%">Pick date</button>
+          <div id="dlToShow" class="muted" style="font-weight:1100">Not set</div>
+
+          <div class="row" style="gap:12px;margin-top:14px">
+            <button id="dlCancel" class="btn btn-yellow" style="flex:1">Cancel</button>
+            <button id="dlGo" class="btn" style="flex:1;background:var(--green);color:#fff;border:0">Download</button>
+          </div>
+        </div>
+      </div>
+    `,
+    { noBackdropClose: true }
+  );
+
+  const memKey = "__dl_range__";
+  if (!state[memKey]) {
+    const t = todayISO();
+    state[memKey] = { from: addDaysISO(t, -7), to: t };
+  }
+
+  const redraw = () => {
+    $("#dlFromShow").textContent = state[memKey].from ? formatLongDMY(state[memKey].from) : "Not set";
+    $("#dlToShow").textContent = state[memKey].to ? formatLongDMY(state[memKey].to) : "Not set";
+  };
+  redraw();
+
+  $("#dlFromBtn").addEventListener("click", () => {
+    openDateWheelModal({
+      title: "From date",
+      initialISO: state[memKey].from || todayISO(),
+      minISO: todayISO(), // warning threshold only
+      maxISO: "2100-12-31",
+      onPick: (iso) => {
+        state[memKey].from = iso;
+        redraw();
+      },
+    });
+  });
+
+  $("#dlToBtn").addEventListener("click", () => {
+    openDateWheelModal({
+      title: "To date",
+      initialISO: state[memKey].to || todayISO(),
+      minISO: todayISO(), // warning threshold only
+      maxISO: "2100-12-31",
+      onPick: (iso) => {
+        state[memKey].to = iso;
+        redraw();
+      },
+    });
+  });
+
+  $("#dlCancel").addEventListener("click", closeModal);
+
+  $("#dlGo").addEventListener("click", async () => {
+    const from = state[memKey].from;
+    const to = state[memKey].to;
+    if (!from || !to) return toast("Pick From + To");
+    if (from > to) return toast("From cannot be after To");
+
+    try {
+      showSaving("Preparing download…");
+      await downloadManagerLogCSV({ from, to });
+      closeModal();
+    } catch (e) {
+      console.error(e);
+      toast("Download failed");
+    } finally {
+      hideSaving();
+    }
+  });
+}
+
+async function downloadManagerLogCSV({ from, to }) {
+  const store = state.session.store; // downloads current store log
+  const token = state.session.managerToken || "";
+  if (!token) return toast("Manager login required");
+
+  const url = `/api/manager/log/export.csv?store=${encodeURIComponent(store)}&from=${encodeURIComponent(
+    from
+  )}&to=${encodeURIComponent(to)}`;
+
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(await r.text());
+
+  const blob = await r.blob();
+  const filename = `PreCheck_${store}_log_${from}_to_${to}.csv`;
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+
+  toast("Download started ✅");
+}
+
+function doLogout() {
+  state.session.store = "";
+  state.session.staff = "";
+  state.session.shift = "AM";
+  state.session.isManager = false;
+  state.session.managerToken = "";
+  state.session.sessionDayKey = dayKeyNow();
+  saveSession();
+
+  state.data.categories = [];
+  state.data.items = [];
+  state.drafts = {};
+  state.navStack = [];
+  state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
+
+  renderRolePill();
+  render();
 }
 
 /* =========================================================
-   PART 4: MANAGERS & UTILS
-   ========================================================= */
-function renderWISR() { $("#main").innerHTML=`<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><h3>WISR</h3></div><div class="card">Coming Soon</div>`; $("#btnBack").onclick=goBack; }
-function renderManagerHome() { if(!state.session.isManager){openManagerLogin();return;} $("#main").innerHTML=`<div class="page-head"><button id="btnBack" class="btn btn-yellow">← Back</button><h3>Manager</h3></div><div class="tiles-2col"><button class="tile t-blue" id="mAdd">Add Item</button><button class="tile t-teal" id="mEdit">Edit Items</button><button class="tile t-purple" id="mCats">Categories</button><button class="tile t-orange" id="mLog">Log</button></div>`; $("#btnBack").onclick=goBack; $("#mAdd").onclick=openAddItemModal; $("#mEdit").onclick=()=>setView({page:"managerEditItems"},true); $("#mCats").onclick=()=>setView({page:"managerCategories"},true); $("#mLog").onclick=openDownloadLogModal; }
-function openManagerLogin() { openModal("Login", `<div class="card"><input id="pin" class="input" type="password"><button id="go" class="btn btn-red" style="width:100%">Login</button><button id="cancel" class="btn btn-yellow" style="width:100%">Cancel</button></div>`, {noBackdropClose:true}); $("#cancel").onclick=()=>{closeModal();goBack();}; $("#go").onclick=async()=>{ try{ await apiPost("/api/manager/login",{pin:$("#pin").value,store:state.session.store}); state.session.isManager=true; saveSession(); closeModal(); renderRolePill(); toast("Manager"); render(); }catch{toast("Wrong PIN");} }; }
-// (Manager sub-pages omitted to save space, but basic structure is here. Use previous code if needed for full manager edit items logic.)
-function renderManagerEditItems() { $("#main").innerHTML="Manager Edit Items"; $("#main").onclick=goBack; }
-function renderManagerCategories() { $("#main").innerHTML="Manager Categories"; $("#main").onclick=goBack; }
-function openAddItemModal() { toast("Add Item"); }
-function openDownloadLogModal() { toast("Download Log"); }
-function doLogout() { state.session.store=""; state.session.staff=""; state.session.isManager=false; saveSession(); renderRolePill(); render(); }
+   UTILS (must be last)
+   ========================================================= */
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+function cssEsc(s) {
+  return String(s).replaceAll('"', '\\"');
+}
+function enforceArray(v) {
+  return Array.isArray(v) ? v : [];
+}
 
-/* ---------- Helpers ---------- */
-function escapeHtml(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-function cssEsc(s) { return String(s).replace(/"/g,'\\"'); }
-function enforceArray(v) { return Array.isArray(v)?v:[]; }
-function haptic(ms=12) { try{navigator.vibrate(ms);}catch{} }
-function pulseBtn(btn) { btn.classList.remove("pulse"); void btn.offsetWidth; btn.classList.add("pulse"); }
-function updateQtyUI(root, key) { const d=state.drafts[key]; $(`[data-qty="${cssEsc(key)}"]`,root).value=d.qty; }
-function hideSplashScreen() { $("#splash")?.classList.add("fade-out"); setTimeout(()=>$("#splash")?.remove(),600); }
+function haptic(ms = 12) {
+  try {
+    if (navigator && typeof navigator.vibrate === "function") {
+      navigator.vibrate(ms);
+    }
+  } catch {}
+}
+function pulseBtn(btn) {
+  if (!btn) return;
+  btn.classList.remove("pulse");
+  void btn.offsetWidth;
+  btn.classList.add("pulse");
+}
+function updateQtyUI(root, key) {
+  const d = state.drafts[key] || { qty: 0 };
+  const dec = $(`[data-dec="${cssEsc(key)}"]`, root);
+  const qty = $(`[data-qty="${cssEsc(key)}"]`, root);
+
+  const q = Math.max(0, Number(d.qty) || 0);
+  d.qty = q;
+  if (qty) qty.value = String(q);
+
+  if (dec) {
+    const disabled = q <= 0;
+    dec.disabled = disabled;
+    dec.classList.toggle("is-disabled", disabled);
+  }
+}
+
+/* ✅ MERGE: Splash Screen Helper */
+function hideSplashScreen() {
+  const el = document.getElementById("splash");
+  if (el) {
+    el.classList.add("fade-out");
+    setTimeout(() => el.remove(), 600);
+  }
+}
