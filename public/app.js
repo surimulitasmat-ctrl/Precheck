@@ -103,6 +103,7 @@ async function boot() {
   if (!state.session.store || !state.session.staff) {
     state.view = { page: "login", category: null, sauceSub: null, summaryMode: null, bucket: null };
     render();
+    setTimeout(hideSplashScreen, 300); // ✅ Hides splash screen on login page
     return;
   }
 
@@ -116,6 +117,8 @@ async function boot() {
 
   maybeShowExpiryPopup(false);
   render();
+  
+  setTimeout(hideSplashScreen, 500); // ✅ Hides splash screen after data loads
 }
 
 /* =========================================================
@@ -551,17 +554,34 @@ function maybeShowExpiryPopup(force) {
   if (!force && localStorage.getItem(seenKey) === "1") return;
   localStorage.setItem(seenKey, "1");
 
-  const list = POPUP_ITEMS.map((x) => `
-    <li><span class="popup-dot"></span>${escapeHtml(x)}</li>
+  // 1. Generate the Tags HTML (Modern Look)
+  const listHtml = POPUP_ITEMS.map((x) => `
+    <div class="popup-tag">${escapeHtml(x)}</div>
   `).join("");
 
+  // 2. Open Modal with New Design
   openModal(
-    "PLEASE check the expiry date",
+    "Double Check Required", 
     `
-      <div class="popup-title">PLEASE check the expiry date of the items below:</div>
-      <div class="popup-lead muted">Make sure expiry is correct before saving.</div>
-      <ul class="popup-list">${list}</ul>
-      <button id="popupOk" class="btn btn-yellow" style="width:100%; margin-top:8px">OK</button>
+      <div class="popup-content-center">
+        <div class="popup-icon-large">⚠️</div>
+        
+        <div style="font-weight:1200; font-size:18px; margin-bottom:6px">
+          Expiry Check
+        </div>
+        
+        <div class="muted" style="font-size:14px; line-height:1.4">
+          Please verify the expiry dates for these specific items before saving:
+        </div>
+
+        <div class="popup-tags-grid">
+          ${listHtml}
+        </div>
+
+        <button id="popupOk" class="btn btn-yellow btn-action">
+          I've Checked Them
+        </button>
+      </div>
     `,
     { noBackdropClose: true }
   );
@@ -4075,3 +4095,13 @@ function updateQtyUI(root, key) {
 /* =========================
    END PART 4B / 4
    ========================= */
+/* =========================
+   SPLASH SCREEN HELPER
+   ========================= */
+function hideSplashScreen() {
+  const el = document.getElementById("splash");
+  if (el) {
+    el.classList.add("fade-out");
+    setTimeout(() => el.remove(), 600);
+  }
+}
