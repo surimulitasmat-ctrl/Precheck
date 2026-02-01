@@ -411,3 +411,96 @@ body {
   box-shadow: 0 8px 20px rgba(255, 199, 44, 0.25); transition: transform 0.1s ease;
 }
 .btn-action:active { transform: scale(0.98); }
+/* =========================
+   FIXED POPUP STYLES (Paste at bottom of style.css)
+   ========================= */
+
+/* 1. Hide the default modal header for this specific popup */
+/* We will handle the title inside the body for better centering */
+.modal-head.hidden-header {
+  display: none;
+}
+
+/* 2. Center everything */
+.popup-content-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 4px;
+}
+
+/* 3. Big Warning Icon */
+.popup-icon-large {
+  font-size: 56px;
+  line-height: 1;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+}
+
+/* 4. Text Styling */
+.popup-title-text {
+  font-weight: 900;
+  font-size: 20px;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.popup-sub-text {
+  font-size: 15px;
+  opacity: 0.7;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+/* 5. The Tags Grid */
+.popup-tags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 24px;
+  background: #f9f9f9; /* Subtle box for items */
+  padding: 16px;
+  border-radius: 16px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* 6. The Individual Tag (Grey Bubble) */
+.popup-tag {
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.1);
+  color: #333;
+  padding: 8px 12px;
+  border-radius: 99px; /* Pill shape */
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+/* Red Dot inside Tag */
+.popup-tag::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  background: #ff5252;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+/* 7. Big Yellow Button */
+.btn-action {
+  width: 100%;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 900;
+  border-radius: 16px;
+  background: var(--yellow);
+  color: #111;
+  border: 0;
+  box-shadow: 0 4px 15px rgba(255, 199, 44, 0.4);
+}
