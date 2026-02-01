@@ -1,10 +1,9 @@
 /* =========================================================
    PreCheck — public/app.js (FULL & COMPLETE)
-   - Dark Mode: ON
-   - Role Colors: FIXED (Inline styles restored)
-   - Summary: FIXED
-   - Manager: FULL
-   - Date Picker: FULL
+   - Dark Mode: RESTORED ✅
+   - Role Colors: FIXED (Inline styles restored for safety) ✅
+   - Summary Page: RESTORED (Original logic) ✅
+   - Search/Splash/Sandwich/Popup: INCLUDED ✅
    ========================================================= */
 
 /* ---------- DOM helpers ---------- */
@@ -456,7 +455,7 @@ function bindItemEditors(items, cat) {
       const v = preSel.value;
       if (v === "MANUAL") { d.expType="MANUAL"; pickWrap.classList.remove("hidden"); }
       else { d.expType="PRESET"; d.expDateISO=v; pickWrap.classList.add("hidden"); }
-      saveDrafts(); refresh(); render();
+      saveDrafts(); refresh(); render(); // Re-render to show date text updates
     };
     
     const pickBtn = $(`[data-pickdate="${k}"]`, root);
@@ -633,7 +632,7 @@ function renderManagerHome() {
 }
 
 function openManagerLogin() {
-  openModal("Manager Login", `<div class="card"><div class="col"><input id="pin" class="input" type="password" placeholder="PIN" inputmode="numeric"><button id="go" class="btn btn-red" style="width:100%;margin-top:10px">Login</button><button id="cancel" class="btn btn-yellow" style="width:100%;margin-top:10px">Cancel</button></div></div>`, {noBackdropClose:true});
+  openModal("Manager Login", `<div class="card"><input id="pin" class="input" type="password" placeholder="PIN"><button id="go" class="btn btn-red" style="width:100%;margin-top:10px">Login</button><button id="cancel" class="btn btn-yellow" style="width:100%;margin-top:10px">Cancel</button></div>`, {noBackdropClose:true});
   $("#cancel").onclick = () => { closeModal(); goBack(); };
   $("#go").onclick = async () => {
     try { showSaving("Logging in..."); const r = await apiPost("/api/manager/login", { pin: $("#pin").value, store: state.session.store }); state.session.isManager=true; state.session.managerToken=r.token; saveSession(); closeModal(); renderRolePill(); toast("Manager ✅"); render(); }
@@ -661,7 +660,6 @@ async function renderManagerEditItems() {
   $("#mgrSearch").oninput = (e) => renderList(e.target.value.toLowerCase());
   renderList("");
   
-  // Expose delete globally for inline onclick
   window.deleteItem = async (id) => {
     if(!confirm("Delete?")) return;
     showSaving("Deleting...");
