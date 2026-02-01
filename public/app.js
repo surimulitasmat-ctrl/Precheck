@@ -554,23 +554,22 @@ function maybeShowExpiryPopup(force) {
   if (!force && localStorage.getItem(seenKey) === "1") return;
   localStorage.setItem(seenKey, "1");
 
-  // 1. Generate the Tags HTML (Modern Look)
+  // Generate Tags HTML
   const listHtml = POPUP_ITEMS.map((x) => `
     <div class="popup-tag">${escapeHtml(x)}</div>
   `).join("");
 
-  // 2. Open Modal with New Design
   openModal(
-    "Double Check Required", 
+    " ", // Empty title to let our custom HTML handle the layout cleaner
     `
       <div class="popup-content-center">
         <div class="popup-icon-large">⚠️</div>
         
-        <div style="font-weight:1200; font-size:18px; margin-bottom:6px">
-          Expiry Check
+        <div class="popup-title-text">
+          Double Check Required
         </div>
         
-        <div class="muted" style="font-size:14px; line-height:1.4">
+        <div class="popup-sub-text">
           Please verify the expiry dates for these specific items before saving:
         </div>
 
